@@ -78,6 +78,12 @@ When `STRIPE_SECRET_KEY` is defined, `bootstrap.sh` creates a webhook endpoint a
 events. The generated endpoint ID and secret are written to
 `.env.local.generated` for safe storage.
 
+After bootstrap, store the webhook signing secret in the Worker environment:
+
+```bash
+echo "$STRIPE_WEBHOOK_SECRET" | wrangler secret put STRIPE_WEBHOOK_SECRET --config workers/api/wrangler.toml
+```
+
 ## R2 Placeholder Upload
 
 To verify storage access, the script uploads a simple `welcome.txt` object to the

@@ -9,6 +9,7 @@ export interface Env {
   APP_BASE_URL?: string;
   LANDING_URL?: string;
   STRIPE_PRODUCTS?: string;
+  STRIPE_WEBHOOK_SECRET?: string;
 }
 
 const SESSION_COOKIE = "je_session";
@@ -30,6 +31,8 @@ const CONTENT_TYPE_BY_EXTENSION: Record<string, string> = {
   ico: "image/x-icon",
   pdf: "application/pdf",
 };
+
+const textEncoder = new TextEncoder();
 
 type SessionRecord = {
   stytch_session_id: string;
@@ -99,7 +102,7 @@ const Worker: ExportedHandler<Env> = {
       case "/api/stripe/products":
         return handleStripeProducts(env);
       case "/webhook/stripe":
-        return handleStripeWebhook(request);
+        return handleStripeWebhook(request, env);
       default:
         return new Response("Not Found", { status: 404 });
     }
@@ -326,10 +329,25 @@ async function handleStripeProducts(env: Env): Promise<Response> {
   }
 }
 
-async function handleStripeWebhook(request: Request): Promise<Response> {
-  const payload = await request.text();
-  console.log("Received Stripe webhook payload", payload.slice(0, 256));
-  return new Response(null, { status: 204 });
+async function handleStripeWebhook(request: Request, env: Env): Promise<Response> {
+  if (request.method !== "POST") {
+    return jsonResponse({ error: "Method Not Allowed" }, 405);
+  }
+
+  const rawBody = await request.text();
+  const isVerified = await verifyStripeSignature(request, rawBody, env);
+  if (!isVerified) {
+    return jsonResponse({ error: "Invalid or missing Stripe signature" }, 400);
+  }
+
+  try {
+    const event = JSON.parse(rawBody);
+    console.log("Stripe event received", event.type ?? "unknown", event.id ?? "");
+  } catch (error) {
+    console.warn("Stripe webhook JSON parse failed", error);
+  }
+
+  return jsonResponse({ ok: true }, 200);
 }
 
 function loginRedirect(url: URL, env: Env): Response {
@@ -827,6 +845,114 @@ async function safeJson(response: Response): Promise<unknown | null> {
   }
 }
 
+async function verifyStripeSignature(
+  request: Request,
+  payload: string,
+  env: Env,
+): Promise<boolean> {
+  const secret = env.STRIPE_WEBHOOK_SECRET;
+  if (!secret) {
+    console.warn("STRIPE_WEBHOOK_SECRET is not configured; rejecting webhook");
+    return false;
+  }
+
+  const signatureHeader = request.headers.get("stripe-signature");
+  if (!signatureHeader) {
+    return false;
+  }
+
+  let timestamp: number | null = null;
+  const signatures: string[] = [];
+  for (const part of signatureHeader.split(",")) {
+    const [key, value] = part.split("=", 2);
+    if (key === "t") {
+      const parsed = Number.parseInt(value ?? "", 10);
+      if (Number.isFinite(parsed)) {
+        timestamp = parsed;
+      }
+    } else if (key === "v1" && value) {
+      signatures.push(value);
+    }
+  }
+
+  if (!timestamp || signatures.length === 0) {
+    return false;
+  }
+
+  const now = Math.floor(Date.now() / 1000);
+  if (Math.abs(now - timestamp) > 300) {
+    return false;
+  }
+
+  const signedPayload = `${timestamp}.${payload}`;
+
+  try {
+    const key = await crypto.subtle.importKey(
+      "raw",
+      textEncoder.encode(secret),
+      { name: "HMAC", hash: "SHA-256" },
+      false,
+      ["sign"],
+    );
+    const digest = new Uint8Array(
+      await crypto.subtle.sign("HMAC", key, textEncoder.encode(signedPayload)),
+    );
+    const expectedHex = bufferToHex(digest);
+
+    for (const signature of signatures) {
+      if (timingSafeEqualHex(expectedHex, signature)) {
+        return true;
+      }
+    }
+  } catch (error) {
+    console.error("Failed to verify Stripe signature", error);
+    return false;
+  }
+
+  return false;
+}
+
+function bufferToHex(buffer: Uint8Array): string {
+  return Array.from(buffer)
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("");
+}
+
+function timingSafeEqualHex(expected: string, candidate: string): boolean {
+  if (expected.length !== candidate.length) {
+    return false;
+  }
+
+  const expectedBytes = hexToUint8Array(expected);
+  const candidateBytes = hexToUint8Array(candidate);
+  if (expectedBytes.length !== candidateBytes.length) {
+    return false;
+  }
+
+  let mismatch = 0;
+  for (let i = 0; i < expectedBytes.length; i += 1) {
+    mismatch |= expectedBytes[i] ^ candidateBytes[i];
+  }
+  return mismatch === 0;
+}
+
+function hexToUint8Array(hex: string): Uint8Array {
+  const normalised = hex.trim().toLowerCase();
+  if (normalised.length % 2 !== 0) {
+    return new Uint8Array();
+  }
+
+  const result = new Uint8Array(normalised.length / 2);
+  for (let i = 0; i < normalised.length; i += 2) {
+    const byte = Number.parseInt(normalised.slice(i, i + 2), 16);
+    if (Number.isNaN(byte)) {
+      return new Uint8Array();
+    }
+    result[i / 2] = byte;
+  }
+  return result;
+}
+
 function cors(response: Response): Response {
   const headers = new Headers(response.headers);
   headers.set("Access-Control-Allow-Origin", "*");
@@ -834,7 +960,7 @@ function cors(response: Response): Response {
     "Access-Control-Allow-Headers",
     "Content-Type, Authorization, x-session-token",
   );
-  headers.set("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
+  headers.set("Access-Control-Allow-Methods", "GET,POST,PUT,DELETE,OPTIONS");
   return new Response(response.body, {
     status: response.status,
     statusText: response.statusText,
