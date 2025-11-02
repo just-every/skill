@@ -1,0 +1,27 @@
+# Node
+node_modules/
+pnpm-lock.yaml
+package-lock.json
+yarn.lock
+.code/
+
+# Expo
+.expo/
+.expo-shared/
+
+# Build outputs
+dist/
+.wrangler/
+build/
+
+# Env files
+.env
+.env.local
+.env.development
+.env.production
+.env.local.generated
+
+# Editor
+.DS_Store
+.idea/
+*.log

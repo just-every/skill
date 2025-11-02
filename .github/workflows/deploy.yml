@@ -1,0 +1,48 @@
+name: Deploy
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    env:
+      NODE_VERSION: '18'
+      PROJECT_ID: ci-dry-run
+      LANDING_URL: https://ci-dry-run.justevery.com
+      APP_URL: https://ci-dry-run.justevery.com/app
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_R2_BUCKET: ci-dry-run-assets
+      STRIPE_PRODUCTS: Demo:1200,usd,month
+      STYTCH_PROJECT_ID: ${{ secrets.STYTCH_PROJECT_ID }}
+      STYTCH_SECRET: ${{ secrets.STYTCH_SECRET }}
+      STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm install --workspaces --include-workspace-root
+
+      - name: Typecheck worker
+        run: npm run typecheck --workspace workers/api
+
+      - name: Dry-run bootstrap
+        run: DRY_RUN=1 ./bootstrap.sh
+
+      - name: Build Expo web bundle
+        run: npm run build --workspace apps/web
+        continue-on-error: true
+
+      - name: Publish Worker
+        if: ${{ github.ref == 'refs/heads/main' && secrets.CLOUDFLARE_API_TOKEN != '' }}
+        run: npx wrangler publish --config workers/api/wrangler.toml

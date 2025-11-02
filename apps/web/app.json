@@ -1,0 +1,15 @@
+{
+  "expo": {
+    "name": "justevery-web",
+    "slug": "justevery-web",
+    "scheme": "justevery",
+    "platforms": ["web"],
+    "plugins": ["expo-router"],
+    "web": {
+      "bundler": "metro"
+    },
+    "experiments": {
+      "typedRoutes": true
+    }
+  }
+}

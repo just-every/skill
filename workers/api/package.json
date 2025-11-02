@@ -1,0 +1,17 @@
+{
+  "name": "@justevery/worker",
+  "version": "0.1.0",
+  "private": true,
+  "main": "src/index.ts",
+  "scripts": {
+    "dev": "wrangler dev --config wrangler.toml",
+    "deploy": "wrangler publish --config wrangler.toml",
+    "typecheck": "tsc --project tsconfig.json --noEmit",
+    "migrate": "node scripts/migrate.js"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20240919.0",
+    "typescript": "^5.3.3",
+    "wrangler": "^3.78.3"
+  }
+}

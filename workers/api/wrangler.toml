@@ -1,0 +1,38 @@
+# This file is templated by bootstrap.sh. Values here are safe placeholders
+# so the Worker can type-check before resources are provisioned.
+name = "placeholder-worker"
+main = "src/index.ts"
+compatibility_date = "2024-09-01"
+compatibility_flags = ["nodejs_compat"]
+send_metrics = false
+
+workers_dev = true
+
+[vars]
+APP_BASE_URL = "/app"
+LANDING_URL = "https://placeholder.justevery.com"
+STRIPE_PRODUCTS = "[]"
+
+[[kv_namespaces]]
+binding = "SESSION_KV"
+id = "00000000000000000000000000000000"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "placeholder_db"
+database_id = "00000000-0000-0000-0000-000000000000"
+
+[[r2_buckets]]
+binding = "STORAGE"
+bucket_name = "placeholder-bucket"
+
+[[routes]]
+pattern = "placeholder.justevery.com"
+custom_domain = true
+
+[[routes]]
+pattern = "placeholder.justevery.com/app"
+custom_domain = true
+
+[observability]
+enabled = false
