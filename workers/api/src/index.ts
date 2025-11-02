@@ -14,11 +14,41 @@ export interface Env {
 const SESSION_COOKIE = "je_session";
 const DEFAULT_SESSION_TTL_SECONDS = 60 * 60 * 24 * 7; // one week
 
+const CONTENT_TYPE_BY_EXTENSION: Record<string, string> = {
+  json: "application/json; charset=UTF-8",
+  txt: "text/plain; charset=UTF-8",
+  html: "text/html; charset=UTF-8",
+  css: "text/css; charset=UTF-8",
+  js: "application/javascript; charset=UTF-8",
+  mjs: "application/javascript; charset=UTF-8",
+  png: "image/png",
+  jpg: "image/jpeg",
+  jpeg: "image/jpeg",
+  gif: "image/gif",
+  svg: "image/svg+xml",
+  webp: "image/webp",
+  ico: "image/x-icon",
+  pdf: "application/pdf",
+};
+
 type SessionRecord = {
   stytch_session_id: string;
   expires_at: string;
   email?: string;
   created_at: string;
+};
+
+type UserRow = {
+  id: string;
+  email: string;
+  created_at: string;
+  updated_at: string;
+};
+
+type SessionContext = {
+  id: string;
+  record: SessionRecord;
+  user: UserRow | null;
 };
 
 type StytchSessionResponse = {
@@ -36,11 +66,18 @@ const Worker: ExportedHandler<Env> = {
     const url = new URL(request.url);
     const pathname = normalisePath(url.pathname);
 
+    // Basic CORS for API endpoints
+    if (request.method === "OPTIONS" && pathname.startsWith("/api/")) {
+      return cors(new Response(null, { status: 204 }));
+    }
+
     switch (pathname) {
       case "/":
         return htmlResponse(landingPageHtml(env));
       case "/login":
         return loginRedirect(url, env);
+      case "/logout":
+        return handleLogout(request, env);
       case "/auth/callback":
         return handleAuthCallback(request, url, env);
       case "/app":
@@ -49,6 +86,16 @@ const Worker: ExportedHandler<Env> = {
         return htmlResponse(paymentsPageHtml());
       case "/api/session":
         return handleSessionApi(request, env);
+      case "/api/me":
+        return handleMe(request, env);
+      case "/api/assets/list":
+        return handleAssetsList(request, env);
+      case "/api/assets/get":
+        return handleAssetsGet(request, env);
+      case "/api/assets/put":
+        return handleAssetsPut(request, env);
+      case "/api/assets/delete":
+        return handleAssetsDelete(request, env);
       case "/api/stripe/products":
         return handleStripeProducts(env);
       case "/webhook/stripe":
@@ -77,6 +124,197 @@ async function handleApp(request: Request, env: Env): Promise<Response> {
 async function handleSessionApi(request: Request, env: Env): Promise<Response> {
   const session = await getSession(request, env);
   return jsonResponse({ authenticated: Boolean(session), session });
+}
+
+async function handleLogout(request: Request, env: Env): Promise<Response> {
+  const sessionId = getCookie(request, SESSION_COOKIE);
+  if (sessionId) {
+    await env.SESSION_KV.delete(sessionId);
+    try {
+      await env.DB.prepare("DELETE FROM sessions WHERE id = ?1")
+        .bind(sessionId)
+        .run();
+    } catch (error) {
+      console.error("Failed to delete session in D1", error);
+    }
+  }
+
+  const response = redirectResponse(env.LANDING_URL ?? "/");
+  setCookie(response.headers, SESSION_COOKIE, "", {
+    httpOnly: true,
+    secure: true,
+    sameSite: "Lax",
+    path: "/",
+    maxAge: 0,
+  });
+  return response;
+}
+
+async function handleMe(request: Request, env: Env): Promise<Response> {
+  if (request.method !== "GET") {
+    return jsonResponse({ error: "Method Not Allowed" }, 405);
+  }
+
+  const context = await requireSession(request, env);
+  if (!context) {
+    return jsonResponse({ authenticated: false }, 401);
+  }
+
+  return jsonResponse({
+    authenticated: true,
+    session: {
+      id: context.id,
+      stytch_session_id: context.record.stytch_session_id,
+      expires_at: context.record.expires_at,
+      email: context.record.email,
+    },
+    user: context.user,
+  });
+}
+
+async function handleAssetsList(request: Request, env: Env): Promise<Response> {
+  if (request.method !== "GET") {
+    return jsonResponse({ error: "Method Not Allowed" }, 405);
+  }
+
+  if (!(await requireSession(request, env))) {
+    return jsonResponse({ error: "Unauthorized" }, 401);
+  }
+
+  const url = new URL(request.url);
+  const prefix = parseKey(url.searchParams.get("prefix"), { allowEmpty: true });
+  if (prefix === null) {
+    return jsonResponse({ error: "Invalid prefix" }, 400);
+  }
+
+  const cursor = url.searchParams.get("cursor") ?? undefined;
+  const limitParam = url.searchParams.get("limit");
+  const limitValue = limitParam ? Number.parseInt(limitParam, 10) : undefined;
+  const limit =
+    limitValue && Number.isFinite(limitValue)
+      ? Math.min(Math.max(limitValue, 1), 1000)
+      : undefined;
+
+  const list = await env.STORAGE.list({
+    prefix: prefix === "" ? undefined : prefix,
+    cursor,
+    limit,
+  });
+
+  const nextCursor = 'cursor' in list ? (list as { cursor?: string }).cursor : undefined;
+
+  return jsonResponse({
+    prefix,
+    objects: list.objects.map((object) => ({
+      key: object.key,
+      size: object.size,
+      etag: object.etag,
+      uploaded: object.uploaded ? object.uploaded.toISOString() : null,
+    })),
+    cursor: nextCursor ?? null,
+    truncated: list.truncated,
+  });
+}
+
+async function handleAssetsGet(request: Request, env: Env): Promise<Response> {
+  if (request.method !== "GET") {
+    return jsonResponse({ error: "Method Not Allowed" }, 405);
+  }
+
+  if (!(await requireSession(request, env))) {
+    return jsonResponse({ error: "Unauthorized" }, 401);
+  }
+
+  const url = new URL(request.url);
+  const key = parseKey(url.searchParams.get("key"));
+  if (!key) {
+    return jsonResponse({ error: "Missing or invalid key" }, 400);
+  }
+
+  const object = await env.STORAGE.get(key);
+  if (!object) {
+    return jsonResponse({ error: "Not Found" }, 404);
+  }
+
+  const etag = object.httpEtag ?? object.etag ?? undefined;
+  const ifNoneMatch = request.headers.get("if-none-match");
+  const cacheControl = object.httpMetadata?.cacheControl ?? "private, max-age=60";
+  const lastModified = object.uploaded ? object.uploaded.toUTCString() : undefined;
+  if (etag && ifNoneMatch === etag) {
+    const headers = new Headers({ ETag: etag, "Cache-Control": cacheControl });
+    if (lastModified) headers.set("Last-Modified", lastModified);
+    return cors(new Response(null, { status: 304, headers }));
+  }
+
+  const headers = new Headers();
+  object.writeHttpMetadata?.(headers);
+  const extension = key.split(".").pop()?.toLowerCase();
+  if (!headers.has("Content-Type")) {
+    headers.set(
+      "Content-Type",
+      extension
+        ? CONTENT_TYPE_BY_EXTENSION[extension] ?? "application/octet-stream"
+        : "application/octet-stream",
+    );
+  }
+  headers.set("Cache-Control", cacheControl);
+  if (lastModified) headers.set("Last-Modified", lastModified);
+  if (etag) headers.set("ETag", etag);
+  if (typeof object.size === "number") {
+    headers.set("Content-Length", object.size.toString());
+  }
+
+  return cors(
+    new Response(object.body, {
+      status: 200,
+      headers,
+    }),
+  );
+}
+
+async function handleAssetsPut(request: Request, env: Env): Promise<Response> {
+  if (request.method !== "PUT") {
+    return jsonResponse({ error: "Method Not Allowed" }, 405);
+  }
+
+  if (!(await requireSession(request, env))) {
+    return jsonResponse({ error: "Unauthorized" }, 401);
+  }
+
+  const url = new URL(request.url);
+  const key = parseKey(url.searchParams.get("key"));
+  if (!key) {
+    return jsonResponse({ error: "Missing or invalid key" }, 400);
+  }
+
+  const body = await request.arrayBuffer();
+  const contentType = request.headers.get("content-type") ?? undefined;
+
+  await env.STORAGE.put(key, body, {
+    httpMetadata: contentType ? { contentType } : undefined,
+  });
+
+  return jsonResponse({ ok: true, key });
+}
+
+async function handleAssetsDelete(request: Request, env: Env): Promise<Response> {
+  if (request.method !== "DELETE") {
+    return jsonResponse({ error: "Method Not Allowed" }, 405);
+  }
+
+  if (!(await requireSession(request, env))) {
+    return jsonResponse({ error: "Unauthorized" }, 401);
+  }
+
+  const url = new URL(request.url);
+  const key = parseKey(url.searchParams.get("key"));
+  if (!key) {
+    return jsonResponse({ error: "Missing or invalid key" }, 400);
+  }
+
+  await env.STORAGE.delete(key);
+
+  return jsonResponse({ ok: true, deleted: key });
 }
 
 async function handleStripeProducts(env: Env): Promise<Response> {
@@ -140,6 +378,21 @@ async function handleAuthCallback(
     expirationTtl: ttlSeconds,
   });
 
+  const email = record.email?.trim();
+  if (email) {
+    try {
+      const user = await ensureUser(env, email);
+      await createSession(env, {
+        id: sessionId,
+        user_id: user.id,
+        stytch_session_id: record.stytch_session_id,
+        expires_at: record.expires_at,
+      });
+    } catch (error) {
+      console.error("Failed to persist session in D1", error);
+    }
+  }
+
   const headers = new Headers({
     Location: env.APP_BASE_URL ?? "/app",
   });
@@ -186,6 +439,13 @@ async function getSession(
   }
   if (new Date(record.expires_at).getTime() <= Date.now()) {
     await env.SESSION_KV.delete(sessionId);
+    try {
+      await env.DB.prepare("DELETE FROM sessions WHERE id = ?1")
+        .bind(sessionId)
+        .run();
+    } catch (error) {
+      console.error("Failed to clear expired session in D1", error);
+    }
     return null;
   }
   return record;
@@ -265,10 +525,12 @@ function htmlResponse(html: string, status = 200): Response {
 }
 
 function jsonResponse(data: unknown, status = 200): Response {
-  return new Response(JSON.stringify(data), {
-    status,
-    headers: { "Content-Type": "application/json; charset=UTF-8" },
-  });
+  return cors(
+    new Response(JSON.stringify(data), {
+      status,
+      headers: { "Content-Type": "application/json; charset=UTF-8" },
+    }),
+  );
 }
 
 function redirectResponse(location: string, status = 302): Response {
@@ -402,6 +664,133 @@ function errorPageHtml(message: string): string {
 </html>`;
 }
 
+async function ensureUser(env: Env, email: string): Promise<UserRow> {
+  const normalisedEmail = email.trim().toLowerCase();
+  if (!normalisedEmail) {
+    throw new Error("Email is required to ensure user");
+  }
+
+  const existing = await env.DB.prepare(
+    "SELECT id, email, created_at, updated_at FROM users WHERE email = ?1 LIMIT 1",
+  )
+    .bind(normalisedEmail)
+    .first<UserRow>();
+
+  if (existing) {
+    return existing;
+  }
+
+  const id = crypto.randomUUID();
+  await env.DB.prepare(
+    `INSERT INTO users (id, email, created_at, updated_at)
+     VALUES (?1, ?2, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+  )
+    .bind(id, normalisedEmail)
+    .run();
+
+  const created = await env.DB.prepare(
+    "SELECT id, email, created_at, updated_at FROM users WHERE id = ?1 LIMIT 1",
+  )
+    .bind(id)
+    .first<UserRow>();
+
+  if (!created) {
+    throw new Error("Failed to create user");
+  }
+
+  return created;
+}
+
+async function createSession(
+  env: Env,
+  session: {
+    id: string;
+    user_id: string;
+    stytch_session_id: string;
+    expires_at: string;
+  },
+): Promise<void> {
+  await env.DB.prepare(
+    `INSERT INTO sessions (id, user_id, stytch_session_id, expires_at)
+     VALUES (?1, ?2, ?3, ?4)
+     ON CONFLICT(id) DO UPDATE
+     SET user_id = excluded.user_id,
+         stytch_session_id = excluded.stytch_session_id,
+         expires_at = excluded.expires_at`,
+  )
+    .bind(session.id, session.user_id, session.stytch_session_id, session.expires_at)
+    .run();
+}
+
+async function requireSession(
+  request: Request,
+  env: Env,
+): Promise<SessionContext | null> {
+  const sessionId = getCookie(request, SESSION_COOKIE);
+  if (!sessionId) {
+    return null;
+  }
+
+  const record = await env.SESSION_KV.get<SessionRecord>(sessionId, "json");
+  if (!record) {
+    return null;
+  }
+
+  if (new Date(record.expires_at).getTime() <= Date.now()) {
+    await env.SESSION_KV.delete(sessionId);
+    try {
+      await env.DB.prepare("DELETE FROM sessions WHERE id = ?1")
+        .bind(sessionId)
+        .run();
+    } catch (error) {
+      console.error("Failed to clear expired session in D1", error);
+    }
+    return null;
+  }
+
+  try {
+    const user = await env.DB.prepare(
+      `SELECT u.id, u.email, u.created_at, u.updated_at
+         FROM sessions s
+         JOIN users u ON u.id = s.user_id
+        WHERE s.id = ?1 AND s.expires_at > CURRENT_TIMESTAMP
+        LIMIT 1`,
+    )
+      .bind(sessionId)
+      .first<UserRow>();
+
+    return { id: sessionId, record, user: user ?? null };
+  } catch (error) {
+    console.error("Failed to load session context", error);
+    return { id: sessionId, record, user: null };
+  }
+}
+
+function parseKey(
+  raw: string | null,
+  options: { allowEmpty?: boolean } = {},
+): string | null {
+  if (raw === null || raw === undefined) {
+    return options.allowEmpty ? "" : null;
+  }
+
+  const trimmed = raw.trim();
+  if (!trimmed) {
+    return options.allowEmpty ? "" : null;
+  }
+
+  const normalised = trimmed.replace(/^\/+/, "").replace(/\/{2,}/g, "/");
+  if (!normalised) {
+    return options.allowEmpty ? "" : null;
+  }
+
+  if (normalised.includes("..") || normalised.includes("\\") || normalised.includes("\0")) {
+    return null;
+  }
+
+  return normalised;
+}
+
 function parseStripeProducts(raw: string | undefined): unknown[] {
   if (!raw) {
     return [];
@@ -436,4 +825,19 @@ async function safeJson(response: Response): Promise<unknown | null> {
     console.warn("Unable to parse JSON", error);
     return null;
   }
+}
+
+function cors(response: Response): Response {
+  const headers = new Headers(response.headers);
+  headers.set("Access-Control-Allow-Origin", "*");
+  headers.set(
+    "Access-Control-Allow-Headers",
+    "Content-Type, Authorization, x-session-token",
+  );
+  headers.set("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
+  return new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  });
 }

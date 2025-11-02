@@ -252,6 +252,89 @@ provision_stripe_products() {
   STRIPE_PRODUCT_IDS="$ids"
 }
 
+run_migrations() {
+  if [[ "$DRY_RUN" == "1" ]]; then
+    log_info "[dry-run] node workers/api/scripts/migrate.js"
+    return
+  fi
+  log_info "Running D1 migrations"
+  (cd "$ROOT_DIR/workers/api" && D1_DATABASE="${D1_DATABASE_NAME:-$PROJECT_ID-d1}" node scripts/migrate.js)
+}
+
+seed_project() {
+  local project_slug="$PROJECT_ID"
+  local landing_url="${LANDING_URL:-}"
+  local app_url="${APP_URL:-}"
+  local escaped_landing
+  local escaped_app
+  escaped_landing=$(printf "%s" "$landing_url" | sed "s/'/''/g")
+  escaped_app=$(printf "%s" "$app_url" | sed "s/'/''/g")
+  local sql
+  read -r -d '' sql <<SQL || true
+INSERT INTO projects (id, slug, landing_url, app_url, created_at)
+VALUES ('${PROJECT_ID}', '${project_slug}', '${escaped_landing}', '${escaped_app}', CURRENT_TIMESTAMP)
+ON CONFLICT(id) DO UPDATE SET slug=excluded.slug, landing_url=excluded.landing_url, app_url=excluded.app_url;
+SQL
+  if [[ "$DRY_RUN" == "1" ]]; then
+    log_info "[dry-run] wrangler d1 execute ${D1_DATABASE_NAME:-$PROJECT_ID-d1} --command \"$sql\""
+    return
+  fi
+  log_info "Seeding default project row"
+  wrangler d1 execute "${D1_DATABASE_NAME:-$PROJECT_ID-d1}" --command "$sql" >/dev/null
+}
+
+ensure_stripe_webhook() {
+  if [[ -z "${STRIPE_SECRET_KEY:-}" ]]; then
+    log_warn "STRIPE_SECRET_KEY not set; skipping Stripe webhook provisioning"
+    return
+  fi
+  if [[ -n "${STRIPE_WEBHOOK_ENDPOINT_ID:-}" ]]; then
+    log_info "Stripe webhook endpoint already tracked (${STRIPE_WEBHOOK_ENDPOINT_ID}); skipping"
+    return
+  fi
+
+  local target_url
+  target_url="${LANDING_URL%/}/webhook/stripe"
+  if [[ "$DRY_RUN" == "1" ]]; then
+    STRIPE_WEBHOOK_ENDPOINT_ID="dry-run-webhook"
+    STRIPE_WEBHOOK_SECRET="whsec_dry_run"
+    log_info "[dry-run] Would create Stripe webhook at $target_url"
+    return
+  fi
+
+  log_info "Creating Stripe webhook endpoint"
+  local response
+  response=$(curl -sS -X POST https://api.stripe.com/v1/webhook_endpoints \
+    -u "$STRIPE_SECRET_KEY:" \
+    -d url="$target_url" \
+    -d enabled_events[]="checkout.session.completed" \
+    -d enabled_events[]="customer.subscription.created" \
+    -d enabled_events[]="customer.subscription.updated" \
+    -d enabled_events[]="invoice.payment_succeeded" \
+    -d enabled_events[]="invoice.payment_failed")
+  STRIPE_WEBHOOK_ENDPOINT_ID=$(jq -r '.id // empty' <<<"$response")
+  STRIPE_WEBHOOK_SECRET=$(jq -r '.secret // empty' <<<"$response")
+  if [[ -z "$STRIPE_WEBHOOK_ENDPOINT_ID" ]]; then
+    log_warn "Failed to create Stripe webhook endpoint: $response"
+  else
+    log_info "Stripe webhook endpoint created: $STRIPE_WEBHOOK_ENDPOINT_ID"
+  fi
+}
+
+upload_r2_placeholder() {
+  local object_key="welcome.txt"
+  if [[ "$DRY_RUN" == "1" ]]; then
+    log_info "[dry-run] wrangler r2 object put ${R2_BUCKET_NAME:-$PROJECT_ID-assets}/$object_key"
+    return
+  fi
+  log_info "Uploading placeholder asset to R2"
+  local tmp_file
+  tmp_file=$(mktemp)
+  printf 'Welcome to %s!\n' "$PROJECT_ID" >"$tmp_file"
+  wrangler r2 object put "${R2_BUCKET_NAME:-$PROJECT_ID-assets}/$object_key" --file "$tmp_file"
+  rm -f "$tmp_file"
+}
+
 write_generated_env() {
   log_info "Writing $GENERATED_ENV_FILE"
   {
@@ -265,6 +348,8 @@ write_generated_env() {
     printf 'R2_BUCKET_NAME=%s\n' "${R2_BUCKET_NAME:-}"
     printf 'KV_NAMESPACE_ID=%s\n' "${KV_NAMESPACE_ID:-}"
     printf 'STRIPE_PRODUCT_IDS=%s\n' "${STRIPE_PRODUCT_IDS:-[]}"
+    printf 'STRIPE_WEBHOOK_ENDPOINT_ID=%s\n' "${STRIPE_WEBHOOK_ENDPOINT_ID:-}"
+    printf 'STRIPE_WEBHOOK_SECRET=%s\n' "${STRIPE_WEBHOOK_SECRET:-}"
   } >"$GENERATED_ENV_FILE"
 }
 
@@ -275,6 +360,7 @@ main() {
   require_command jq
   require_command curl
   require_command sed
+  require_command node
 
   load_env_file "/home/azureuser/.env"
   load_env_file "$ROOT_DIR/.env"
@@ -282,13 +368,19 @@ main() {
   ensure_var PROJECT_ID
   ensure_var CLOUDFLARE_ACCOUNT_ID
   ensure_var CLOUDFLARE_API_TOKEN
+  ensure_var LANDING_URL
+  ensure_var APP_URL
 
   ensure_cloudflare_auth
   ensure_d1
   ensure_r2
   ensure_kv
   update_wrangler_config
+  run_migrations
+  seed_project
   provision_stripe_products
+  ensure_stripe_webhook
+  upload_r2_placeholder
   write_generated_env
 
   log_info "Bootstrap complete"

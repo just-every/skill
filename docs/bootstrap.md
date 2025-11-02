@@ -36,13 +36,17 @@ DRY_RUN=1 ./bootstrap.sh
 
 Key tasks performed:
 
-1. Ensures the `wrangler`, `jq`, `curl`, and `sed` commands are available.
+1. Ensures the `wrangler`, `jq`, `curl`, `sed`, and `node` commands are available.
 2. Loads environment variables from `/home/azureuser/.env` followed by `./.env`.
-3. Verifies mandatory configuration values.
+3. Verifies mandatory configuration values (including `LANDING_URL` and `APP_URL`).
 4. Creates or reuses Cloudflare D1, R2, and KV resources, matching names to `PROJECT_ID`.
 5. Updates `workers/api/wrangler.toml` from the template, storing a backup copy.
-6. Optionally provisions Stripe products + prices based on `STRIPE_PRODUCTS`.
-7. Writes `.env.local.generated` containing resolved resource identifiers for future reference.
+6. Runs database migrations via `node workers/api/scripts/migrate.js`.
+7. Seeds the `projects` table with the default project row.
+8. Optionally provisions Stripe products + prices based on `STRIPE_PRODUCTS`.
+9. Optionally creates a Stripe webhook endpoint pointing at `${LANDING_URL}/webhook/stripe`.
+10. Uploads a placeholder `welcome.txt` asset into the configured R2 bucket.
+11. Writes `.env.local.generated` containing resolved resource identifiers and Stripe webhook secrets.
 
 ## Stripe Product Notation
 
@@ -60,6 +64,25 @@ Founders:2500,usd,month;Scale:4900,usd,quarter
 
 When present, `bootstrap.sh` creates both the Product and a recurring Price per
 entry, tagging generated IDs inside `.env.local.generated`.
+
+## Database Migrations and Seeding
+
+After templating Wrangler config, the script runs all SQL migrations in
+`workers/api/migrations` and inserts (or updates) the default project row so the
+Worker has baseline metadata available immediately.
+
+## Stripe Webhook Setup
+
+When `STRIPE_SECRET_KEY` is defined, `bootstrap.sh` creates a webhook endpoint at
+`${LANDING_URL}/webhook/stripe` listening to checkout, subscription, and invoice
+events. The generated endpoint ID and secret are written to
+`.env.local.generated` for safe storage.
+
+## R2 Placeholder Upload
+
+To verify storage access, the script uploads a simple `welcome.txt` object to the
+configured R2 bucket. You can delete or replace this file once real assets are in
+place.
 
 ## Troubleshooting
 
