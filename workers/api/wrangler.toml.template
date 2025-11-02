@@ -6,10 +6,30 @@ send_metrics = false
 
 workers_dev = true
 
+# This file is rendered by bootstrap.sh. Values wrapped in {{ }} are replaced with either
+# explicit .env inputs or generated identifiers recorded in .env.local.generated.
 [vars]
-APP_BASE_URL = "{{APP_URL}}"
+# --- Stytch SSO ---
+STYTCH_PROJECT_ID = "{{STYTCH_PROJECT_ID}}" # from .env / bootstrap secret sync
+STYTCH_SECRET = "{{STYTCH_SECRET}}"         # use `wrangler secret put` in production
+STYTCH_PUBLIC_TOKEN = "{{STYTCH_PUBLIC_TOKEN}}"
+STYTCH_LOGIN_URL = "{{STYTCH_LOGIN_URL}}"
+STYTCH_REDIRECT_URL = "{{STYTCH_REDIRECT_URL}}"
+STYTCH_SSO_CONNECTION_ID = "{{STYTCH_SSO_CONNECTION_ID}}"
+STYTCH_ORGANIZATION_SLUG = "{{STYTCH_ORGANIZATION_SLUG}}"
+STYTCH_ORGANIZATION_ID = "{{STYTCH_ORGANIZATION_ID}}"
+STYTCH_SSO_DOMAIN = "{{STYTCH_SSO_DOMAIN}}"
+
+# --- Application URLs ---
 LANDING_URL = "{{LANDING_URL}}"
-STRIPE_PRODUCTS = "[]"
+APP_BASE_URL = "{{APP_BASE_URL}}"
+
+# --- Stripe ---
+STRIPE_PRODUCTS = "{{STRIPE_PRODUCTS}}"
+STRIPE_WEBHOOK_SECRET = "{{STRIPE_WEBHOOK_SECRET}}"
+
+# --- Cloudflare metadata ---
+CLOUDFLARE_ZONE_ID = "{{CLOUDFLARE_ZONE_ID}}"
 
 [[kv_namespaces]]
 binding = "SESSION_KV"
@@ -26,10 +46,6 @@ bucket_name = "{{R2_BUCKET_NAME}}"
 
 [[routes]]
 pattern = "{{PROJECT_ID}}.justevery.com"
-custom_domain = true
-
-[[routes]]
-pattern = "{{PROJECT_ID}}.justevery.com/app"
 custom_domain = true
 
 [observability]

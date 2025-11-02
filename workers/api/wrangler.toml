@@ -1,6 +1,4 @@
-# This file is templated by bootstrap.sh. Values here are safe placeholders
-# so the Worker can type-check before resources are provisioned.
-name = "placeholder-worker"
+name = "demo-worker"
 main = "src/index.ts"
 compatibility_date = "2024-09-01"
 compatibility_flags = ["nodejs_compat"]
@@ -8,30 +6,46 @@ send_metrics = false
 
 workers_dev = true
 
+# This file is rendered by bootstrap.sh. Values wrapped in {{ }} are replaced with either
+# explicit .env inputs or generated identifiers recorded in .env.local.generated.
 [vars]
+# --- Stytch SSO ---
+STYTCH_PROJECT_ID = "project-live-a0f6c1d3-80dd-44bf-96b7-e2dfecb07a97" # from .env / bootstrap secret sync
+STYTCH_SECRET = "secret-live-CdKySqcGFA4zWdKpdUckj0LLlPYviyXIAos="         # use `wrangler secret put` in production
+STYTCH_PUBLIC_TOKEN = "public-token-live-e0b1d050-45ea-4a2c-9994-6816dacfae0a"
+STYTCH_LOGIN_URL = "https://login.justevery.com"
+STYTCH_REDIRECT_URL = "https://demo.justevery.com/auth/callback"
+STYTCH_SSO_CONNECTION_ID = "connected-app-live-b38eb3b1-d9b4-4cf5-9e39-21b16cd7b872"
+STYTCH_ORGANIZATION_SLUG = ""
+STYTCH_ORGANIZATION_ID = ""
+STYTCH_SSO_DOMAIN = ""
+
+# --- Application URLs ---
+LANDING_URL = "https://demo.justevery.com"
 APP_BASE_URL = "/app"
-LANDING_URL = "https://placeholder.justevery.com"
+
+# --- Stripe ---
 STRIPE_PRODUCTS = "[]"
+STRIPE_WEBHOOK_SECRET = ""
+
+# --- Cloudflare metadata ---
+CLOUDFLARE_ZONE_ID = "723318de8bc1f3353196efc02c4a09ed"
 
 [[kv_namespaces]]
 binding = "SESSION_KV"
-id = "00000000000000000000000000000000"
+id = "dry-run-demo-sessions"
 
 [[d1_databases]]
 binding = "DB"
-database_name = "placeholder_db"
-database_id = "00000000-0000-0000-0000-000000000000"
+database_name = "demo_db"
+database_id = "dry-run-demo_db"
 
 [[r2_buckets]]
 binding = "STORAGE"
-bucket_name = "placeholder-bucket"
+bucket_name = "demo-assets"
 
 [[routes]]
-pattern = "placeholder.justevery.com"
-custom_domain = true
-
-[[routes]]
-pattern = "placeholder.justevery.com/app"
+pattern = "demo.justevery.com"
 custom_domain = true
 
 [observability]

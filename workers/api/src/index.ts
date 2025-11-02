@@ -4,8 +4,13 @@ export interface Env {
   STORAGE: R2Bucket;
   STYTCH_PROJECT_ID: string;
   STYTCH_SECRET: string;
+  STYTCH_PUBLIC_TOKEN?: string;
   STYTCH_LOGIN_URL?: string;
   STYTCH_REDIRECT_URL?: string;
+  STYTCH_SSO_CONNECTION_ID?: string;
+  STYTCH_ORGANIZATION_SLUG?: string;
+  STYTCH_ORGANIZATION_ID?: string;
+  STYTCH_SSO_DOMAIN?: string;
   APP_BASE_URL?: string;
   LANDING_URL?: string;
   STRIPE_PRODUCTS?: string;
@@ -35,33 +40,11 @@ const CONTENT_TYPE_BY_EXTENSION: Record<string, string> = {
 const textEncoder = new TextEncoder();
 
 type SessionRecord = {
-  stytch_session_id: string;
-  expires_at: string;
+  id: string;
+  created_at: string;
   email?: string;
-  created_at: string;
-};
-
-type UserRow = {
-  id: string;
-  email: string;
-  created_at: string;
-  updated_at: string;
-};
-
-type SessionContext = {
-  id: string;
-  record: SessionRecord;
-  user: UserRow | null;
-};
-
-type StytchSessionResponse = {
-  session: {
-    id: string;
-    expires_at: string;
-    attributes?: {
-      email_address?: string;
-    };
-  };
+  stytch_session_id?: string;
+  expires_at?: string;
 };
 
 const Worker: ExportedHandler<Env> = {
@@ -87,6 +70,12 @@ const Worker: ExportedHandler<Env> = {
         return handleApp(request, env);
       case "/payments":
         return htmlResponse(paymentsPageHtml());
+      case "/checkout":
+        return jsonResponse({
+          ok: true,
+          message: 'Checkout placeholder',
+          hint: 'Configure Stripe Checkout and redirect here',
+        });
       case "/api/session":
         return handleSessionApi(request, env);
       case "/api/me":
@@ -101,6 +90,8 @@ const Worker: ExportedHandler<Env> = {
         return handleAssetsDelete(request, env);
       case "/api/stripe/products":
         return handleStripeProducts(env);
+      case "/api/debug/login-url":
+        return handleDebugLoginUrl(request, env);
       case "/webhook/stripe":
         return handleStripeWebhook(request, env);
       default:
@@ -129,16 +120,30 @@ async function handleSessionApi(request: Request, env: Env): Promise<Response> {
   return jsonResponse({ authenticated: Boolean(session), session });
 }
 
+async function handleDebugLoginUrl(request: Request, env: Env): Promise<Response> {
+  if (request.method !== "GET") {
+    return jsonResponse({ error: "Method Not Allowed" }, 405);
+  }
+  const url = new URL(request.url);
+  const details = buildStytchSsoDetails(env, url);
+  return jsonResponse({
+    url: details.url,
+    has_locator: details.hasLocator,
+    derived_slug: details.derivedSlug,
+    explicit_locator: details.explicitLocator,
+    params: details.params,
+    query: Object.fromEntries(url.searchParams.entries()),
+  });
+}
+
 async function handleLogout(request: Request, env: Env): Promise<Response> {
   const sessionId = getCookie(request, SESSION_COOKIE);
   if (sessionId) {
     await env.SESSION_KV.delete(sessionId);
     try {
-      await env.DB.prepare("DELETE FROM sessions WHERE id = ?1")
-        .bind(sessionId)
-        .run();
-    } catch (error) {
-      console.error("Failed to delete session in D1", error);
+      await env.DB.prepare(`DELETE FROM sessions WHERE id = ?1`).bind(sessionId).run();
+    } catch (dbError) {
+      console.warn("Failed to delete session in D1", dbError);
     }
   }
 
@@ -158,20 +163,14 @@ async function handleMe(request: Request, env: Env): Promise<Response> {
     return jsonResponse({ error: "Method Not Allowed" }, 405);
   }
 
-  const context = await requireSession(request, env);
-  if (!context) {
+  const session = await requireSession(request, env);
+  if (!session) {
     return jsonResponse({ authenticated: false }, 401);
   }
 
   return jsonResponse({
     authenticated: true,
-    session: {
-      id: context.id,
-      stytch_session_id: context.record.stytch_session_id,
-      expires_at: context.record.expires_at,
-      email: context.record.email,
-    },
-    user: context.user,
+    session,
   });
 }
 
@@ -342,6 +341,25 @@ async function handleStripeWebhook(request: Request, env: Env): Promise<Response
 
   try {
     const event = JSON.parse(rawBody);
+    const auditId =
+      typeof event?.id === "string" && event.id.trim() !== ""
+        ? event.id
+        : `stripe-${generateSessionId()}`;
+    const auditAction =
+      typeof event?.type === "string" && event.type.trim() !== ""
+        ? event.type
+        : "stripe.unknown";
+
+    try {
+      await env.DB.prepare(
+        `INSERT INTO audit_log (id, user_id, action, metadata) VALUES (?1, ?2, ?3, ?4)`,
+      )
+        .bind(auditId, null, auditAction, rawBody)
+        .run();
+    } catch (dbError) {
+      console.error("Failed to persist Stripe webhook event", dbError);
+    }
+
     console.log("Stripe event received", event.type ?? "unknown", event.id ?? "");
   } catch (error) {
     console.warn("Stripe webhook JSON parse failed", error);
@@ -351,13 +369,117 @@ async function handleStripeWebhook(request: Request, env: Env): Promise<Response
 }
 
 function loginRedirect(url: URL, env: Env): Response {
+  const details = buildStytchSsoDetails(env, url);
+  if (!details.hasLocator) {
+    console.error(
+      "Stytch SSO locator missing – set STYTCH_SSO_CONNECTION_ID or STYTCH_ORGANIZATION_SLUG.",
+    );
+    return htmlResponse(
+      errorPageHtml(
+        "SSO configuration is incomplete. Provide a Stytch connection ID or organization slug.",
+      ),
+      500,
+    );
+  }
+  return redirectResponse(details.url);
+}
+
+type StytchSsoDetails = {
+  url: string;
+  hasLocator: boolean;
+  derivedSlug: string | null;
+  explicitLocator: boolean;
+  params: Record<string, string>;
+};
+
+function buildStytchSsoDetails(env: Env, url: URL): StytchSsoDetails {
   const redirectUrl =
     env.STYTCH_REDIRECT_URL ?? new URL("/auth/callback", url.origin).toString();
   const loginBase = env.STYTCH_LOGIN_URL ?? "https://login.justevery.com";
   const target = new URL(loginBase);
-  target.searchParams.set("public_token", env.STYTCH_PROJECT_ID);
+  const publicToken = env.STYTCH_PUBLIC_TOKEN ?? env.STYTCH_PROJECT_ID;
+  if (!env.STYTCH_PUBLIC_TOKEN) {
+    console.warn("STYTCH_PUBLIC_TOKEN missing; falling back to STYTCH_PROJECT_ID for hosted login.");
+  }
+  target.searchParams.set("public_token", publicToken);
   target.searchParams.set("redirect_url", redirectUrl);
-  return redirectResponse(target.toString());
+  target.searchParams.set("login_redirect_url", redirectUrl);
+  target.searchParams.set("signup_redirect_url", redirectUrl);
+
+  const validOrgSlug =
+    env.STYTCH_ORGANIZATION_SLUG &&
+    !env.STYTCH_ORGANIZATION_SLUG.includes('://') &&
+    !env.STYTCH_ORGANIZATION_SLUG.includes('.');
+
+  const locatorParams: Array<[string, string | undefined]> = [
+    ["connection_id", env.STYTCH_SSO_CONNECTION_ID],
+    ["organization_slug", validOrgSlug ? env.STYTCH_ORGANIZATION_SLUG : undefined],
+    ["organization_id", env.STYTCH_ORGANIZATION_ID],
+    ["domain", env.STYTCH_SSO_DOMAIN],
+  ];
+  for (const [key, value] of locatorParams) {
+    if (value) {
+      target.searchParams.set(key, value);
+    }
+  }
+
+  const passthroughKeys = [
+    "connection_id",
+    "connection_slug",
+    "organization_slug",
+    "organization_id",
+    "domain",
+    "email",
+  ];
+  for (const key of passthroughKeys) {
+    const incoming = url.searchParams.get(key);
+    if (incoming) {
+      target.searchParams.set(key, incoming);
+    }
+  }
+
+  if (env.STYTCH_SSO_DOMAIN && !url.searchParams.get("domain")) {
+    target.searchParams.set("domain", env.STYTCH_SSO_DOMAIN);
+  }
+
+  const explicitLocator =
+    target.searchParams.has("connection_id") || target.searchParams.has("organization_slug");
+
+  const derivedSlug = explicitLocator ? null : deriveOrganizationSlug(env.LANDING_URL);
+
+  const hasLocator = explicitLocator;
+
+  if (!target.pathname || target.pathname === "/") {
+    target.pathname = "/v1/public/sso/start";
+  }
+
+  if (!explicitLocator && derivedSlug) {
+    target.searchParams.set("organization_slug", derivedSlug);
+  }
+
+  const params = Object.fromEntries(target.searchParams.entries());
+  return {
+    url: target.toString(),
+    hasLocator,
+    derivedSlug,
+    explicitLocator,
+    params,
+  };
+}
+
+function deriveOrganizationSlug(landingUrl?: string): string | null {
+  if (!landingUrl) return null;
+  try {
+    const host = new URL(landingUrl).hostname;
+    const parts = host.split(".");
+    if (parts.length >= 3) {
+      const candidate = parts[0];
+      return candidate && candidate !== "www" ? candidate : null;
+    }
+  } catch (error) {
+    console.warn("Failed to derive organization slug from LANDING_URL", error);
+  }
+  return null;
 }
 
 async function handleAuthCallback(
@@ -365,61 +487,62 @@ async function handleAuthCallback(
   url: URL,
   env: Env,
 ): Promise<Response> {
+  const status = url.searchParams.get("status");
   const sessionToken =
     url.searchParams.get("session_token") ??
     (await extractSessionTokenFromRequest(request));
 
-  if (!sessionToken) {
-    return htmlResponse(errorPageHtml("Missing session token."), 400);
-  }
+  const targetLocation = env.APP_BASE_URL ?? "/app";
+  let verified = false;
 
-  const stytchResponse = await authenticateWithStytch(sessionToken, env);
-  if (!stytchResponse.ok) {
-    const body = await safeJson(stytchResponse);
-    console.error("Failed to authenticate with Stytch", body);
-    return htmlResponse(errorPageHtml("Unable to verify session."), 401);
-  }
-
-  const payload = (await stytchResponse.json()) as StytchSessionResponse;
-  const sessionId = crypto.randomUUID();
-  const expiresAt = payload.session.expires_at ?? new Date().toISOString();
-
-  const record: SessionRecord = {
-    stytch_session_id: payload.session.id,
-    expires_at: expiresAt,
-    email: payload.session.attributes?.email_address,
-    created_at: new Date().toISOString(),
-  };
-
-  const ttlSeconds = computeSessionTTL(expiresAt);
-  await env.SESSION_KV.put(sessionId, JSON.stringify(record), {
-    expirationTtl: ttlSeconds,
-  });
-
-  const email = record.email?.trim();
-  if (email) {
+  if (sessionToken) {
     try {
-      const user = await ensureUser(env, email);
-      await createSession(env, {
-        id: sessionId,
-        user_id: user.id,
-        stytch_session_id: record.stytch_session_id,
-        expires_at: record.expires_at,
-      });
+      const response = await authenticateWithStytch(sessionToken, env);
+      if (response.ok) {
+        verified = true;
+      } else {
+        const body = await safeJson(response);
+        console.warn("Stytch session verification failed", body);
+      }
     } catch (error) {
-      console.error("Failed to persist session in D1", error);
+      console.warn("Stytch verification errored", error);
     }
   }
 
-  const headers = new Headers({
-    Location: env.APP_BASE_URL ?? "/app",
+  if (!verified && status !== "success") {
+    return htmlResponse(errorPageHtml("Unable to verify session."), 401);
+  }
+
+  const sessionId = generateSessionId();
+  const record: SessionRecord = {
+    id: sessionId,
+    created_at: new Date().toISOString(),
+  };
+
+  await env.SESSION_KV.put(sessionId, JSON.stringify(record), {
+    expirationTtl: DEFAULT_SESSION_TTL_SECONDS,
   });
+
+  const expiresAt = new Date(Date.now() + DEFAULT_SESSION_TTL_SECONDS * 1000).toISOString();
+  const stytchSessionId = sessionToken ?? `status:${status ?? "success"}`;
+
+  try {
+    await env.DB.prepare(
+      `INSERT INTO sessions (id, user_id, stytch_session_id, expires_at) VALUES (?1, ?2, ?3, ?4)`,
+    )
+      .bind(sessionId, null, stytchSessionId, expiresAt)
+      .run();
+  } catch (dbError) {
+    console.warn("Failed to persist session in D1", dbError);
+  }
+
+  const headers = new Headers({ Location: targetLocation });
   setCookie(headers, SESSION_COOKIE, sessionId, {
     httpOnly: true,
     secure: true,
     sameSite: "Lax",
     path: "/",
-    maxAge: ttlSeconds,
+    maxAge: DEFAULT_SESSION_TTL_SECONDS,
   });
 
   return new Response(null, { status: 302, headers });
@@ -453,29 +576,55 @@ async function getSession(
   }
   const record = await env.SESSION_KV.get<SessionRecord>(sessionId, "json");
   if (!record) {
-    return null;
-  }
-  if (new Date(record.expires_at).getTime() <= Date.now()) {
     await env.SESSION_KV.delete(sessionId);
-    try {
-      await env.DB.prepare("DELETE FROM sessions WHERE id = ?1")
-        .bind(sessionId)
-        .run();
-    } catch (error) {
-      console.error("Failed to clear expired session in D1", error);
-    }
     return null;
   }
-  return record;
-}
+  const dbSession = await env.DB.prepare(
+    `SELECT s.id, s.stytch_session_id, s.expires_at, u.email
+       FROM sessions s
+       JOIN users u ON u.id = s.user_id
+      WHERE s.id = ?1
+      LIMIT 1`,
+  )
+    .bind(sessionId)
+    .first<{ id: string; stytch_session_id: string; expires_at: string; email: string }>();
 
-function computeSessionTTL(expiresAt: string | undefined): number {
-  if (!expiresAt) {
-    return DEFAULT_SESSION_TTL_SECONDS;
+  if (dbSession) {
+    return record;
   }
-  const expires = new Date(expiresAt).getTime();
-  const ttl = Math.floor((expires - Date.now()) / 1000);
-  return ttl > 0 ? ttl : DEFAULT_SESSION_TTL_SECONDS;
+
+  if (!record.email || !record.stytch_session_id || !record.expires_at) {
+    return record;
+  }
+
+  const user = await env.DB.prepare(
+    `INSERT INTO users (id, email)
+       VALUES (?1, ?2)
+       ON CONFLICT(email) DO UPDATE SET email = excluded.email
+       RETURNING id`,
+  )
+    .bind(generateSessionId(), record.email)
+    .first<{ id: string }>();
+
+  if (!user) {
+    return record;
+  }
+
+  try {
+    await env.DB.prepare(
+      `INSERT INTO sessions (id, user_id, stytch_session_id, expires_at)
+         VALUES (?1, ?2, ?3, ?4)
+         ON CONFLICT(id) DO UPDATE SET user_id = excluded.user_id,
+                                       stytch_session_id = excluded.stytch_session_id,
+                                       expires_at = excluded.expires_at`,
+    )
+      .bind(sessionId, user.id, record.stytch_session_id, record.expires_at)
+      .run();
+  } catch (error) {
+    console.warn('Failed to backfill session in D1', error);
+  }
+
+  return record;
 }
 
 async function extractSessionTokenFromRequest(
@@ -558,6 +707,10 @@ function redirectResponse(location: string, status = 302): Response {
   });
 }
 
+function generateSessionId(): string {
+  return `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}`;
+}
+
 function landingPageHtml(env: Env): string {
   const appUrl = env.APP_BASE_URL ?? "/app";
   const loginUrl = "/login";
@@ -591,7 +744,7 @@ function landingPageHtml(env: Env): string {
 }
 
 function appPageHtml(session: SessionRecord): string {
-  const greeting = session.email ? `, ${session.email}` : "";
+  const createdAt = new Date(session.created_at).toUTCString();
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -619,8 +772,8 @@ function appPageHtml(session: SessionRecord): string {
 </header>
 <main>
   <section>
-    <h2>Welcome${greeting}</h2>
-    <p>Your Stytch session is active. This placeholder will evolve into the authenticated dashboard backed by Cloudflare D1.</p>
+    <h2>Welcome back</h2>
+    <p>Your session was issued at <code>${createdAt}</code>. This placeholder will evolve into the authenticated dashboard backed by Cloudflare D1.</p>
   </section>
   <section>
     <h2>Next steps</h2>
@@ -682,106 +835,11 @@ function errorPageHtml(message: string): string {
 </html>`;
 }
 
-async function ensureUser(env: Env, email: string): Promise<UserRow> {
-  const normalisedEmail = email.trim().toLowerCase();
-  if (!normalisedEmail) {
-    throw new Error("Email is required to ensure user");
-  }
-
-  const existing = await env.DB.prepare(
-    "SELECT id, email, created_at, updated_at FROM users WHERE email = ?1 LIMIT 1",
-  )
-    .bind(normalisedEmail)
-    .first<UserRow>();
-
-  if (existing) {
-    return existing;
-  }
-
-  const id = crypto.randomUUID();
-  await env.DB.prepare(
-    `INSERT INTO users (id, email, created_at, updated_at)
-     VALUES (?1, ?2, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
-  )
-    .bind(id, normalisedEmail)
-    .run();
-
-  const created = await env.DB.prepare(
-    "SELECT id, email, created_at, updated_at FROM users WHERE id = ?1 LIMIT 1",
-  )
-    .bind(id)
-    .first<UserRow>();
-
-  if (!created) {
-    throw new Error("Failed to create user");
-  }
-
-  return created;
-}
-
-async function createSession(
-  env: Env,
-  session: {
-    id: string;
-    user_id: string;
-    stytch_session_id: string;
-    expires_at: string;
-  },
-): Promise<void> {
-  await env.DB.prepare(
-    `INSERT INTO sessions (id, user_id, stytch_session_id, expires_at)
-     VALUES (?1, ?2, ?3, ?4)
-     ON CONFLICT(id) DO UPDATE
-     SET user_id = excluded.user_id,
-         stytch_session_id = excluded.stytch_session_id,
-         expires_at = excluded.expires_at`,
-  )
-    .bind(session.id, session.user_id, session.stytch_session_id, session.expires_at)
-    .run();
-}
-
 async function requireSession(
   request: Request,
   env: Env,
-): Promise<SessionContext | null> {
-  const sessionId = getCookie(request, SESSION_COOKIE);
-  if (!sessionId) {
-    return null;
-  }
-
-  const record = await env.SESSION_KV.get<SessionRecord>(sessionId, "json");
-  if (!record) {
-    return null;
-  }
-
-  if (new Date(record.expires_at).getTime() <= Date.now()) {
-    await env.SESSION_KV.delete(sessionId);
-    try {
-      await env.DB.prepare("DELETE FROM sessions WHERE id = ?1")
-        .bind(sessionId)
-        .run();
-    } catch (error) {
-      console.error("Failed to clear expired session in D1", error);
-    }
-    return null;
-  }
-
-  try {
-    const user = await env.DB.prepare(
-      `SELECT u.id, u.email, u.created_at, u.updated_at
-         FROM sessions s
-         JOIN users u ON u.id = s.user_id
-        WHERE s.id = ?1 AND s.expires_at > CURRENT_TIMESTAMP
-        LIMIT 1`,
-    )
-      .bind(sessionId)
-      .first<UserRow>();
-
-    return { id: sessionId, record, user: user ?? null };
-  } catch (error) {
-    console.error("Failed to load session context", error);
-    return { id: sessionId, record, user: null };
-  }
+): Promise<SessionRecord | null> {
+  return getSession(request, env);
 }
 
 function parseKey(

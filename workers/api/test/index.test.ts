@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import Worker, { type Env } from '../src/index';
+import type { IncomingRequestCfProperties } from '@cloudflare/workers-types';
 
 function createMockEnv(overrides: Partial<Env> = {}): Env {
   const kv: KVNamespace = {
@@ -50,11 +51,26 @@ function createMockEnv(overrides: Partial<Env> = {}): Env {
 
 const ctx = {} as ExecutionContext;
 
+async function runFetch(
+  request: Request,
+  env: Env,
+): Promise<Response> {
+  const handler = Worker.fetch;
+  if (!handler) {
+    throw new Error('Expected Worker.fetch to be defined');
+  }
+  return handler(
+    request as Request<unknown, IncomingRequestCfProperties<unknown>>,
+    env,
+    ctx,
+  );
+}
+
 describe('Worker routes', () => {
   it('returns landing page HTML for root route', async () => {
     const env = createMockEnv();
     const request = new Request('https://example.com/');
-    const response = await Worker.fetch(request, env, ctx);
+    const response = await runFetch(request, env);
 
     expect(response.status).toBe(200);
     const text = await response.text();
@@ -64,7 +80,7 @@ describe('Worker routes', () => {
   it('returns unauthenticated JSON for /api/session', async () => {
     const env = createMockEnv();
     const request = new Request('https://example.com/api/session');
-    const response = await Worker.fetch(request, env, ctx);
+    const response = await runFetch(request, env);
 
     expect(response.status).toBe(200);
     const body = await response.json();
@@ -78,7 +94,7 @@ describe('Worker routes', () => {
       body: JSON.stringify({ type: 'test.event' }),
       headers: { 'content-type': 'application/json' },
     });
-    const response = await Worker.fetch(request, env, ctx);
+    const response = await runFetch(request, env);
 
     expect(response.status).toBe(400);
   });
@@ -86,8 +102,43 @@ describe('Worker routes', () => {
   it('requires auth for asset listing', async () => {
     const env = createMockEnv();
     const request = new Request('https://example.com/api/assets/list');
-    const response = await Worker.fetch(request, env, ctx);
+    const response = await runFetch(request, env);
 
     expect(response.status).toBe(401);
+  });
+
+  it('returns 500 when no SSO locator is configured', async () => {
+    const env = createMockEnv({
+      STYTCH_SSO_CONNECTION_ID: undefined,
+      STYTCH_ORGANIZATION_SLUG: undefined,
+    });
+    const response = await runFetch(new Request('https://example.com/login'), env);
+
+    expect(response.status).toBe(500);
+    const body = await response.text();
+    expect(body).toContain('SSO configuration is incomplete');
+  });
+
+  it('redirects with configured connection_id', async () => {
+    const env = createMockEnv({ STYTCH_SSO_CONNECTION_ID: 'conn-123' });
+    const response = await runFetch(new Request('https://example.com/login'), env);
+
+    expect(response.status).toBe(302);
+    const location = response.headers.get('location');
+    expect(location).toBeTruthy();
+    const redirectUrl = new URL(location ?? '');
+    expect(redirectUrl.pathname).toBe('/v1/public/sso/start');
+    expect(redirectUrl.searchParams.get('connection_id')).toBe('conn-123');
+  });
+
+  it('treats URL-like organization_slug as invalid', async () => {
+    const env = createMockEnv({
+      STYTCH_SSO_CONNECTION_ID: undefined,
+      STYTCH_ORGANIZATION_SLUG: 'https://login.example.com',
+    });
+    const request = new Request('https://example.com/login');
+    const response = await runFetch(request, env);
+
+    expect(response.status).toBe(500);
   });
 });

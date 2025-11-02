@@ -1,20 +1,26 @@
 # Architecture Overview
 
-```
-┌────────────┐       ┌─────────────────┐        ┌──────────────┐
-│ Expo Web   │  HTTPS│ Cloudflare       │  REST  │ Stytch       │
-│ (apps/web) ├──────▶│ Worker (API)     ├───────▶│ SSO          │
-└─────┬──────┘       │ workers/api      │        └──────────────┘
-      │              │                 │
-      │              │   KV (sessions) │
-      │              │   D1 (data)     │
-      │              │   R2 (assets)   │
-      │              └──────┬──────────┘
-      │                     │ Stripe webhooks / product fetch
-      ▼                     ▼
-┌────────────┐        ┌──────────────┐
-│ End Users  │        │ Stripe Billing│
-└────────────┘        └──────────────┘
+```mermaid
+graph LR
+  subgraph Browser
+    EXPO["Expo Web\n(apps/web)"]
+  end
+
+  subgraph Cloudflare
+    WORKER["Worker (workers/api)"]
+    KV[(KV: sessions)]
+    D1[(D1: data)]
+    R2[(R2: assets)]
+  end
+
+  EXPO -- HTTPS / fetch --> WORKER
+  WORKER -- session data --> KV
+  WORKER -- SQL --> D1
+  WORKER -- objects --> R2
+  WORKER -- OAuth/SSO --> STYTCH[Stytch]
+  WORKER -- Billing events --> STRIPE[Stripe]
+  STRIPE -- Webhooks --> WORKER
+  STYTCH -- Redirects --> WORKER
 ```
 
 ## Components
@@ -40,5 +46,5 @@
 ## Deployment
 
 - Local development uses `wrangler dev` for the Worker and `expo start --web` for the client.
-- GitHub Actions workflow (`.github/workflows/deploy.yml`) runs formatting placeholders, type-checks the Worker, builds the Expo bundle, and publishes to Cloudflare when credentials are provided.
+- GitHub Actions workflow (`.github/workflows/deploy.yml`) type-checks, tests, and deploys the Worker via Wrangler when credentials are provided.
 - `bootstrap.sh` writes `.env.local.generated` to record resource identifiers, making it easy to promote to production or replicate environments.
