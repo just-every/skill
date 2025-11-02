@@ -36,6 +36,9 @@ jobs:
       - name: Typecheck worker
         run: npm run typecheck --workspace workers/api
 
+      - name: Run worker tests
+        run: npm run test --workspace workers/api
+
       - name: Dry-run bootstrap
         run: DRY_RUN=1 ./bootstrap.sh
 

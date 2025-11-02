@@ -7,11 +7,13 @@
     "dev": "wrangler dev --config wrangler.toml",
     "deploy": "wrangler publish --config wrangler.toml",
     "typecheck": "tsc --project tsconfig.json --noEmit",
-    "migrate": "node scripts/migrate.js"
+    "migrate": "node scripts/migrate.js",
+    "test": "vitest run"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20240919.0",
     "typescript": "^5.3.3",
+    "vitest": "^1.1.3",
     "wrangler": "^3.78.3"
   }
 }
