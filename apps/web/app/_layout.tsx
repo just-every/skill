@@ -1,5 +1,11 @@
 import { Stack } from 'expo-router';
 
-export default function RootLayout() {
-  return <Stack screenOptions={{ headerShown: false }} />;
+import StytchProvider from './_providers/StytchProvider';
+
+export default function RootLayout(): JSX.Element {
+  return (
+    <StytchProvider>
+      <Stack screenOptions={{ headerShown: false }} />
+    </StytchProvider>
+  );
 }

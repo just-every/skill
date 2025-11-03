@@ -6,19 +6,16 @@ send_metrics = false
 
 workers_dev = true
 
+[assets]
+binding = "ASSETS"
+directory = "../../apps/web/dist"
+
 # This file is rendered by bootstrap.sh. Values wrapped in {{ }} are replaced with either
 # explicit .env inputs or generated identifiers recorded in .env.local.generated.
 [vars]
-# --- Stytch SSO ---
+# --- Authentication ---
 STYTCH_PROJECT_ID = "{{STYTCH_PROJECT_ID}}" # from .env / bootstrap secret sync
 STYTCH_SECRET = "{{STYTCH_SECRET}}"         # use `wrangler secret put` in production
-STYTCH_PUBLIC_TOKEN = "{{STYTCH_PUBLIC_TOKEN}}"
-STYTCH_LOGIN_URL = "{{STYTCH_LOGIN_URL}}"
-STYTCH_REDIRECT_URL = "{{STYTCH_REDIRECT_URL}}"
-STYTCH_SSO_CONNECTION_ID = "{{STYTCH_SSO_CONNECTION_ID}}"
-STYTCH_ORGANIZATION_SLUG = "{{STYTCH_ORGANIZATION_SLUG}}"
-STYTCH_ORGANIZATION_ID = "{{STYTCH_ORGANIZATION_ID}}"
-STYTCH_SSO_DOMAIN = "{{STYTCH_SSO_DOMAIN}}"
 
 # --- Application URLs ---
 LANDING_URL = "{{LANDING_URL}}"
@@ -27,17 +24,16 @@ APP_BASE_URL = "{{APP_BASE_URL}}"
 # --- Stripe ---
 STRIPE_PRODUCTS = "{{STRIPE_PRODUCTS}}"
 STRIPE_WEBHOOK_SECRET = "{{STRIPE_WEBHOOK_SECRET}}"
+EXPO_PUBLIC_STYTCH_PUBLIC_TOKEN = "{{EXPO_PUBLIC_STYTCH_PUBLIC_TOKEN}}"
+EXPO_PUBLIC_STYTCH_BASE_URL = "{{EXPO_PUBLIC_STYTCH_BASE_URL}}"
+EXPO_PUBLIC_WORKER_ORIGIN = "{{EXPO_PUBLIC_WORKER_ORIGIN}}"
 
 # --- Cloudflare metadata ---
 CLOUDFLARE_ZONE_ID = "{{CLOUDFLARE_ZONE_ID}}"
 
-[[kv_namespaces]]
-binding = "SESSION_KV"
-id = "{{KV_NAMESPACE_ID}}"
-
 [[d1_databases]]
 binding = "DB"
-database_name = "{{PROJECT_ID}}_db"
+database_name = "{{D1_DATABASE_NAME}}"
 database_id = "{{D1_DATABASE_ID}}"
 
 [[r2_buckets]]

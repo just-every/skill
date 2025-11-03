@@ -13,12 +13,7 @@ RESET="$(tput sgr0 2>/dev/null || true)"
 DRY_RUN=${DRY_RUN:-0}
 GENERATED_ENV_FILE="$ROOT_DIR/.env.local.generated"
 STRIPE_SECRET_SOURCE="STRIPE_SECRET_KEY"
-CLOUDFLARE_AUTH_METHOD=""
-CLOUDFLARE_AUTH_SOURCE=""
-CLOUDFLARE_AUTH_HEADERS=()
 APP_BASE_URL_RESOLVED=""
-WORKER_ROUTE_PATTERN=""
-DNS_RECORD_NAMES=()
 SYNCED_SECRET_NAMES=()
 SYNC_SECRETS=${SYNC_SECRETS:-1}
 
@@ -32,6 +27,10 @@ log_warn() {
 
 log_error() {
   echo "${RED}[error]${RESET} $*" >&2
+}
+
+to_lower() {
+  printf '%s' "$1" | tr '[:upper:]' '[:lower:]'
 }
 
 require_command() {
@@ -56,7 +55,7 @@ ensure_var() {
   local name=$1
   if [[ -z "${!name:-}" ]]; then
     if [[ "$DRY_RUN" == "1" ]]; then
-      local placeholder="dry-run-${name,,}"
+      local placeholder="dry-run-$(to_lower "$name")"
       log_warn "Environment variable '$name' missing; using placeholder '$placeholder' for dry-run."
       export "$name"="$placeholder"
       return
@@ -89,7 +88,7 @@ run_cmd_capture() {
 
 resolve_stripe_secret() {
   local mode="${STRIPE_MODE:-test}"
-  local normalized="${mode,,}"
+  local normalized="$(to_lower "$mode")"
   local candidate=""
   local source="STRIPE_SECRET_KEY"
 
@@ -133,58 +132,9 @@ resolve_stripe_secret() {
   log_info "Resolved Stripe secret key from ${source} for mode '$normalized'"
 }
 
-resolve_cloudflare_auth() {
-  local token="${CLOUDFLARE_API_TOKEN:-}"
-  local email="${CLOUDFLARE_EMAIL:-}"
-  local api_key="${CLOUDFLARE_API_KEY:-}"
-
-  if [[ -n "$token" ]]; then
-    CLOUDFLARE_AUTH_METHOD="api_token"
-    CLOUDFLARE_AUTH_SOURCE="CLOUDFLARE_API_TOKEN"
-    export CLOUDFLARE_API_TOKEN
-    CLOUDFLARE_AUTH_HEADERS=(-H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}")
-  elif [[ -n "$email" && -n "$api_key" ]]; then
-    CLOUDFLARE_AUTH_METHOD="api_key"
-    CLOUDFLARE_AUTH_SOURCE="CLOUDFLARE_EMAIL+CLOUDFLARE_API_KEY"
-    export CLOUDFLARE_EMAIL CLOUDFLARE_API_KEY
-    log_warn "CLOUDFLARE_API_TOKEN not provided; Wrangler operations may be limited with API key auth."
-    CLOUDFLARE_AUTH_HEADERS=(
-      -H "X-Auth-Email: ${CLOUDFLARE_EMAIL}"
-      -H "X-Auth-Key: ${CLOUDFLARE_API_KEY}"
-    )
-  elif [[ "$DRY_RUN" == "1" ]]; then
-    CLOUDFLARE_AUTH_METHOD="dry-run"
-    CLOUDFLARE_AUTH_SOURCE="placeholders"
-    if [[ -z "$token" ]]; then
-      CLOUDFLARE_API_TOKEN="dry-run-cloudflare-api-token"
-      export CLOUDFLARE_API_TOKEN
-      log_warn "CLOUDFLARE_API_TOKEN missing; using placeholder during dry-run."
-    fi
-    if [[ -z "$email" ]]; then
-      CLOUDFLARE_EMAIL="dry-run@example.com"
-      export CLOUDFLARE_EMAIL
-      log_warn "CLOUDFLARE_EMAIL missing; using placeholder during dry-run."
-    fi
-    if [[ -z "$api_key" ]]; then
-      CLOUDFLARE_API_KEY="dry-run-cloudflare-api-key"
-      export CLOUDFLARE_API_KEY
-      log_warn "CLOUDFLARE_API_KEY missing; using placeholder during dry-run."
-    fi
-    CLOUDFLARE_AUTH_HEADERS=(-H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}")
-  else
-    log_error "Cloudflare credentials missing. Set CLOUDFLARE_API_TOKEN or CLOUDFLARE_EMAIL and CLOUDFLARE_API_KEY."
-    exit 1
-  fi
-
+prepare_cloudflare_env() {
   if [[ -z "${CLOUDFLARE_ZONE_ID:-}" ]]; then
-    if [[ "$DRY_RUN" == "1" ]]; then
-      CLOUDFLARE_ZONE_ID="dry-run-zone-id"
-      export CLOUDFLARE_ZONE_ID
-      log_warn "CLOUDFLARE_ZONE_ID missing; using placeholder 'dry-run-zone-id' during dry-run."
-    else
-      log_error "CLOUDFLARE_ZONE_ID must be set before running bootstrap."
-      exit 1
-    fi
+    log_warn "CLOUDFLARE_ZONE_ID not set; Wrangler will infer the zone from custom domains."
   else
     export CLOUDFLARE_ZONE_ID
   fi
@@ -208,6 +158,19 @@ derive_app_base_from_url() {
   echo "$url"
 }
 
+extract_origin() {
+  local url=$1
+  if [[ -z "$url" ]]; then
+    echo ""
+    return
+  fi
+  if [[ "$url" =~ ^https?://[^/]+ ]]; then
+    echo "${BASH_REMATCH[0]}"
+    return
+  fi
+  echo "$url"
+}
+
 resolve_app_base_url() {
   local resolved="${APP_BASE_URL:-}"
   if [[ -z "$resolved" ]]; then
@@ -224,106 +187,6 @@ derive_host() {
     return
   fi
   printf '%s' "$url" | sed -E 's#^[a-zA-Z][a-zA-Z0-9+.-]*://##; s#/.*$##'
-}
-
-ensure_dns_record() {
-  local host=$1
-  local content=${CLOUDFLARE_DNS_CONTENT:-192.0.2.1}
-
-  if [[ -z "$host" ]]; then
-    log_warn "No host provided for DNS record provisioning; skipping"
-    return
-  fi
-
-  if [[ -z "${CLOUDFLARE_ZONE_ID:-}" ]]; then
-    log_warn "CLOUDFLARE_ZONE_ID unset; skipping DNS record provisioning"
-    return
-  fi
-
-  log_info "Ensuring DNS record ${host} → ${content}"
-
-  if [[ "$DRY_RUN" == "1" ]]; then
-    log_info "[dry-run] Would ensure DNS A record for ${host} proxied=true"
-    DNS_RECORD_NAMES+=("$host")
-    return
-  fi
-
-  local base_url="https://api.cloudflare.com/client/v4/zones/${CLOUDFLARE_ZONE_ID}/dns_records"
-  local list_response
-  if ! list_response=$(run_cmd_capture curl -sS --fail-with-body -G "${CLOUDFLARE_AUTH_HEADERS[@]}" \
-    --data-urlencode "type=A" \
-    --data-urlencode "name=${host}" \
-    "$base_url"); then
-    log_warn "Failed to list DNS records for ${host}"
-    return
-  fi
-
-  local record_id
-  record_id=$(jq -r '.result[0].id // empty' <<<"$list_response" 2>/dev/null || true)
-  if [[ -n "$record_id" ]]; then
-    local existing_content
-    local existing_proxied
-    existing_content=$(jq -r '.result[0].content // empty' <<<"$list_response" 2>/dev/null || true)
-    existing_proxied=$(jq -r '.result[0].proxied // false' <<<"$list_response" 2>/dev/null || true)
-    if [[ "$existing_content" == "$content" && "$existing_proxied" == "true" ]]; then
-      log_info "DNS record ${host} already configured"
-      DNS_RECORD_NAMES+=("$host")
-      return
-    fi
-
-    local payload
-    payload=$(jq -nc --arg type "A" --arg name "$host" --arg content "$content" '{type:$type,name:$name,content:$content,ttl:1,proxied:true}')
-    local update_response
-  if ! update_response=$(run_cmd_capture curl -sS --fail-with-body -X PUT "${CLOUDFLARE_AUTH_HEADERS[@]}" \
-      -H "Content-Type: application/json" \
-      -d "$payload" \
-      "$base_url/${record_id}"); then
-      log_warn "Failed to update DNS record ${host}: $update_response"
-      return
-    fi
-    if jq -e '.success == true' <<<"$update_response" >/dev/null 2>&1; then
-      log_info "Updated DNS record ${host}"
-      DNS_RECORD_NAMES+=("$host")
-    else
-      log_warn "Unexpected response updating DNS record ${host}: $update_response"
-    fi
-    return
-  fi
-
-  local create_payload
-  create_payload=$(jq -nc --arg type "A" --arg name "$host" --arg content "$content" '{type:$type,name:$name,content:$content,ttl:1,proxied:true}')
-  local create_response
-  if ! create_response=$(run_cmd_capture curl -sS --fail-with-body -X POST "${CLOUDFLARE_AUTH_HEADERS[@]}" \
-    -H "Content-Type: application/json" \
-    -d "$create_payload" \
-    "$base_url"); then
-    log_warn "Failed to create DNS record ${host}: $create_response"
-    return
-  fi
-  if jq -e '.success == true' <<<"$create_response" >/dev/null 2>&1; then
-    log_info "Created DNS record ${host}"
-    DNS_RECORD_NAMES+=("$host")
-  else
-    log_warn "Unexpected response creating DNS record ${host}: $create_response"
-  fi
-}
-
-ensure_dns_records() {
-  local landing_host app_host
-  landing_host=$(derive_host "${LANDING_URL:-}")
-  app_host=$(derive_host "${APP_URL:-}")
-
-  if [[ -z "$landing_host" && -z "$app_host" ]]; then
-    log_warn "Unable to derive hosts for DNS provisioning; skipping"
-    return
-  fi
-
-  if [[ -n "$landing_host" ]]; then
-    ensure_dns_record "$landing_host"
-  fi
-  if [[ -n "$app_host" && "$app_host" != "$landing_host" ]]; then
-    ensure_dns_record "$app_host"
-  fi
 }
 
 ensure_worker_secret() {
@@ -372,6 +235,8 @@ sync_worker_secrets() {
 }
 
 ensure_worker_route() {
+  log_info "Skipping worker route provisioning; managed via wrangler.toml routes"
+  return
   local script=$1
   local pattern=$2
 
@@ -428,6 +293,8 @@ ensure_worker_route() {
 }
 
 ensure_worker_routes() {
+  log_info "Skipping worker route provisioning; managed via wrangler.toml routes"
+  return
   local landing_host app_host base_host script
   landing_host=$(derive_host "${LANDING_URL:-}")
   app_host=$(derive_host "${APP_URL:-}")
@@ -443,7 +310,7 @@ ensure_worker_routes() {
   fi
 
   script="${PROJECT_ID}-worker"
-  local patterns=()
+  local -a patterns=()
   patterns+=("${base_host}/*")
 
   if [[ -n "$app_host" && "$app_host" != "$base_host" ]]; then
@@ -460,15 +327,17 @@ ensure_worker_routes() {
     fi
   fi
 
-  local unique_patterns=()
+  local -a unique_patterns=()
   for pattern in "${patterns[@]}"; do
     local exists=0
-    for existing in "${unique_patterns[@]}"; do
-      if [[ "$existing" == "$pattern" ]]; then
-        exists=1
-        break
-      fi
-    done
+    if [[ ${#unique_patterns[@]} -gt 0 ]]; then
+      for existing in "${unique_patterns[@]}"; do
+        if [[ "$existing" == "$pattern" ]]; then
+          exists=1
+          break
+        fi
+      done
+    fi
     if [[ $exists -eq 0 ]]; then
       unique_patterns+=("$pattern")
     fi
@@ -541,14 +410,15 @@ parse_stripe_products() {
 }
 
 ensure_cloudflare_auth() {
-  export CLOUDFLARE_ACCOUNT_ID
+  if [[ -n "${CLOUDFLARE_ACCOUNT_ID:-}" ]]; then
+    export CLOUDFLARE_ACCOUNT_ID
+  fi
+
   [[ "$DRY_RUN" == "1" ]] && return
 
-  if [[ "$CLOUDFLARE_AUTH_METHOD" == "api_token" ]]; then
-    log_info "Authenticating Wrangler session"
-    wrangler_cmd whoami >/dev/null
-  else
-    log_warn "Skipping Wrangler authentication; current Cloudflare auth method '$CLOUDFLARE_AUTH_METHOD' is not compatible with Wrangler login."
+  if ! wrangler_cmd whoami >/dev/null 2>&1; then
+    log_error "Wrangler is not authenticated. Run 'wrangler login' before executing bootstrap.sh."
+    exit 1
   fi
 }
 
@@ -610,32 +480,6 @@ ensure_r2() {
   R2_BUCKET_ID="$bucket"
 }
 
-ensure_kv() {
-  local binding="SESSION_KV"
-  local namespace="${PROJECT_ID}-sessions"
-  log_info "Ensuring KV namespace '$namespace' exists"
-  if [[ "$DRY_RUN" == "1" ]]; then
-    KV_NAMESPACE_ID="dry-run-${namespace}"
-    return
-  fi
-  local list_json=""
-  if ! list_json=$("${WRANGLER_BASE[@]}" kv namespace list 2>/dev/null); then
-    list_json=""
-  fi
-  if [[ -n "$list_json" ]]; then
-    local existing
-    existing=$(jq -r --arg namespace "$namespace" '.[] | select(.title==$namespace or .title=="worker-" + $namespace) | .id' <<<"$list_json" 2>/dev/null || true)
-    if [[ -n "$existing" && "$existing" != "null" ]]; then
-      log_info "Found existing KV namespace $existing"
-      KV_NAMESPACE_ID="$existing"
-      return
-    fi
-  fi
-  wrangler_cmd kv namespace create "$namespace" >/dev/null
-  list_json=$("${WRANGLER_BASE[@]}" kv namespace list 2>/dev/null || true)
-  KV_NAMESPACE_ID=$(jq -r --arg namespace "$namespace" '.[] | select(.title==$namespace or .title=="worker-" + $namespace) | .id' <<<"$list_json" 2>/dev/null || true)
-}
-
 update_wrangler_config() {
   local template="$ROOT_DIR/workers/api/wrangler.toml.template"
   local target="$ROOT_DIR/workers/api/wrangler.toml"
@@ -643,47 +487,43 @@ update_wrangler_config() {
     log_warn "wrangler.toml.template not found at $template; skipping templating"
     return
   fi
+  if [[ "$DRY_RUN" == "1" ]]; then
+    log_info "[dry-run] Would render workers/api/wrangler.toml from template"
+    return
+  fi
   log_info "Templating Wrangler config"
   local project_safe=$(escape_sed "$PROJECT_ID")
   local d1_safe=$(escape_sed "${D1_DATABASE_ID:-}")
+  local d1_name_safe=$(escape_sed "${D1_DATABASE_NAME:-}")
   local bucket_safe=$(escape_sed "${R2_BUCKET_NAME:-}")
-  local kv_safe=$(escape_sed "${KV_NAMESPACE_ID:-}")
   local landing_safe=$(escape_sed "${LANDING_URL:-}")
   local app_safe=$(escape_sed "${APP_URL:-}")
   local stytch_project_safe=$(escape_sed "${STYTCH_PROJECT_ID:-}")
   local stytch_secret_safe=$(escape_sed "${STYTCH_SECRET:-}")
-  local stytch_public_token_safe=$(escape_sed "${STYTCH_PUBLIC_TOKEN:-}")
-  local stytch_login_safe=$(escape_sed "${STYTCH_LOGIN_URL:-}")
-  local stytch_redirect_safe=$(escape_sed "${STYTCH_REDIRECT_URL:-}")
-  local stytch_sso_connection_safe=$(escape_sed "${STYTCH_SSO_CONNECTION_ID:-}")
-  local stytch_org_slug_safe=$(escape_sed "${STYTCH_ORGANIZATION_SLUG:-}")
-  local stytch_org_id_safe=$(escape_sed "${STYTCH_ORGANIZATION_ID:-}")
-  local stytch_sso_domain_safe=$(escape_sed "${STYTCH_SSO_DOMAIN:-}")
   local app_base_safe=$(escape_sed "${APP_BASE_URL_RESOLVED:-${APP_BASE_URL:-}}")
   local stripe_products_safe=$(escape_sed "${STRIPE_PRODUCTS:-[]}")
   local stripe_webhook_safe=$(escape_sed "${STRIPE_WEBHOOK_SECRET:-}")
   local cloudflare_zone_safe=$(escape_sed "${CLOUDFLARE_ZONE_ID:-}")
+  local expo_stytch_safe=$(escape_sed "${EXPO_PUBLIC_STYTCH_PUBLIC_TOKEN:-}")
+  local expo_stytch_base_safe=$(escape_sed "${EXPO_PUBLIC_STYTCH_BASE_URL:-}")
+  local expo_worker_origin_safe=$(escape_sed "${EXPO_PUBLIC_WORKER_ORIGIN:-}")
   local tmp
   tmp=$(mktemp)
   sed \
     -e "s/{{PROJECT_ID}}/${project_safe}/g" \
     -e "s/{{D1_DATABASE_ID}}/${d1_safe}/g" \
+    -e "s/{{D1_DATABASE_NAME}}/${d1_name_safe}/g" \
     -e "s/{{R2_BUCKET_NAME}}/${bucket_safe}/g" \
-    -e "s/{{KV_NAMESPACE_ID}}/${kv_safe}/g" \
     -e "s#{{LANDING_URL}}#${landing_safe}#g" \
     -e "s#{{APP_URL}}#${app_safe}#g" \
     -e "s#{{APP_BASE_URL}}#${app_base_safe}#g" \
     -e "s#{{STYTCH_PROJECT_ID}}#${stytch_project_safe}#g" \
-    -e "s#{{STYTCH_PUBLIC_TOKEN}}#${stytch_public_token_safe}#g" \
     -e "s#{{STYTCH_SECRET}}#${stytch_secret_safe}#g" \
-    -e "s#{{STYTCH_LOGIN_URL}}#${stytch_login_safe}#g" \
-    -e "s#{{STYTCH_REDIRECT_URL}}#${stytch_redirect_safe}#g" \
-    -e "s#{{STYTCH_SSO_CONNECTION_ID}}#${stytch_sso_connection_safe}#g" \
-    -e "s#{{STYTCH_ORGANIZATION_SLUG}}#${stytch_org_slug_safe}#g" \
-    -e "s#{{STYTCH_ORGANIZATION_ID}}#${stytch_org_id_safe}#g" \
-    -e "s#{{STYTCH_SSO_DOMAIN}}#${stytch_sso_domain_safe}#g" \
     -e "s#{{STRIPE_PRODUCTS}}#${stripe_products_safe}#g" \
     -e "s#{{STRIPE_WEBHOOK_SECRET}}#${stripe_webhook_safe}#g" \
+    -e "s#{{EXPO_PUBLIC_STYTCH_PUBLIC_TOKEN}}#${expo_stytch_safe}#g" \
+    -e "s#{{EXPO_PUBLIC_STYTCH_BASE_URL}}#${expo_stytch_base_safe}#g" \
+    -e "s#{{EXPO_PUBLIC_WORKER_ORIGIN}}#${expo_worker_origin_safe}#g" \
     -e "s#{{CLOUDFLARE_ZONE_ID}}#${cloudflare_zone_safe}#g" \
     "$template" > "$tmp"
   if [[ -f "$target" ]]; then
@@ -810,137 +650,6 @@ ensure_stripe_webhook() {
   fi
 }
 
-sync_stytch_redirects() {
-  if [[ -z "${STYTCH_PROJECT_ID:-}" || -z "${STYTCH_SECRET:-}" ]]; then
-    log_warn "STYTCH_PROJECT_ID or STYTCH_SECRET missing; skipping Stytch redirect sync"
-    return
-  fi
-
-  local landing_url="${LANDING_URL:-}"
-  local app_url="${APP_URL:-}"
-  if [[ -z "$landing_url" || -z "$app_url" ]]; then
-    log_warn "LANDING_URL or APP_URL missing; skipping Stytch redirect sync"
-    return
-  fi
-
-  local callback_url="${app_url%/}/auth/callback"
-  local desired_urls=("$landing_url" "$callback_url")
-
-  log_info "Syncing Stytch redirect URLs"
-
-  if [[ "$DRY_RUN" == "1" ]]; then
-    for url in "${desired_urls[@]}"; do
-      log_info "[dry-run] Would ensure Stytch redirect URL: $url"
-    done
-    return
-  fi
-
-  local auth="${STYTCH_PROJECT_ID}:${STYTCH_SECRET}"
-  local stytch_base="https://api.stytch.com/v1/projects/${STYTCH_PROJECT_ID}"
-  local redirect_endpoint="${stytch_base}/redirect_urls"
-
-  local list_response
-  if ! list_response=$(run_cmd_capture curl -sS --fail-with-body -u "$auth" "$redirect_endpoint"); then
-    log_warn "Failed to list Stytch redirect URLs"
-    return
-  fi
-
-  for url in "${desired_urls[@]}"; do
-    if [[ -z "$url" ]]; then
-      continue
-    fi
-    if jq -e --arg url "$url" '.redirect_urls // [] | map(.url) | index($url)' <<<"$list_response" >/dev/null 2>&1; then
-      log_info "Stytch redirect URL already present: $url"
-      continue
-    fi
-
-    local payload
-    payload=$(jq -nc --arg url "$url" '{url: $url}')
-    local create_response
-    if ! create_response=$(run_cmd_capture curl -sS --fail-with-body -X POST -u "$auth" \
-      -H "Content-Type: application/json" \
-      -d "$payload" \
-      "$redirect_endpoint"); then
-      log_warn "Failed to create Stytch redirect URL: $url"
-      continue
-    fi
-
-    if jq -e --arg url "$url" '.redirect_url.url == $url' <<<"$create_response" >/dev/null 2>&1; then
-      log_info "Created Stytch redirect URL: $url"
-      list_response=$(jq --arg url "$url" '
-        .redirect_urls = (
-          (.redirect_urls // []) + [{url: $url}]
-        )
-      ' <<<"$list_response" 2>/dev/null || printf '{"redirect_urls":[{"url":"%s"}]}' "$url")
-      continue
-    fi
-
-    log_warn "Unexpected response while creating Stytch redirect URL $url: $create_response"
-  done
-}
-
-sync_stytch_sso_helpers() {
-  if [[ -z "${STYTCH_SSO_CONNECTION_ID:-}" && -z "${STYTCH_SSO_DOMAIN:-}" ]]; then
-    return
-  fi
-
-  if [[ -z "${STYTCH_PROJECT_ID:-}" || -z "${STYTCH_SECRET:-}" ]]; then
-    log_warn "Missing Stytch credentials; skipping SSO helper sync"
-    return
-  fi
-
-  local auth="${STYTCH_PROJECT_ID}:${STYTCH_SECRET}"
-
-  if [[ -n "${STYTCH_SSO_CONNECTION_ID:-}" ]]; then
-    local connection_id="${STYTCH_SSO_CONNECTION_ID}"
-    local stytch_base="https://api.stytch.com/v1/projects/${STYTCH_PROJECT_ID}"
-    local connection_endpoint="${stytch_base}/sso/connections/${connection_id}"
-    log_info "Syncing Stytch SSO connection ${connection_id}"
-
-    if [[ "$DRY_RUN" == "1" ]]; then
-      if [[ -n "${STYTCH_SSO_DOMAIN:-}" ]]; then
-        log_info "[dry-run] Would ensure Stytch SSO domain '${STYTCH_SSO_DOMAIN}' is attached to connection ${connection_id}"
-      fi
-    else
-      local connection_response
-      connection_response=$(run_cmd_capture curl -sS --fail-with-body -u "$auth" "$connection_endpoint") || {
-        log_warn "Unable to fetch Stytch SSO connection ${connection_id}"
-        return
-      }
-
-      if [[ -n "${STYTCH_SSO_DOMAIN:-}" ]]; then
-        local domain="${STYTCH_SSO_DOMAIN}"
-        if ! jq -e --arg domain "$domain" '.connection.domains // [] | map(.domain // .slug // "") | index($domain)' <<<"$connection_response" >/dev/null 2>&1; then
-          local domain_payload
-          domain_payload=$(jq -nc --arg domain "$domain" '{domain: $domain}')
-          local domain_response
-          domain_response=$(run_cmd_capture curl -sS --fail-with-body -X POST -u "$auth" \
-            -H "Content-Type: application/json" \
-            -d "$domain_payload" \
-            "${connection_endpoint}/domains") || {
-              log_warn "Failed to register Stytch SSO domain ${domain} for connection ${connection_id}"
-              return
-            }
-          if jq -e '.domain.domain == $domain or .domain.slug == $domain' --arg domain "$domain" <<<"$domain_response" >/dev/null 2>&1; then
-            log_info "Added Stytch SSO domain ${domain} to connection ${connection_id}"
-          else
-            log_warn "Unexpected response when adding Stytch SSO domain ${domain}: ${domain_response}"
-          fi
-        else
-          log_info "Stytch SSO domain ${domain} already attached to ${connection_id}"
-        fi
-      fi
-    fi
-  fi
-
-  if [[ -n "${STYTCH_ORGANIZATION_ID:-}" ]]; then
-    log_info "Stytch organization ID present (${STYTCH_ORGANIZATION_ID}); ensure permissions are configured in Stytch Console"
-  fi
-  if [[ -n "${STYTCH_ORGANIZATION_SLUG:-}" ]]; then
-    log_info "Stytch organization slug configured (${STYTCH_ORGANIZATION_SLUG})"
-  fi
-}
-
 upload_r2_placeholder() {
   local object_key="welcome.txt"
   if [[ "$DRY_RUN" == "1" ]]; then
@@ -955,16 +664,127 @@ upload_r2_placeholder() {
   rm -f "$tmp_file"
 }
 
-write_generated_env() {
-  log_info "Writing $GENERATED_ENV_FILE"
-  local dns_records=""
-  if [[ ${#DNS_RECORD_NAMES[@]} -gt 0 ]]; then
-    dns_records=$(printf '%s\n' "${DNS_RECORD_NAMES[@]}" | awk '!seen[$0]++' | paste -sd',' -)
+write_expo_env_file() {
+  if [[ "$DRY_RUN" == "1" ]]; then
+    log_info "[dry-run] Would write apps/web/.env.local"
+    return
   fi
+
+  local target="$ROOT_DIR/apps/web/.env.local"
+  log_info "Writing Expo env file to ${target#$ROOT_DIR/}"
+  {
+    printf 'EXPO_PUBLIC_STYTCH_PUBLIC_TOKEN=%s\n' "${EXPO_PUBLIC_STYTCH_PUBLIC_TOKEN:-}"
+    printf 'EXPO_PUBLIC_STYTCH_BASE_URL=%s\n' "${EXPO_PUBLIC_STYTCH_BASE_URL:-}"
+    printf 'EXPO_PUBLIC_WORKER_ORIGIN=%s\n' "${EXPO_PUBLIC_WORKER_ORIGIN:-}"
+  } >"$target"
+}
+
+export_expo_runtime_vars() {
+  local fallback_stytch_token="${STYTCH_PUBLIC_TOKEN:-}"
+
+  if [[ -z "${EXPO_PUBLIC_STYTCH_PUBLIC_TOKEN:-}" ]]; then
+    if [[ -n "$fallback_stytch_token" ]]; then
+      EXPO_PUBLIC_STYTCH_PUBLIC_TOKEN="$fallback_stytch_token"
+      export EXPO_PUBLIC_STYTCH_PUBLIC_TOKEN
+      log_info "Derived EXPO_PUBLIC_STYTCH_PUBLIC_TOKEN from STYTCH_PUBLIC_TOKEN"
+    else
+      log_warn "EXPO_PUBLIC_STYTCH_PUBLIC_TOKEN not set; Stytch login will be disabled"
+    fi
+  else
+    export EXPO_PUBLIC_STYTCH_PUBLIC_TOKEN
+  fi
+
+  if [[ -z "${EXPO_PUBLIC_WORKER_ORIGIN:-}" ]]; then
+    local resolved_origin=""
+    if [[ -n "${WORKER_ORIGIN:-}" ]]; then
+      resolved_origin="$WORKER_ORIGIN"
+    elif [[ -n "${APP_URL:-}" ]]; then
+      resolved_origin="$(extract_origin "$APP_URL")"
+    elif [[ -n "${LANDING_URL:-}" ]]; then
+      resolved_origin="$(extract_origin "$LANDING_URL")"
+    fi
+
+    if [[ -n "$resolved_origin" ]]; then
+      EXPO_PUBLIC_WORKER_ORIGIN="$resolved_origin"
+      export EXPO_PUBLIC_WORKER_ORIGIN
+      log_info "Resolved EXPO_PUBLIC_WORKER_ORIGIN to $EXPO_PUBLIC_WORKER_ORIGIN"
+    else
+      log_warn "Unable to derive EXPO_PUBLIC_WORKER_ORIGIN; worker calls from the web app will fail"
+    fi
+  else
+    export EXPO_PUBLIC_WORKER_ORIGIN
+  fi
+
+  if [[ -z "${EXPO_PUBLIC_STYTCH_BASE_URL:-}" ]]; then
+    local resolved_stytch_base=""
+    if [[ -n "${STYTCH_BASE_URL:-}" ]]; then
+      resolved_stytch_base="$(extract_origin "$STYTCH_BASE_URL")"
+    elif [[ -n "${OIDC_ISSUER:-}" ]]; then
+      resolved_stytch_base="$(extract_origin "$OIDC_ISSUER")"
+    fi
+
+    if [[ -n "$resolved_stytch_base" ]]; then
+      EXPO_PUBLIC_STYTCH_BASE_URL="$resolved_stytch_base"
+      export EXPO_PUBLIC_STYTCH_BASE_URL
+      log_info "Resolved EXPO_PUBLIC_STYTCH_BASE_URL to $EXPO_PUBLIC_STYTCH_BASE_URL"
+    else
+      log_warn "Unable to derive EXPO_PUBLIC_STYTCH_BASE_URL; Stytch SDK may enforce a custom domain"
+    fi
+  else
+    export EXPO_PUBLIC_STYTCH_BASE_URL
+  fi
+}
+
+build_web_bundle() {
+  if [[ "${BUILD_WEB_BUNDLE:-1}" != "1" ]]; then
+    log_info "Skipping Expo web bundle build (BUILD_WEB_BUNDLE=${BUILD_WEB_BUNDLE:-0})"
+    return
+  fi
+
+  if [[ "$DRY_RUN" == "1" ]]; then
+    log_info "[dry-run] pnpm --filter @justevery/web build"
+    return
+  fi
+
+  log_info "Building Expo web bundle"
+
+  export_expo_runtime_vars
+  write_expo_env_file
+
+  if command -v pnpm >/dev/null 2>&1; then
+    (cd "$ROOT_DIR/apps/web" && run_cmd pnpm build)
+    return
+  fi
+
+  if command -v npm >/dev/null 2>&1; then
+    (cd "$ROOT_DIR/apps/web" && run_cmd npm run build)
+    return
+  fi
+
+  log_warn "Neither pnpm nor npm available; skipping Expo web bundle build"
+}
+
+deploy_worker() {
+  if [[ "$DRY_RUN" == "1" ]]; then
+    log_info "[dry-run] Would deploy Worker via ${WRANGLER_LABEL} deploy"
+    return
+  fi
+  log_info "Deploying Worker via ${WRANGLER_LABEL} deploy"
+  wrangler_cmd deploy
+}
+
+write_generated_env() {
+  if [[ "$DRY_RUN" == "1" ]]; then
+    log_info "[dry-run] Would write $GENERATED_ENV_FILE"
+    return
+  fi
+  log_info "Writing $GENERATED_ENV_FILE"
   local secret_names=""
   if [[ ${#SYNCED_SECRET_NAMES[@]} -gt 0 ]]; then
     secret_names=$(printf '%s\n' "${SYNCED_SECRET_NAMES[@]}" | awk '!seen[$0]++' | paste -sd',' -)
   fi
+  local expo_public_stytch_token="${EXPO_PUBLIC_STYTCH_PUBLIC_TOKEN:-${STYTCH_PUBLIC_TOKEN:-}}"
+
   {
     printf '# Autogenerated by bootstrap.sh on %s\n' "$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
     printf '# Do not edit manually – rerun bootstrap.sh instead.\n\n'
@@ -972,15 +792,13 @@ write_generated_env() {
     printf 'LANDING_URL=%s\n' "${LANDING_URL:-}"
     printf 'APP_URL=%s\n' "${APP_URL:-}"
     printf 'APP_BASE_URL=%s\n' "${APP_BASE_URL_RESOLVED:-${APP_BASE_URL:-}}"
+    printf 'EXPO_PUBLIC_STYTCH_PUBLIC_TOKEN=%s\n' "${expo_public_stytch_token}"
+    printf 'EXPO_PUBLIC_STYTCH_BASE_URL=%s\n' "${EXPO_PUBLIC_STYTCH_BASE_URL:-}"
+    printf 'EXPO_PUBLIC_WORKER_ORIGIN=%s\n' "${EXPO_PUBLIC_WORKER_ORIGIN:-}"
     printf 'D1_DATABASE_NAME=%s\n' "${D1_DATABASE_NAME:-}"
     printf 'D1_DATABASE_ID=%s\n' "${D1_DATABASE_ID:-}"
     printf 'R2_BUCKET_NAME=%s\n' "${R2_BUCKET_NAME:-}"
-    printf 'KV_NAMESPACE_ID=%s\n' "${KV_NAMESPACE_ID:-}"
     printf 'CLOUDFLARE_ZONE_ID=%s\n' "${CLOUDFLARE_ZONE_ID:-}"
-    printf 'CLOUDFLARE_AUTH_METHOD=%s\n' "${CLOUDFLARE_AUTH_METHOD:-}"
-    printf 'CLOUDFLARE_AUTH_SOURCE=%s\n' "${CLOUDFLARE_AUTH_SOURCE:-}"
-    printf 'DNS_RECORD_NAMES=%s\n' "${dns_records:-}"
-    printf 'WORKER_ROUTE_PATTERN=%s\n' "${WORKER_ROUTE_PATTERN:-}"
     printf 'SYNCED_SECRET_NAMES=%s\n' "${secret_names:-}"
     printf 'STRIPE_PRODUCT_IDS=%s\n' "${STRIPE_PRODUCT_IDS:-[]}"
     printf 'STRIPE_WEBHOOK_ENDPOINT_ID=%s\n' "${STRIPE_WEBHOOK_ENDPOINT_ID:-}"
@@ -999,8 +817,10 @@ main() {
   require_command sed
   require_command node
 
+  load_env_file "$HOME/.env"
   load_env_file "/home/azureuser/.env"
   load_env_file "$ROOT_DIR/.env"
+  set +a
 
   ensure_var PROJECT_ID
   ensure_var CLOUDFLARE_ACCOUNT_ID
@@ -1010,25 +830,23 @@ main() {
   ensure_var STYTCH_SECRET
 
   resolve_stripe_secret
-  resolve_cloudflare_auth
+  prepare_cloudflare_env
   resolve_app_base_url
+  export_expo_runtime_vars
 
   ensure_cloudflare_auth
   ensure_d1
   ensure_r2
-  ensure_kv
   update_wrangler_config
-  ensure_dns_records
-  ensure_worker_routes
   run_migrations
   seed_project
   provision_stripe_products
   ensure_stripe_webhook
   sync_worker_secrets
-  sync_stytch_redirects
-  sync_stytch_sso_helpers
   upload_r2_placeholder
+  build_web_bundle
   write_generated_env
+  deploy_worker
 
   log_info "Bootstrap complete"
   log_info "Review $GENERATED_ENV_FILE for generated identifiers."

@@ -7,7 +7,7 @@ environment files.
 ## Prerequisites
 
 - Node.js ≥ 18 and pnpm / npm for installing dependencies locally.
-- [Wrangler CLI](https://developers.cloudflare.com/workers/wrangler/install-and-update/) authenticated with an API token that has permission to manage Workers, KV, D1, and R2.
+- [Wrangler CLI](https://developers.cloudflare.com/workers/wrangler/install-and-update/) authenticated with an API token that has permission to manage Workers, D1, and R2.
 - `jq`, `curl`, and `sed` available on your PATH (installed by default on most developer machines).
 - Valid API keys for Stytch and Stripe stored in `/home/azureuser/.env` or the project `.env` file.
 
@@ -20,6 +20,8 @@ Populate `.env` using `.env.example` as a template. At minimum you must define:
 - `CLOUDFLARE_ACCOUNT_ID` & `CLOUDFLARE_API_TOKEN`
 - `CLOUDFLARE_R2_BUCKET` (optional – falls back to `<project>-assets`)
 - `STYTCH_PROJECT_ID` & `STYTCH_SECRET`
+- `EXPO_PUBLIC_STYTCH_PUBLIC_TOKEN` (the public token consumed by the Expo login at `/login`)
+- `EXPO_PUBLIC_STYTCH_BASE_URL` (your Stytch CNAME when HTTP-only cookies are enforced)
 - `STRIPE_PRODUCTS` (shorthand or JSON array) and optionally `STRIPE_SECRET_KEY`
 
 Set `DRY_RUN=1` to exercise the script without creating resources.
@@ -42,18 +44,21 @@ Key tasks performed:
 1. Ensures the `wrangler`, `jq`, `curl`, `sed`, and `node` commands are available.
 2. Loads environment variables from `/home/azureuser/.env` followed by `./.env`.
 3. Verifies mandatory configuration values (including `LANDING_URL` and `APP_URL`).
-4. Creates or reuses Cloudflare D1, R2, and KV resources, matching names to `PROJECT_ID`.
+4. Creates or reuses Cloudflare D1 and R2 resources, matching names to `PROJECT_ID`.
 5. Updates `workers/api/wrangler.toml` from the template, storing a backup copy.
-6. Provisions proxied DNS A records (default `192.0.2.1`) for the landing/app hosts when `CLOUDFLARE_ZONE_ID` is set.
-7. Ensures Worker routes exist for the landing and app hosts.
-8. Runs database migrations via `node workers/api/scripts/migrate.js`.
-9. Seeds the `projects` table with the default project row.
-10. Optionally provisions Stripe products + prices based on `STRIPE_PRODUCTS`.
-11. Optionally creates a Stripe webhook endpoint pointing at `${LANDING_URL}/webhook/stripe`.
-12. Syncs Worker secrets (unless `SYNC_SECRETS=0`) via `wrangler secret put`.
-13. Syncs Stytch redirect URLs (and SSO domains when configured) via the Management API.
-14. Uploads a placeholder `welcome.txt` asset into the configured R2 bucket.
-15. Writes `.env.local.generated` containing resolved resource identifiers, DNS records, synced secrets, and Stripe/Stytch outputs.
+6. Confirms the Worker configuration (`wrangler.toml`) is up to date; `wrangler deploy` later applies the `[[routes]]` block and manages the custom domain automatically (requires DNS scope on your Wrangler login or API token).
+7. Runs database migrations via `node workers/api/scripts/migrate.js`.
+8. Seeds the `projects` table with the default project row.
+9. Optionally provisions Stripe products + prices based on `STRIPE_PRODUCTS`.
+10. Optionally creates a Stripe webhook endpoint pointing at `${LANDING_URL}/webhook/stripe`.
+11. Syncs Worker secrets (unless `SYNC_SECRETS=0`) via `wrangler secret put`.
+12. Uploads a placeholder `welcome.txt` asset into the configured R2 bucket.
+13. Writes `.env.local.generated` containing resolved resource identifiers, Stripe outputs, and
+    the `EXPO_PUBLIC_STYTCH_PUBLIC_TOKEN` for the Expo client.
+
+After bootstrap completes, copy `.env.local.generated` into `apps/web/.env.local` (or export the
+keys in your shell) so the Expo runtime can read `EXPO_PUBLIC_STYTCH_PUBLIC_TOKEN` when rendering
+the Stytch login at `/login`.
 
 ## Stripe Product Notation
 
@@ -118,7 +123,7 @@ npx expo export --platform web --output-dir dist
 
 ## Troubleshooting
 
-- **wrangler auth errors**: run `wrangler login` or set `CLOUDFLARE_API_TOKEN` with the necessary scopes (Workers Scripts, KV Storage, D1, R2)
+- **wrangler auth errors**: run `wrangler login` or set `CLOUDFLARE_API_TOKEN` with the necessary scopes (Workers Scripts, D1, R2)
 - **jq not found**: install via `brew install jq`, `apt install jq`, or your package manager.
 - **Stripe provisioning skipped**: confirm `STRIPE_SECRET_KEY` and `STRIPE_PRODUCTS` are set.
 - **Template values unchanged**: ensure the placeholders (e.g. `{{PROJECT_ID}}`) still exist in `workers/api/wrangler.toml.template`.
@@ -130,9 +135,6 @@ If you need to tear down the resources created by `bootstrap.sh`:
 ```bash
 # Delete the D1 database
 npx wrangler d1 delete $(grep D1_DATABASE_NAME .env.local.generated | cut -d= -f2)
-
-# Delete the KV namespace
-npx wrangler kv namespace delete --namespace-id $(grep KV_NAMESPACE_ID .env.local.generated | cut -d= -f2)
 
 # Delete the R2 bucket (bucket contents must be empty)
 npx wrangler r2 bucket delete $(grep R2_BUCKET_NAME .env.local.generated | cut -d= -f2)

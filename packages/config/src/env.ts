@@ -5,16 +5,11 @@ export type ResolvedEnv = {
   STRIPE_PRODUCTS: string;
   STYTCH_PROJECT_ID: string;
   STYTCH_SECRET: string;
-  STYTCH_PUBLIC_TOKEN?: string;
-  STYTCH_LOGIN_URL?: string;
-  STYTCH_REDIRECT_URL?: string;
-  STYTCH_SSO_CONNECTION_ID?: string;
-  STYTCH_ORGANIZATION_SLUG?: string;
-  STYTCH_ORGANIZATION_ID?: string;
-  STYTCH_SSO_DOMAIN?: string;
   APP_BASE_URL?: string;
   STRIPE_WEBHOOK_SECRET?: string;
   CLOUDFLARE_ZONE_ID?: string;
+  EXPO_PUBLIC_STYTCH_PUBLIC_TOKEN?: string;
+  EXPO_PUBLIC_STYTCH_BASE_URL?: string;
 };
 
 const REQUIRED_KEYS = [
@@ -27,23 +22,16 @@ const REQUIRED_KEYS = [
 ] as const;
 
 const OPTIONAL_KEYS = [
-  'STYTCH_PUBLIC_TOKEN',
-  'STYTCH_LOGIN_URL',
-  'STYTCH_REDIRECT_URL',
-  'STYTCH_SSO_CONNECTION_ID',
-  'STYTCH_ORGANIZATION_SLUG',
-  'STYTCH_ORGANIZATION_ID',
-  'STYTCH_SSO_DOMAIN',
   'APP_BASE_URL',
   'STRIPE_WEBHOOK_SECRET',
   'CLOUDFLARE_ZONE_ID',
+  'EXPO_PUBLIC_STYTCH_PUBLIC_TOKEN',
+  'EXPO_PUBLIC_STYTCH_BASE_URL',
 ] as const;
 
 const URL_KEYS = new Set<keyof ResolvedEnv>([
   'LANDING_URL',
   'APP_URL',
-  'STYTCH_LOGIN_URL',
-  'STYTCH_REDIRECT_URL',
 ]);
 
 const PROJECT_ID_PATTERN = /^[a-z0-9][a-z0-9-_]*$/i;
@@ -87,9 +75,6 @@ function validateValue(key: keyof ResolvedEnv, value: string): void {
     throw new Error('PROJECT_ID must contain only letters, numbers, hyphen, or underscore');
   }
 
-  if (key === 'STYTCH_ORGANIZATION_SLUG' && value.includes('://')) {
-    throw new Error('STYTCH_ORGANIZATION_SLUG must be a slug, not a URL');
-  }
 }
 
 function isNonEmptyString(value: unknown): value is string {

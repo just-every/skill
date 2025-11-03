@@ -18,20 +18,13 @@ try {
   process.exit(1);
 }
 
-const aliasMap = new Map([
-  ['STYTCH_PROJECT_SECRET', 'STYTCH_SECRET'],
-  ['STYTCH_PROJECT_ALIAS', 'STYTCH_ORGANIZATION_SLUG'],
-  ['STYTCH_PROJECT_DOMAIN', 'STYTCH_ORGANIZATION_SLUG'],
-]);
-
 const envMap = {};
 for (const line of rawEnv.split(/\r?\n/)) {
   const trimmed = line.trim();
   if (!trimmed || trimmed.startsWith('#')) continue;
   const idx = trimmed.indexOf('=');
   if (idx === -1) continue;
-  const rawKey = trimmed.slice(0, idx).trim();
-  const key = aliasMap.get(rawKey) || rawKey;
+  const key = trimmed.slice(0, idx).trim();
   const value = trimmed.slice(idx + 1).trim();
   if (!envMap[key]) {
     envMap[key] = value;

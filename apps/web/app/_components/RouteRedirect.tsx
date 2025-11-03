@@ -3,8 +3,18 @@ import { Platform, Pressable, Text } from 'react-native';
 import { Link } from 'expo-router';
 import * as Linking from 'expo-linking';
 
-const runtimeEnv = (globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env;
-export const WORKER_ORIGIN = runtimeEnv?.EXPO_PUBLIC_WORKER_ORIGIN ?? '';
+type PublicRuntimeEnv = Partial<{
+  workerOrigin: string;
+}>;
+
+const runtimeEnv = (globalThis as {
+  process?: { env?: Record<string, string | undefined> };
+  __JUSTEVERY_ENV__?: PublicRuntimeEnv;
+}).process?.env;
+
+const injectedEnv = (globalThis as { __JUSTEVERY_ENV__?: PublicRuntimeEnv }).__JUSTEVERY_ENV__ ?? {};
+
+export const WORKER_ORIGIN = runtimeEnv?.EXPO_PUBLIC_WORKER_ORIGIN ?? injectedEnv.workerOrigin ?? '';
 
 type WorkerLinkProps = {
   path: string;
@@ -14,6 +24,9 @@ type WorkerLinkProps = {
 
 export function workerUrl(path: string) {
   if (!path.startsWith('/')) {
+    return path;
+  }
+  if (path === '/login' || path.startsWith('/login?')) {
     return path;
   }
   return WORKER_ORIGIN ? `${WORKER_ORIGIN}${path}` : path;

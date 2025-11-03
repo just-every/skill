@@ -2,16 +2,16 @@
 
 ## 1. Goals & Guiding Principles
 - Deliver a reusable starter repo for future `justevery.com` projects with opinionated defaults and batteries included.
-- Prioritise Cloudflare-native hosting (Workers + D1 + R2) and managed services (Stytch SSO, Stripe billing).
+- Prioritise Cloudflare-native hosting (Workers + D1 + R2) and managed services (Stytch authentication, Stripe billing).
 - Keep the web experience deployable immediately, while the Expo/React Native codebase stays platform-agnostic for mobile expansion.
 - Automate provisioning and deployments via `wrangler` and a `bootstrap.sh` script using environment-driven configuration.
 
 ## 2. Target Architecture
 - **Client**: Expo (React Native) app targeting web first (`expo-router` + `expo` web build). Separate routes for landing, login, authenticated app, and payments placeholder.
-- **Worker**: Cloudflare Worker serving SSR/static assets (landing, login, app shell) and acting as an API proxy to Stytch, Stripe, and D1.
+- **Worker**: Cloudflare Worker serving SSR/static assets (landing, app shell) and acting as an API proxy to Stytch, Stripe, and D1. Protected requests include a bearer token that the Worker validates with Stytch before continuing.
 - **Database**: Cloudflare D1 for app data (users, subscriptions, feature flags, audit trail) with migrations managed via `drizzle-kit` or Wrangler migrations.
 - **Storage**: Cloudflare R2 for asset uploads (user avatars, marketing images). Access through signed URLs from the Worker.
-- **Authentication**: Stytch SSO (login.justevery.com) using OAuth redirect into Worker → Expo app. Session management through Stytch session tokens stored in Durable Objects/Workers KV.
+- **Authentication**: Stytch React B2B SDK in the Expo web app issues `session_jwt` tokens. The Worker expects `Authorization: Bearer <session_jwt>` on every call and uses `sessions.authenticate` to verify them.
 - **Payments**: Stripe Billing products configured per project; Worker webhook endpoint to sync status into D1.
 - **CI/CD**: GitHub Actions workflow deploying Worker via Wrangler, running tests/linting, building Expo web bundle, seeding D1, and validating bootstrap script.
 
@@ -35,10 +35,10 @@
 - Source assets from R2 (fallback to local placeholder). Ensure responsive design for desktop/mobile web.
 - Include metadata (SEO tags) via Expo Router head config.
 
-### 5.2 Login (SSO via Stytch)
-- Use Stytch hosted login at `https://login.justevery.com` with redirect to Worker callback `/auth/callback`.
-- Worker verifies Stytch tokens, stores session in D1 + Durable Object, sets HttpOnly cookie for Expo app consumption.
-- Expo `/login` route triggers redirect to Stytch if unauthenticated and shows success message on return.
+### 5.2 Login (Stytch React B2B)
+- Embed Stytch’s React B2B login component in the Expo `/login` route (web only). Native surfaces point users to the hosted login URL for now.
+- After authentication, capture the `session_jwt` from the SDK and store it in client state for API calls.
+- Update data-fetching hooks to send `Authorization: Bearer <session_jwt>` so the Worker can call Stytch’s `sessions.authenticate` endpoint before returning data.
 - Provide logout flow clearing session cookie.
 
 ### 5.3 App Shell (Authenticated)
@@ -64,7 +64,7 @@
 ### 5.7 GitHub Actions Deployment Workflow
 - Workflow triggers on `main` pushes + manual dispatch.
 - Jobs: install dependencies (pnpm), lint (dry-run first), run tests, build Expo web, run Worker typecheck, deploy via `wrangler deploy` (using GitHub secrets mirrored from `.env`).
-- Post-deploy job runs integration smoke test hitting `/`, `/login`, `/app` with `wrangler dev` preview tokens.
+- Post-deploy job runs integration smoke tests hitting `/`, `/app`, and `/api/session` (with a seeded bearer token) using `wrangler dev` preview tokens.
 
 ## 6. bootstrap.sh Responsibilities
 - Load `.env` and validate required keys.
@@ -72,7 +72,7 @@
   1. Create/update Worker, bind D1 database, bind R2 bucket, configure routes for `https://{PROJECT_ID}.justevery.com` and `/app`.
   2. Create D1 database if missing, run migrations, seed default records.
   3. Create R2 bucket if missing and upload placeholder assets.
-- Stytch setup: ensure project name matches `PROJECT_ID`, register redirect URLs (`LANDING_URL`, `APP_URL`), sync environment variables into Stytch application.
+- Stytch setup: document environment-specific `EXPO_PUBLIC_STYTCH_PUBLIC_TOKEN` values and ensure required OAuth/SAML providers are configured in Stytch.
 - Stripe setup: create or update products/prices listed in `STRIPE_PRODUCTS`, configure webhook endpoint pointing to Worker.
 - Output summary, store generated IDs in `.env.local.generated` for auditing.
 
@@ -96,17 +96,23 @@
 
 ## 10. Open Questions / Follow-Ups
 - Determine naming convention for Stripe products (`STRIPE_PRODUCTS` format) and storage for created IDs.
-- Decide between Durable Objects vs. Workers KV for session storage; assess rate limits.
+- Evaluate whether the Worker should cache Stytch session verifications or rely on direct API calls for every request.
 - Confirm domain provisioning flow with Cloudflare (wildcard vs per-project DNS records).
 - Clarify access control model for internal admins vs external customers in D1 schema.
 - Establish secrets rotation process across Cloudflare, Stytch, Stripe, and GitHub Actions.
 
-## 11. Status (2025-11-02)
-- **Sections 1–5 (architecture, app, worker, data)**: ✅ Implemented in repo; see `docs/VERIFICATION.md` for evidence mapping.
-- **Section 6 (bootstrap.sh)**: ➡️ Script provisions Cloudflare D1/R2/KV, seeds DB, templates Wrangler config, and sets up Stripe products/webhooks. Remaining automation work: Cloudflare DNS + Worker deployment + Stytch management API calls + secret sync into Worker.
-- **Section 7 (documentation)**: ✅ Completed (`README.md`, `docs/bootstrap.md`, `docs/architecture.md`, `docs/SSO.md`, `docs/VERIFICATION.md`, `CONTRIBUTING.md`).
-- **Section 8 (testing)**: ✅ Worker unit tests, Expo component tests, Playwright smoke tests, and CI workflow in place.
-- **Sections 9–10**: 📌 Still roadmap/open; no implementation expected yet.
+## 11. Status (2025-11-03)
+- **Sections 1–5 (architecture, app, worker, data)**: ✅ Still current; no regressions detected.
+- **Section 6 (bootstrap.sh)**: 🔄 Bootstrap Idempotency agent completed review with actionable patches, but changes not merged yet. Cloudflare DNS + Worker deployment automation still pending.
+- **Section 7 (documentation)**: ✅ Up to date; no new docs required yet.
+- **Section 8 (testing)**: ✅ CI + smoke coverage unchanged; rerun recommended after Stytch fix lands.
+- **Sections 9–10**: 📌 Remain long-term roadmap.
+
+### 11.1 In-Flight Tasks
+- Merge agent outputs: Expo Web Audit and Worker Routing Review agents still need to be launched or results retrieved; bootstrap improvements awaiting manual merge.
+- Stytch web fixes: `apps/web/app/_providers/StytchProvider.tsx` must wrap the app in `StytchB2BProvider` using `EXPO_PUBLIC_STYTCH_*` env values; current web bundle throws `useStytchMemberSession` invariant.
+- Demo validation: After the provider fix and agent merges, rerun Expo web build and Worker smoke tests to confirm `demo.justevery.com` works end-to-end.
+- Deployment verification: Execute `./bootstrap.sh` (non-dry-run) to redeploy demo resources, fix all errors, and repeat until the deployed https://demo.justevery.com app is fully working.
 
 ## 12. Completing the Bootstrap Flow with ~/.env Credentials
 
@@ -115,10 +121,10 @@ The following steps describe how the single `bootstrap.sh` run should consume th
 1. **Load configuration**
    - Read shared platform credentials from `/home/azureuser/.env` (Cloudflare, Stripe, Stytch). These values apply to every subdomain under `justevery.com`.
    - Pull per-product inputs (`PROJECT_ID`, `LANDING_URL`, `APP_URL`, `STRIPE_PRODUCTS`, optional `STRIPE_MODE`) from the repo-local `.env`. Each project template keeps its own `.env` with these overrides while still relying on the shared `$HOME/.env` for privileged keys.
-   - Export Cloudflare credentials: `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_API_TOKEN` (token must include Workers, D1, R2, KV, DNS scopes). Keep `CLOUDFLARE_ZONE_ID`, `CLOUDFLARE_EMAIL`, `CLOUDFLARE_API_KEY` on hand for DNS APIs that still require the older key/email pair.
+   - Export Cloudflare credentials: `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_API_TOKEN` (token must include Workers, D1, R2, DNS scopes). Keep `CLOUDFLARE_ZONE_ID`, `CLOUDFLARE_EMAIL`, `CLOUDFLARE_API_KEY` on hand for DNS APIs that still require the older key/email pair.
 
 2. **Cloudflare provisioning**
-   - **Workers + bindings**: Use `CLOUDFLARE_API_TOKEN` with Wrangler to ensure the Worker script exists, binding `SESSION_KV`, `DB`, and `STORAGE`. Continue using the existing D1/R2/KV ensure functions.
+   - **Workers + bindings**: Use `CLOUDFLARE_API_TOKEN` with Wrangler to ensure the Worker script exists, binding `DB` and `STORAGE`. Continue using the existing D1/R2 ensure functions.
    - **DNS + routes**: With `CLOUDFLARE_ZONE_ID` and either the API token (preferred) or API key/email, check for a `CNAME` (or `AAAA` if using proxied Workers) pointing `{PROJECT_ID}.justevery.com` at the Worker. Create/update if missing.
    - **Custom domain binding**: Call `wrangler routes`/Cloudflare Workers API to attach the Worker to the new hostname so requests resolve immediately.
    - **Deployment**: Run `wrangler deploy` using the templated `workers/api/wrangler.toml` once bindings and DNS are ready.
@@ -134,8 +140,8 @@ The following steps describe how the single `bootstrap.sh` run should consume th
 
 5. **Stytch management**
    - Authenticate using `STYTCH_MANAGEMENT_KEY_ID` + `STYTCH_MANAGEMENT_SECRET` alongside `STYTCH_PROJECT_ID` and `STYTCH_PROJECT_ENVIRONMENT` to call the Management API.
-   - Ensure redirect URLs (`LANDING_URL`, `APP_URL`, `/auth/callback`) are registered, update the hosted login configuration, and link the provided `STYTCH_SSO_CONNECTION_ID` (or fallback slug/domain values).
-   - Sync runtime secrets into the Worker (`STYTCH_PROJECT_SECRET`, `STYTCH_PUBLIC_TOKEN`, `STYTCH_SSO_CONNECTION_ID`, optional domain/slug) using `wrangler secret put` so `/login` and `/auth/callback` succeed post-deploy.
+   - Ensure redirect URLs (`LANDING_URL`, `APP_URL`, `/auth/callback`) are registered and that the Connected App client in Stytch lists the same values.
+   - Sync runtime secrets into the Worker (`STYTCH_PROJECT_ID`, `STYTCH_SECRET`, Stripe keys) using `wrangler secret put` so bearer verification succeeds post-deploy.
 
 6. **Verification + reporting**
    - Once provisioning completes, automate smoke checks (`curl` `/`, `/login`, `/app`, `/api/session`) and write the results to `docs/DEPLOYMENTS.md`.

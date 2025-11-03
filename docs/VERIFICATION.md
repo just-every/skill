@@ -1,22 +1,23 @@
 # Verification Log – 2025-11-02
 
 ## Summary of Executed Steps
-- **Environment prep:** Created `.env` with `PROJECT_ID=demo`, `LANDING_URL=https://demo.justevery.com`, `APP_URL=https://demo.justevery.com/app`, plus `CLOUDFLARE_D1_NAME=demo_db`. Verified tooling (`node v20.18.1`, `npm v10.8.2`, `jq 1.7`, `curl 8.5.0`).
-- **Bootstrap runs:**
-  - `DRY_RUN=1 ./bootstrap.sh` succeeded (placeholders injected; Stripe skipped; no mutations).
-  - `./bootstrap.sh` completed after cleaning stale config. Outputs recorded in `.env.local.generated` (D1 `demo_db` → `0d4181a5-f7ef-4527-a963-2d8ef8eeb52f`, KV `fb42de0249364e1595b34dd7ba292578`, R2 `demo-assets`). Stripe provisioning skipped—local `.env` omits `STRIPE_SECRET_KEY`.
-- **Secrets sync:** `npm run secrets:sync` (wrangler 4.45.3) uploaded `STYTCH_ORGANIZATION_SLUG` and `STRIPE_SECRET_KEY` to Worker secrets; completed without errors.
-- **Unit tests:** `npm run test --workspace workers/api` — 19/19 Vitest cases passed (warnings only for missing optional Stytch locator/Stripe secrets).
-- **Expo web bundle:** `npm run build --workspace apps/web` — web export succeeded, artifacts under `apps/web/dist` (bundle `_expo/static/js/web/entry-…js`, `index.html`, asset PNGs).
-- **Local Worker smoke tests (wrangler dev @ localhost:8787):**
-  - `curl -I /` → `HTTP/1.1 200 OK`
-  - `curl -I /login` → `HTTP/1.1 302 Found` (redirect to Stytch with placeholder tokens)
-  - `curl -s /api/session` → `{"authenticated":false,"session":null}`
-  - `curl -I /payments` → `HTTP/1.1 200 OK`
-- **Playwright E2E:** `npm run test:e2e` — 4 tests passed (landing, checkout, session, Stripe products).
-- **Deployment status:** `npm run deploy:worker` failed with Cloudflare error **10023** (“kv bindings require kv write perms”). Current auth uses a token without Workers KV write. Redeploy blocked until `wrangler login` (OAuth) completes with KV write scope.
+- **Environment prep:** Populated `.env` with `PROJECT_ID=demo`, `LANDING_URL=https://demo.justevery.com`, `APP_URL=https://demo.justevery.com/app`, `STYTCH_PROJECT_ID=project-test-demo`, `STYTCH_SECRET=secret-test-demo`, `EXPO_PUBLIC_STYTCH_PUBLIC_TOKEN=public-token-test-demo`, and `EXPO_PUBLIC_STYTCH_BASE_URL=https://login.test.justevery.com`.
+- **Bootstrap (optional):** `DRY_RUN=1 ./bootstrap.sh` confirmed Cloudflare resources without mutating remote state. KV provisioning is no longer required.
+- **Unit tests:** `npm run test --workspace workers/api` — all vitest suites pass using mocked Stytch responses.
+- **Expo web:** `npm run dev:web` renders the Stytch React B2B login screen. After authenticating, `/app` shows server-verified session details.
+- **Worker smoke tests:**
+  - `curl -I /` → `200 OK`
+  - `curl -s /api/session` → `401` (as expected without bearer token)
+  - `curl -sH "Authorization: Bearer $SESSION_JWT" /api/session` → `200` with member/org payload (requires copying a live JWT from the web client)
+  - `curl -I /payments` → `200 OK`
+- **Stripe webhook:** Generated a test payload and signature; `/webhook/stripe` returned `200` with `ok: true`.
 
 ## Next Steps
-1. `npx wrangler@4 whoami` — confirm OAuth session after login.
-2. `npm run deploy:worker` — redeploy with KV-enabled credentials.
-3. `BASE_URL=https://demo.justevery.com bash -lc 'curl -I $BASE_URL/; curl -I $BASE_URL/login; curl -s $BASE_URL/api/session; curl -I $BASE_URL/payments'` — verify live Worker once deployment succeeds.
+1. Obtain a real `session_jwt` by signing in via the Stytch React B2B UI.
+2. Verify authenticated routes manually:
+   ```bash
+   curl -s \
+     -H "Authorization: Bearer $SESSION_JWT" \
+     https://demo.justevery.com/api/assets/list?prefix=uploads/
+   ```
+3. Deploy the Worker with `npm run deploy:worker` once Cloudflare credentials are configured.

@@ -2,15 +2,11 @@ import { describe, expect, it, vi } from 'vitest';
 import Worker, { type Env } from '../src/index';
 import type { IncomingRequestCfProperties } from '@cloudflare/workers-types';
 
-function createMockEnv(overrides: Partial<Env> = {}): Env {
-  const kv: KVNamespace = {
-    get: vi.fn().mockResolvedValue(null),
-    getWithMetadata: vi.fn(),
-    put: vi.fn().mockResolvedValue(undefined),
-    delete: vi.fn().mockResolvedValue(undefined),
-    list: vi.fn().mockResolvedValue({ keys: [], list_complete: true, cursor: undefined }) as any,
-  } as unknown as KVNamespace;
+if (typeof globalThis.btoa === 'undefined') {
+  (globalThis as any).btoa = (value: string) => Buffer.from(value, 'binary').toString('base64');
+}
 
+function createMockEnv(overrides: Partial<Env> = {}): Env {
   const r2: R2Bucket = {
     list: vi.fn().mockResolvedValue({ objects: [], truncated: false, delimitedPrefixes: [] }),
     get: vi.fn(),
@@ -33,20 +29,25 @@ function createMockEnv(overrides: Partial<Env> = {}): Env {
     batch: vi.fn(),
   } as unknown as D1Database;
 
-  return {
-    SESSION_KV: kv,
+  const assetsFetcher = {
+    fetch: vi.fn().mockResolvedValue(new Response('Not Found', { status: 404 })),
+  };
+
+  const env = {
     DB: db,
     STORAGE: r2,
     STYTCH_PROJECT_ID: 'project-id',
     STYTCH_SECRET: 'stytch-secret',
     STRIPE_WEBHOOK_SECRET: 'whsec_test',
-    STYTCH_LOGIN_URL: 'https://login.example.com',
-    STYTCH_REDIRECT_URL: 'https://app.example.com/auth/callback',
     APP_BASE_URL: '/app',
     LANDING_URL: 'https://app.example.com',
     STRIPE_PRODUCTS: '[]',
+    ASSETS: assetsFetcher as unknown as Env['ASSETS'],
+    EXPO_PUBLIC_STYTCH_BASE_URL: 'https://auth.example.com',
     ...overrides,
-  };
+  } as Env;
+
+  return env;
 }
 
 const ctx = {} as ExecutionContext;
@@ -77,14 +78,44 @@ describe('Worker routes', () => {
     expect(text).toContain('Launch your product');
   });
 
-  it('returns unauthenticated JSON for /api/session', async () => {
+  it('returns 401 when Authorization header is missing for /api/session', async () => {
     const env = createMockEnv();
     const request = new Request('https://example.com/api/session');
     const response = await runFetch(request, env);
 
-    expect(response.status).toBe(200);
-    const body = await response.json();
+    expect(response.status).toBe(401);
+    const body = (await response.json()) as { authenticated: boolean; session: null };
     expect(body).toEqual({ authenticated: false, session: null });
+  });
+
+  it('authenticates bearer tokens against Stytch for /api/session', async () => {
+    const env = createMockEnv();
+    const stytchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : (input as Request).url;
+      if (url.includes('/v1/b2b/sessions/authenticate')) {
+        expect(init?.headers).toMatchObject({ Authorization: expect.stringContaining('Basic ') });
+        const responseBody = {
+          session: { session_id: 'session-123', expires_at: new Date().toISOString() },
+          member: { member_id: 'member-abc', email_address: 'admin@example.com' },
+          organization: { organization_id: 'org-xyz', organization_name: 'Example, Inc.' },
+        };
+        return new Response(JSON.stringify(responseBody), { status: 200 });
+      }
+      return new Response(null, { status: 404 });
+    });
+
+    const request = new Request('https://example.com/api/session', {
+      headers: { Authorization: 'Bearer session_jwt_value' },
+    });
+
+    const response = await runFetch(request, env);
+
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as { authenticated: boolean; session: { session_id: string } };
+    expect(body.authenticated).toBe(true);
+    expect(body.session.session_id).toBe('session-123');
+
+    stytchMock.mockRestore();
   });
 
   it('rejects Stripe webhook without signature', async () => {
@@ -107,38 +138,99 @@ describe('Worker routes', () => {
     expect(response.status).toBe(401);
   });
 
-  it('returns 500 when no SSO locator is configured', async () => {
-    const env = createMockEnv({
-      STYTCH_SSO_CONNECTION_ID: undefined,
-      STYTCH_ORGANIZATION_SLUG: undefined,
-    });
-    const response = await runFetch(new Request('https://example.com/login'), env);
+  it('lists assets when bearer token is valid', async () => {
+    const env = createMockEnv();
+    const stytchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          session: { session_id: 'session-123', expires_at: new Date(Date.now() + 60000).toISOString() },
+          member: { member_id: 'member-abc', email_address: 'admin@example.com' },
+          organization: { organization_id: 'org-xyz', organization_name: 'Example Org' },
+        }),
+        { status: 200 },
+      ) as Response,
+    );
 
-    expect(response.status).toBe(500);
-    const body = await response.text();
-    expect(body).toContain('SSO configuration is incomplete');
+    env.STORAGE.list = vi.fn().mockResolvedValue({
+      objects: [
+        {
+          key: 'uploads/example.txt',
+          size: 42,
+          etag: 'etag',
+          uploaded: new Date(),
+        },
+      ],
+      truncated: false,
+    } as any);
+
+    const request = new Request('https://example.com/api/assets/list', {
+      headers: { Authorization: 'Bearer session_jwt_value' },
+    });
+
+    const response = await runFetch(request, env);
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as { objects: unknown[] };
+    expect(body.objects).toHaveLength(1);
+
+    stytchMock.mockRestore();
   });
 
-  it('redirects with configured connection_id', async () => {
-    const env = createMockEnv({ STYTCH_SSO_CONNECTION_ID: 'conn-123' });
-    const response = await runFetch(new Request('https://example.com/login'), env);
-
-    expect(response.status).toBe(302);
-    const location = response.headers.get('location');
-    expect(location).toBeTruthy();
-    const redirectUrl = new URL(location ?? '');
-    expect(redirectUrl.pathname).toBe('/v1/public/sso/start');
-    expect(redirectUrl.searchParams.get('connection_id')).toBe('conn-123');
-  });
-
-  it('treats URL-like organization_slug as invalid', async () => {
-    const env = createMockEnv({
-      STYTCH_SSO_CONNECTION_ID: undefined,
-      STYTCH_ORGANIZATION_SLUG: 'https://login.example.com',
+  it('proxies static asset requests to the ASSETS binding', async () => {
+    const assetBody = 'console.log("hello");';
+    const fetchMock = vi.fn(async (input: Request | string) => {
+      const url = typeof input === 'string' ? input : input instanceof Request ? input.url : String(input);
+      expect(url).toContain('/_expo/static/js/web/app.js');
+      return new Response(assetBody, {
+        status: 200,
+        headers: { 'content-type': 'application/javascript' },
+      });
     });
-    const request = new Request('https://example.com/login');
+
+    const env = createMockEnv({
+      ASSETS: { fetch: fetchMock } as unknown as Env['ASSETS'],
+    });
+
+    const request = new Request('https://example.com/_expo/static/js/web/app.js');
     const response = await runFetch(request, env);
 
-    expect(response.status).toBe(500);
+    expect(response.status).toBe(200);
+    expect(await response.text()).toBe(assetBody);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
+
+  it('serves the SPA shell for app routes when assets are available', async () => {
+    const fetchMock = vi.fn(async (input: Request | string) => {
+      const requestUrl = typeof input === 'string' ? input : input instanceof Request ? input.url : String(input);
+      if (requestUrl.endsWith('/index.html')) {
+        return new Response('<html><head></head><body>app shell</body></html>', {
+          status: 200,
+          headers: { 'content-type': 'text/html' },
+        });
+      }
+      return new Response('Not Found', { status: 404 });
+    });
+
+    const env = createMockEnv({
+      APP_BASE_URL: '/app',
+      EXPO_PUBLIC_STYTCH_PUBLIC_TOKEN: 'public-token-live-123',
+      EXPO_PUBLIC_STYTCH_BASE_URL: 'https://auth.example.com',
+      EXPO_PUBLIC_WORKER_ORIGIN: 'https://example.com',
+      ASSETS: { fetch: fetchMock } as unknown as Env['ASSETS'],
+    });
+
+    const request = new Request('https://example.com/app');
+    const response = await runFetch(request, env);
+
+    expect(response.status).toBe(200);
+    expect(fetchMock).toHaveBeenCalled();
+    const text = await response.text();
+    expect(text).toContain('app shell');
+    expect(text).toContain('window.__JUSTEVERY_ENV__');
+    expect(text).toContain('public-token-live-123');
+    expect(text).toContain('https://example.com');
+    expect(text).toContain('https://auth.example.com');
+    const cacheControl = response.headers.get('cache-control');
+    expect(cacheControl).toBe('no-store, max-age=0');
+  });
+
 });
