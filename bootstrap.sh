@@ -650,6 +650,130 @@ ensure_stripe_webhook() {
   fi
 }
 
+stripe_autoprune_provision() {
+  if [[ "${STRIPE_AUTOPRUNE:-0}" != "1" ]]; then
+    return
+  fi
+
+  if [[ -z "${STRIPE_SECRET_KEY:-}" ]]; then
+    log_warn "STRIPE_AUTOPRUNE=1 but STRIPE_SECRET_KEY is missing; cannot manage webhook."
+    return
+  fi
+
+  if [[ -n "${STRIPE_WEBHOOK_SECRET:-}" ]]; then
+    log_info "STRIPE_AUTOPRUNE=1 but webhook secret already present; skipping autopruner."
+    return
+  fi
+
+  local target_url
+  target_url="${LANDING_URL%/}/webhook/stripe"
+
+  log_info "Stripe autopruner: listing existing webhook endpoints"
+  local list_response
+  if ! list_response=$(run_cmd_capture curl -sS -X GET https://api.stripe.com/v1/webhook_endpoints \
+    -u "$STRIPE_SECRET_KEY:" 2>&1); then
+    log_warn "Stripe autopruner: failed to list webhook endpoints: $list_response"
+    return
+  fi
+
+  local endpoint_ids
+  endpoint_ids=$(jq -r --arg url "$target_url" '.data[] | select(.url == $url) | .id' <<<"$list_response")
+
+  if [[ -n "$endpoint_ids" ]]; then
+    log_info "Stripe autopruner: deleting existing endpoints for $target_url"
+    while IFS= read -r endpoint_id; do
+      [[ -z "$endpoint_id" ]] && continue
+      log_info "  - Deleting Stripe webhook endpoint $endpoint_id"
+      local delete_response
+      delete_response=$(run_cmd_capture curl -sS -X DELETE "https://api.stripe.com/v1/webhook_endpoints/$endpoint_id" \
+        -u "$STRIPE_SECRET_KEY:" 2>&1)
+      log_info "    Response: $delete_response"
+    done <<<"$endpoint_ids"
+  else
+    log_info "Stripe autopruner: no existing endpoints matched $target_url"
+  fi
+
+  log_info "Stripe autopruner: creating webhook endpoint for $target_url"
+  local create_response
+  create_response=$(run_cmd_capture curl -sS -X POST https://api.stripe.com/v1/webhook_endpoints \
+    -u "$STRIPE_SECRET_KEY:" \
+    -d url="$target_url" \
+    -d enabled_events[]="checkout.session.completed" \
+    -d enabled_events[]="customer.subscription.created" \
+    -d enabled_events[]="customer.subscription.updated" \
+    -d enabled_events[]="invoice.payment_succeeded" \
+    -d enabled_events[]="invoice.payment_failed" 2>&1)
+
+  local new_endpoint_id new_secret
+  new_endpoint_id=$(jq -r '.id // empty' <<<"$create_response")
+  new_secret=$(jq -r '.secret // empty' <<<"$create_response")
+
+  if [[ -z "$new_endpoint_id" || -z "$new_secret" ]]; then
+    log_warn "Stripe autopruner: failed to create webhook endpoint: $create_response"
+    return
+  fi
+
+  STRIPE_WEBHOOK_ENDPOINT_ID="$new_endpoint_id"
+  STRIPE_WEBHOOK_SECRET="$new_secret"
+  log_info "Stripe autopruner: created endpoint $STRIPE_WEBHOOK_ENDPOINT_ID and captured secret"
+}
+
+post_deploy_guidance() {
+  stytch_post_deploy_note
+  stripe_post_deploy_note
+}
+
+stytch_post_deploy_note() {
+  local origins=()
+  local origin
+
+  origin=$(extract_origin "${LANDING_URL:-}")
+  if [[ -n "$origin" ]]; then
+    origins+=("$origin")
+  fi
+
+  origin=$(extract_origin "${APP_URL:-}")
+  if [[ -n "$origin" ]]; then
+    origins+=("$origin")
+  fi
+
+  if [[ ${#origins[@]} -eq 0 ]]; then
+    log_warn "Stytch JS SDK allowlist: unable to derive origins from LANDING_URL or APP_URL. Update them in .env and rerun."
+    return
+  fi
+
+  local unique_origins
+  unique_origins=$(printf '%s\n' "${origins[@]}" | awk '!seen[$0]++')
+
+  log_info "Stytch follow-up: ensure the JS SDK allowed domains include the deployed origins below (dashboard > SDK configuration)."
+  while IFS= read -r line; do
+    log_info "  - $line"
+  done <<<"$unique_origins"
+
+  if [[ -n "${STYTCH_PROJECT_ID:-}" ]]; then
+    log_info "Manage domains at https://stytch.com/dashboard/redirect/sdks?project_id=${STYTCH_PROJECT_ID}"
+  else
+    log_warn "STYTCH_PROJECT_ID missing; update .env before editing allowed domains."
+  fi
+}
+
+stripe_post_deploy_note() {
+  local target_url="${LANDING_URL%/}/webhook/stripe"
+
+  if [[ -z "${STRIPE_SECRET_KEY:-}" ]]; then
+    log_warn "Stripe follow-up: STRIPE_SECRET_KEY not provided; webhook secret could not be managed."
+    return
+  fi
+
+  if [[ -z "${STRIPE_WEBHOOK_ENDPOINT_ID:-}" || -z "${STRIPE_WEBHOOK_SECRET:-}" ]]; then
+    log_warn "Stripe follow-up: webhook endpoint for $target_url not created or secret unavailable (likely quota)."
+    log_warn "Visit https://dashboard.stripe.com/${STRIPE_MODE:-test}/webhooks to delete old endpoints, then rerun bootstrap to capture a fresh secret."
+  else
+    log_info "Stripe follow-up: webhook endpoint ${STRIPE_WEBHOOK_ENDPOINT_ID} configured for $target_url."
+    log_info "Secret stored in STRIPE_WEBHOOK_SECRET and synced to the Worker; rotate via dashboard when needed."
+  fi
+}
+
 upload_r2_placeholder() {
   local object_key="welcome.txt"
   if [[ "$DRY_RUN" == "1" ]]; then
@@ -674,6 +798,7 @@ write_expo_env_file() {
   log_info "Writing Expo env file to ${target#$ROOT_DIR/}"
   {
     printf 'EXPO_PUBLIC_STYTCH_PUBLIC_TOKEN=%s\n' "${EXPO_PUBLIC_STYTCH_PUBLIC_TOKEN:-}"
+    printf 'EXPO_PUBLIC_STYTCH_B2B_PUBLIC_TOKEN=%s\n' "${EXPO_PUBLIC_STYTCH_B2B_PUBLIC_TOKEN:-}"
     printf 'EXPO_PUBLIC_STYTCH_BASE_URL=%s\n' "${EXPO_PUBLIC_STYTCH_BASE_URL:-}"
     printf 'EXPO_PUBLIC_WORKER_ORIGIN=%s\n' "${EXPO_PUBLIC_WORKER_ORIGIN:-}"
   } >"$target"
@@ -681,9 +806,18 @@ write_expo_env_file() {
 
 export_expo_runtime_vars() {
   local fallback_stytch_token="${STYTCH_PUBLIC_TOKEN:-}"
+  local fallback_b2b_token="${STYTCH_B2B_PUBLIC_TOKEN:-}"
 
   if [[ -z "${EXPO_PUBLIC_STYTCH_PUBLIC_TOKEN:-}" ]]; then
-    if [[ -n "$fallback_stytch_token" ]]; then
+    if [[ -n "${EXPO_PUBLIC_STYTCH_B2B_PUBLIC_TOKEN:-}" ]]; then
+      EXPO_PUBLIC_STYTCH_PUBLIC_TOKEN="$EXPO_PUBLIC_STYTCH_B2B_PUBLIC_TOKEN"
+      export EXPO_PUBLIC_STYTCH_PUBLIC_TOKEN
+      log_info "Derived EXPO_PUBLIC_STYTCH_PUBLIC_TOKEN from EXPO_PUBLIC_STYTCH_B2B_PUBLIC_TOKEN"
+    elif [[ -n "$fallback_b2b_token" ]]; then
+      EXPO_PUBLIC_STYTCH_PUBLIC_TOKEN="$fallback_b2b_token"
+      export EXPO_PUBLIC_STYTCH_PUBLIC_TOKEN
+      log_info "Derived EXPO_PUBLIC_STYTCH_PUBLIC_TOKEN from STYTCH_B2B_PUBLIC_TOKEN"
+    elif [[ -n "$fallback_stytch_token" ]]; then
       EXPO_PUBLIC_STYTCH_PUBLIC_TOKEN="$fallback_stytch_token"
       export EXPO_PUBLIC_STYTCH_PUBLIC_TOKEN
       log_info "Derived EXPO_PUBLIC_STYTCH_PUBLIC_TOKEN from STYTCH_PUBLIC_TOKEN"
@@ -842,11 +976,15 @@ main() {
   seed_project
   provision_stripe_products
   ensure_stripe_webhook
+  stripe_autoprune_provision
   sync_worker_secrets
   upload_r2_placeholder
   build_web_bundle
   write_generated_env
   deploy_worker
+
+  # Post-deploy guidance for follow-up steps that still require manual input
+  post_deploy_guidance
 
   log_info "Bootstrap complete"
   log_info "Review $GENERATED_ENV_FILE for generated identifiers."

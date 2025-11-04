@@ -207,21 +207,59 @@ function injectRuntimeEnv(html: string, payload: RuntimeEnvPayload): string {
   const scriptContent = `(() => {
     const env = ${JSON.stringify(payload)};
     window.__JUSTEVERY_ENV__ = env;
-    const replaceIfStytch = (input) => {
-      if (!env || !env.stytchBaseUrl) return null;
-      try {
-        const url = typeof input === 'string' ? input : (input && input.url) || '';
-        if (!url) return null;
-        if (url.startsWith('https://api.stytch.com')) {
-          return env.stytchBaseUrl + url.slice('https://api.stytch.com'.length);
+    try {
+      if (typeof window.dispatchEvent === 'function') {
+        const detail = { stytchPublicToken: env.stytchPublicToken, stytchBaseUrl: env.stytchBaseUrl };
+        const event = typeof CustomEvent === 'function'
+          ? new CustomEvent('justevery:env-ready', { detail })
+          : new Event('justevery:env-ready');
+        if ('detail' in event) {
+          (event as CustomEvent<typeof detail>).detail.stytchPublicToken ??= env.stytchPublicToken;
+          (event as CustomEvent<typeof detail>).detail.stytchBaseUrl ??= env.stytchBaseUrl;
         }
-        if (url.startsWith('https://test.stytch.com')) {
-          return env.stytchBaseUrl + url.slice('https://test.stytch.com'.length);
-        }
-      } catch (error) {
-        console.warn('Stytch URL rewrite failed', error);
+        window.dispatchEvent(event);
+      }
+    } catch (eventError) {
+      console.warn('Failed to dispatch env-ready event', eventError);
+    }
+    const extractUrl = (input) => {
+      if (!input) return null;
+      if (typeof input === 'string') return input;
+      if (typeof URL !== 'undefined' && input instanceof URL) {
+        return input.toString();
+      }
+      if (typeof Request !== 'undefined' && input instanceof Request) {
+        return input.url;
+      }
+      if (typeof input === 'object' && typeof input.url === 'string') {
+        return input.url;
       }
       return null;
+    };
+
+    const rewriteIfStytch = (input) => {
+      if (!env || !env.stytchBaseUrl) return null;
+      const raw = extractUrl(input);
+      if (!raw) return null;
+      let parsed;
+      try {
+        parsed = new URL(raw);
+      } catch (error) {
+        return null;
+      }
+      const host = (parsed.hostname || '').toLowerCase();
+      if (!host.endsWith('stytch.com')) {
+        return null;
+      }
+      try {
+        const base = new URL(env.stytchBaseUrl);
+        const pathAndQuery = parsed.pathname + parsed.search + parsed.hash;
+        const rewritten = new URL(pathAndQuery, base);
+        return rewritten.toString();
+      } catch (error) {
+        console.warn('Stytch URL rewrite failed', error);
+        return null;
+      }
     };
 
     const originalRequest = window.Request;
@@ -229,7 +267,7 @@ function injectRuntimeEnv(html: string, payload: RuntimeEnvPayload): string {
       window.Request = new Proxy(originalRequest, {
         construct(target, args) {
           if (args && args.length > 0) {
-            const rewritten = replaceIfStytch(args[0]);
+            const rewritten = rewriteIfStytch(args[0]);
             if (rewritten) {
               args[0] = rewritten;
             }
@@ -242,9 +280,14 @@ function injectRuntimeEnv(html: string, payload: RuntimeEnvPayload): string {
     if (typeof window.fetch === 'function') {
       const originalFetch = window.fetch;
       window.fetch = function patchedFetch(resource, init) {
-        const rewritten = replaceIfStytch(resource);
+        const rewritten = rewriteIfStytch(resource);
         if (rewritten) {
-          if (typeof resource === 'string') {
+          if (typeof Request !== 'undefined' && resource instanceof Request) {
+            const cloned = resource.clone();
+            resource = new Request(rewritten, cloned);
+          } else if (typeof URL !== 'undefined' && resource instanceof URL) {
+            resource = new URL(rewritten);
+          } else {
             resource = rewritten;
           }
         }
@@ -255,7 +298,7 @@ function injectRuntimeEnv(html: string, payload: RuntimeEnvPayload): string {
     if (typeof window.XMLHttpRequest === 'function') {
       const originalOpen = window.XMLHttpRequest.prototype.open;
       window.XMLHttpRequest.prototype.open = function patchedOpen(method, url, ...rest) {
-        const rewritten = replaceIfStytch(url);
+        const rewritten = rewriteIfStytch(url);
         return originalOpen.call(this, method, rewritten || url, ...rest);
       };
     }
@@ -341,16 +384,25 @@ type AuthenticatedSession = {
   sessionJwt: string;
   sessionId: string;
   expiresAt: string;
-  memberId: string;
-  memberEmail?: string | null;
-  organizationId: string;
-  organizationName?: string | null;
+  userId: string;
+  emailAddress?: string | null;
 };
 
 type StytchAuthenticateResponse = {
-  session: { session_id: string; expires_at: string };
-  member: { member_id: string; email_address?: string | null };
-  organization: { organization_id: string; organization_name?: string | null };
+  session_token: string;
+  session: {
+    session_id: string;
+    expires_at: string;
+    attributes?: {
+      ip_address?: string | null;
+      user_agent?: string | null;
+    } | null;
+  };
+  user: {
+    user_id: string;
+    email?: string | null;
+    emails?: Array<{ email: string; primary?: boolean | null }>;
+  };
 };
 
 const requestSessionCache = new WeakMap<Request, AuthenticatedSession | null>();
@@ -387,7 +439,7 @@ async function authenticateRequest(request: Request, env: Env): Promise<Authenti
 
   let stytchResponse: Response;
   try {
-    stytchResponse = await fetch(`${baseUrl}/v1/b2b/sessions/authenticate`, {
+    stytchResponse = await fetch(`${baseUrl}/v1/sessions/authenticate`, {
       method: "POST",
       headers: {
         Authorization: `Basic ${credentials}`,
@@ -410,14 +462,16 @@ async function authenticateRequest(request: Request, env: Env): Promise<Authenti
 
   const body = (await stytchResponse.json()) as StytchAuthenticateResponse;
 
+  const primaryEmail = body.user.email ?? body.user.emails?.find((entry) => entry.primary)?.email ?? null;
+
   const normalised: AuthenticatedSession = {
     sessionJwt,
     sessionId: body.session.session_id,
     expiresAt: body.session.expires_at,
-    memberId: body.member.member_id,
-    memberEmail: body.member.email_address ?? null,
-    organizationId: body.organization.organization_id,
-    organizationName: body.organization.organization_name ?? null,
+    memberId: body.user.user_id,
+    memberEmail: primaryEmail,
+    organizationId: '',
+    organizationName: null,
   };
 
   requestSessionCache.set(request, normalised);
@@ -440,10 +494,9 @@ async function handleSessionApi(request: Request, env: Env): Promise<Response> {
   return jsonResponse({
     authenticated: true,
     session: {
-      member_email: session.memberEmail,
-      organization_name: session.organizationName,
       session_id: session.sessionId,
       expires_at: session.expiresAt,
+      email_address: session.emailAddress ?? null,
     },
   });
 }
@@ -468,8 +521,7 @@ async function handleMe(request: Request, env: Env): Promise<Response> {
   return jsonResponse({
     authenticated: true,
     session: {
-      member_email: session.memberEmail,
-      organization_name: session.organizationName,
+      email_address: session.emailAddress ?? null,
       session_id: session.sessionId,
       expires_at: session.expiresAt,
     },

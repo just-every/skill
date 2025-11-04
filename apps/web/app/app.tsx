@@ -2,9 +2,10 @@ import { type ChangeEvent, useCallback, useEffect, useMemo, useState } from 'rea
 import { ActivityIndicator, Button, ScrollView, Text, View } from 'react-native';
 import { Link } from 'expo-router';
 import { PlaceholderCard } from '@justevery/ui';
-import * as StytchB2B from '@stytch/react/dist/b2b/index.js';
+import { useStytch } from '@stytch/react';
 
 import { WORKER_ORIGIN, workerUrl } from './_components/RouteRedirect';
+import { useStytchReady } from './_providers/StytchProvider';
 
 type AssetObject = {
   key: string;
@@ -13,8 +14,7 @@ type AssetObject = {
 };
 
 type SessionPayload = {
-  member_email?: string | null;
-  organization_name?: string | null;
+  email_address?: string | null;
   session_id?: string;
   expires_at?: string;
 };
@@ -34,8 +34,19 @@ const SESSION_ENDPOINT = '/api/session';
 const ASSET_LIST_ENDPOINT = '/api/assets/list?prefix=uploads/';
 
 export default function AppScreen(): JSX.Element {
-  const { session } = StytchB2B.useStytchMemberSession();
-  const sessionJwt = session?.session_jwt ?? null;
+  const ready = useStytchReady();
+
+  if (!ready) {
+    return <AppLoading />;
+  }
+
+  return <AppReady />;
+}
+
+function AppReady(): JSX.Element {
+  const stytch = useStytch();
+  const tokens = stytch.session.getTokens();
+  const sessionJwt = tokens?.session_jwt ?? null;
 
   const [serverSessionState, setServerSessionState] = useState<AsyncState<SessionResponse>>({ state: 'idle' });
   const [assetsState, setAssetsState] = useState<AsyncState<AssetObject[]>>({ state: 'idle' });
@@ -240,12 +251,8 @@ export default function AppScreen(): JSX.Element {
 
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 16 }}>
           <PlaceholderCard
-            title="Member"
-            description={serverSession?.session?.member_email ?? 'Unknown member'}
-          />
-          <PlaceholderCard
-            title="Organization"
-            description={serverSession?.session?.organization_name ?? 'Unlinked org'}
+            title="Email"
+            description={serverSession?.session?.member_email ?? serverSession?.session?.email_address ?? 'Unknown user'}
           />
         </View>
 
@@ -358,6 +365,38 @@ export default function AppScreen(): JSX.Element {
         ) : serverSessionState.state === 'error' ? (
           <Text style={{ color: '#f87171' }}>{serverSessionState.error}</Text>
         ) : null}
+      </View>
+    </ScrollView>
+  );
+}
+
+function AppLoading(): JSX.Element {
+  return (
+    <ScrollView
+      contentContainerStyle={{
+        flexGrow: 1,
+        paddingVertical: 48,
+        paddingHorizontal: 24,
+        backgroundColor: '#020617',
+        alignItems: 'center',
+        justifyContent: 'center',
+      }}
+    >
+      <View
+        style={{
+          gap: 12,
+          alignItems: 'center',
+          backgroundColor: 'rgba(15, 23, 42, 0.85)',
+          borderRadius: 32,
+          borderWidth: 1,
+          borderColor: 'rgba(59, 130, 246, 0.25)',
+          padding: 32,
+          maxWidth: 640,
+          width: '100%',
+        }}
+      >
+        <ActivityIndicator color="#38bdf8" />
+        <Text style={{ color: '#cbd5f5' }}>Loading workspace…</Text>
       </View>
     </ScrollView>
   );
