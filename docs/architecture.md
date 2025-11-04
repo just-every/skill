@@ -15,24 +15,24 @@ graph LR
   EXPO -- HTTPS / fetch --> WORKER
   WORKER -- SQL --> D1
   WORKER -- objects --> R2
-  WORKER -- OAuth/SSO --> STYTCH[Stytch]
+  WORKER -- OAuth/SSO --> LOGTO[Logto]
   WORKER -- Billing events --> STRIPE[Stripe]
   STRIPE -- Webhooks --> WORKER
-  STYTCH -- Session verify --> WORKER
+  LOGTO -- JWKS --> WORKER
 ```
 
 ## Components
 
 - **Expo web app (`apps/web`)**: Boots quickly via `expo-router`, rendering placeholder screens that redirect to the Worker endpoints. The shared UI package (`packages/ui`) houses reusable React Native primitives.
-- **Cloudflare Worker (`workers/api`)**: Handles landing pages, the authenticated app shell, Stripe product metadata, and webhooks. Each protected request is validated by calling Stytch’s `sessions.authenticate` before touching D1. R2 is reserved for future asset uploads.
+- **Cloudflare Worker (`workers/api`)**: Handles landing pages, the authenticated app shell, Stripe product metadata, and webhooks. Each protected request is validated locally by verifying Logto-issued JWTs against the tenant JWKS before touching D1. R2 is reserved for future asset uploads.
 - **Automation (`bootstrap.sh`)**: Creates and links Cloudflare and Stripe resources from declarative `.env` values, then templates `wrangler.toml` so deployments stay reproducible.
 
 ## Request Flow Summary
 
 1. A visitor hits `https://{project_id}.justevery.com`. Cloudflare routes traffic to the Worker, which serves a marketing landing page.
-2. Selecting **Sign in** loads the Expo `/login` route. The Stytch React B2B component renders in the browser and, once completed, exposes a `session_jwt` to the client.
-3. The web app stores the session client-side and sends `Authorization: Bearer <session_jwt>` on every request to the Worker.
-4. The Worker calls Stytch’s `sessions.authenticate` endpoint before serving `/app`, `/api/session`, `/api/assets`, or `/payments`. Requests without a valid bearer token receive `401`.
+2. Selecting **Sign in** loads the Expo `/login` route. The Logto React SDK initiates the hosted login and, once completed, exposes an access token to the client.
+3. The web app stores the session client-side and sends `Authorization: Bearer <token>` on every request to the Worker.
+4. The Worker verifies the token using Logto’s issuer and JWKS configuration before serving `/app`, `/api/session`, `/api/assets`, or `/payments`. Requests without a valid bearer token receive `401`.
 5. Stripe product metadata is currently sourced from environment configuration via `/api/stripe/products`; the webhook `/webhook/stripe` validates Stripe signatures before emitting billing events for later processing.
 
 ## Data Storage

@@ -40,10 +40,10 @@ npx expo export --platform web --output-dir dist
 
 - Latest deployment evidence: see `docs/DEPLOYMENTS.md`.
 - PLAN-to-implementation audit trail: see `docs/VERIFICATION.md`.
-- Stytch React B2B configuration & debugging: see `docs/SSO.md`.
+- Logto configuration & debugging: see `docs/SSO.md`.
 
 ## Authentication
 
-- `/login` inside the Expo app embeds the Stytch React B2B prebuilt UI using `EXPO_PUBLIC_STYTCH_PUBLIC_TOKEN`.
-- Successful sign-in yields a `session_jwt`; the Expo client forwards it as `Authorization: Bearer <token>` when calling the Worker.
-- The Worker verifies every protected request with Stytch via `STYTCH_PROJECT_ID` and `STYTCH_SECRET`.
+- `/login` inside the Expo app launches the Logto sign-in flow using `EXPO_PUBLIC_LOGTO_ENDPOINT` and `EXPO_PUBLIC_LOGTO_APP_ID`.
+- Successful sign-in yields an access token; the Expo client forwards it as `Authorization: Bearer <token>` when calling the Worker.
+- The Worker verifies every protected request locally with Logto using the configured `LOGTO_ISSUER`, `LOGTO_JWKS_URI`, and `LOGTO_API_RESOURCE` bindings.

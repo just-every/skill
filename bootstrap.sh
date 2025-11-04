@@ -228,8 +228,227 @@ ensure_worker_secret() {
   rm -f "$tmp"
 }
 
+mint_logto_management_token() {
+  if [[ -n "${LOGTO_MANAGEMENT_TOKEN:-}" ]]; then
+    return
+  fi
+
+  if [[ -z "${LOGTO_MANAGEMENT_ENDPOINT:-}" || -z "${LOGTO_MANAGEMENT_AUTH_BASIC:-}" ]]; then
+    log_error "Missing LOGTO_MANAGEMENT_ENDPOINT or LOGTO_MANAGEMENT_AUTH_BASIC; cannot mint management token"
+    exit 1
+  fi
+
+  local endpoint="${LOGTO_MANAGEMENT_ENDPOINT%/}"
+  local token_url="${endpoint}/oidc/token"
+  local resource="${endpoint}/api"
+
+  if [[ "$DRY_RUN" == "1" ]]; then
+    LOGTO_MANAGEMENT_TOKEN="dry-run-logto-token"
+    export LOGTO_MANAGEMENT_TOKEN
+    log_info "[dry-run] Would mint Logto management token via ${token_url}"
+    return
+  fi
+
+  log_info "Minting Logto management token"
+
+  local response
+  if ! response=$(run_cmd_capture curl -sS --fail-with-body -X POST \
+    -H "Authorization: Basic ${LOGTO_MANAGEMENT_AUTH_BASIC}" \
+    -H "Content-Type: application/x-www-form-urlencoded" \
+    -d "grant_type=client_credentials" \
+    -d "resource=${resource}" \
+    -d "scope=all" \
+    "$token_url"); then
+    log_error "Failed to obtain Logto management token"
+    exit 1
+  fi
+
+  local token
+  token=$(jq -r '.access_token // empty' <<<"$response" 2>/dev/null || true)
+  if [[ -z "$token" ]]; then
+    log_error "Unable to parse Logto management token from response: $response"
+    exit 1
+  fi
+
+  LOGTO_MANAGEMENT_TOKEN="$token"
+  export LOGTO_MANAGEMENT_TOKEN
+}
+
+derive_logto_defaults() {
+  if [[ -z "${LOGTO_ENDPOINT:-}" && -n "${LOGTO_MANAGEMENT_ENDPOINT:-}" ]]; then
+    LOGTO_ENDPOINT="${LOGTO_MANAGEMENT_ENDPOINT%/}"
+    log_info "Using LOGTO_MANAGEMENT_ENDPOINT as LOGTO_ENDPOINT (${LOGTO_ENDPOINT})"
+  fi
+
+  if [[ -z "${LOGTO_ENDPOINT:-}" ]]; then
+    LOGTO_ENDPOINT="https://login.justevery.com"
+    log_info "Defaulting LOGTO_ENDPOINT to ${LOGTO_ENDPOINT}"
+  fi
+  export LOGTO_ENDPOINT
+
+  if [[ -z "${LOGTO_ISSUER:-}" ]]; then
+    LOGTO_ISSUER="${LOGTO_ENDPOINT%/}/oidc"
+    log_info "Derived LOGTO_ISSUER=${LOGTO_ISSUER}"
+  fi
+  export LOGTO_ISSUER
+
+  if [[ -z "${LOGTO_JWKS_URI:-}" ]]; then
+    LOGTO_JWKS_URI="${LOGTO_ENDPOINT%/}/oidc/jwks"
+    log_info "Derived LOGTO_JWKS_URI=${LOGTO_JWKS_URI}"
+  fi
+  export LOGTO_JWKS_URI
+
+  if [[ -z "${LOGTO_API_RESOURCE:-}" ]]; then
+    LOGTO_API_RESOURCE="https://${PROJECT_ID}.justevery.com/api"
+    log_info "Defaulting LOGTO_API_RESOURCE to ${LOGTO_API_RESOURCE}"
+  fi
+  export LOGTO_API_RESOURCE
+}
+
+ensure_logto_application() {
+  if [[ -n "${LOGTO_APPLICATION_ID:-}" ]]; then
+    return
+  fi
+
+  if [[ -z "${LOGTO_MANAGEMENT_TOKEN:-}" ]]; then
+    mint_logto_management_token
+  fi
+
+  local endpoint="${LOGTO_MANAGEMENT_ENDPOINT%/}"
+  local apps_url="${endpoint}/api/applications"
+  local app_name="${PROJECT_ID}"
+
+  if [[ "$DRY_RUN" == "1" ]]; then
+    LOGTO_APPLICATION_ID="dry-run-logto-app"
+    export LOGTO_APPLICATION_ID
+    log_info "[dry-run] Would ensure Logto application ${app_name}"
+    return
+  fi
+
+  log_info "Ensuring Logto application ${app_name} exists"
+
+  local list_response
+  if ! list_response=$(run_cmd_capture curl -sS --fail-with-body -X GET \
+    -H "Authorization: Bearer ${LOGTO_MANAGEMENT_TOKEN}" \
+    "$apps_url"); then
+    log_error "Failed to list Logto applications"
+    exit 1
+  fi
+
+  local existing_id
+  existing_id=$(jq -r --arg name "$app_name" '.items[]? | select(.name == $name) | .id // empty' <<<"$list_response" 2>/dev/null || true)
+  if [[ -z "$existing_id" ]]; then
+    existing_id=$(jq -r --arg name "$app_name" '.data[]? | select(.name == $name) | .id // empty' <<<"$list_response" 2>/dev/null || true)
+  fi
+
+  if [[ -n "$existing_id" ]]; then
+    LOGTO_APPLICATION_ID="$existing_id"
+    export LOGTO_APPLICATION_ID
+    log_info "Found existing Logto application ${app_name} (${existing_id})"
+    return
+  fi
+
+  local redirect_uri="https://${PROJECT_ID}.justevery.com/callback"
+  local logout_uri="https://${PROJECT_ID}.justevery.com/logout"
+
+  local payload
+  payload=$(jq -nc \
+    --arg name "$app_name" \
+    --arg desc "Generated for ${PROJECT_ID} project" \
+    --arg redirect "$redirect_uri" \
+    --arg logout "$logout_uri" \
+    '{
+      name: $name,
+      description: $desc,
+      type: "SPA",
+      oidcClientMetadata: {
+        redirectUris: [$redirect],
+        postLogoutRedirectUris: [$logout]
+      },
+      customClientMetadata: {
+        alwaysIssueRefreshToken: true,
+        rotateRefreshToken: true
+      },
+      protectedAppMetadata: {
+        subDomain: ($name + ".justevery.com"),
+        origin: "justevery.com"
+      }
+    }')
+
+  local create_response
+  if ! create_response=$(run_cmd_capture curl -sS --fail-with-body -X POST \
+    -H "Authorization: Bearer ${LOGTO_MANAGEMENT_TOKEN}" \
+    -H "Content-Type: application/json" \
+    -d "$payload" \
+    "$apps_url"); then
+    log_error "Failed to create Logto application ${app_name}"
+    exit 1
+  fi
+
+  local new_id
+  new_id=$(jq -r '.id // empty' <<<"$create_response" 2>/dev/null || true)
+  if [[ -z "$new_id" ]]; then
+    log_error "Unable to extract application id from Logto response: $create_response"
+    exit 1
+  fi
+
+  LOGTO_APPLICATION_ID="$new_id"
+  export LOGTO_APPLICATION_ID
+  log_info "Created Logto application ${app_name} (${LOGTO_APPLICATION_ID})"
+}
+
+fetch_logto_application_secret() {
+  if [[ -n "${LOGTO_APPLICATION_SECRET:-}" ]]; then
+    return
+  fi
+
+  if [[ -z "${LOGTO_APPLICATION_ID:-}" ]]; then
+    log_warn "LOGTO_APPLICATION_ID not set; skipping secret fetch"
+    return
+  fi
+
+  if [[ -z "${LOGTO_MANAGEMENT_TOKEN:-}" ]]; then
+    mint_logto_management_token
+  fi
+
+  if [[ "$DRY_RUN" == "1" ]]; then
+    LOGTO_APPLICATION_SECRET="dry-run-logto-secret"
+    export LOGTO_APPLICATION_SECRET
+    log_info "[dry-run] Would fetch Logto application secret"
+    return
+  fi
+
+  local endpoint="${LOGTO_MANAGEMENT_ENDPOINT%/}"
+  local secrets_url="${endpoint}/api/applications/${LOGTO_APPLICATION_ID}/secrets"
+
+  log_info "Fetching Logto application secret"
+
+  local response
+  if ! response=$(run_cmd_capture curl -sS --fail-with-body -X GET \
+    -H "Authorization: Bearer ${LOGTO_MANAGEMENT_TOKEN}" \
+    "$secrets_url"); then
+    log_warn "Unable to fetch Logto application secret"
+    return
+  fi
+
+  local secret
+  secret=$(jq -r '.items[]? | .value // empty' <<<"$response" 2>/dev/null || true)
+  if [[ -z "$secret" ]]; then
+    secret=$(jq -r '.data[]? | .value // empty' <<<"$response" 2>/dev/null || true)
+  fi
+
+  if [[ -z "$secret" ]]; then
+    log_warn "Logto secrets response did not include a secret value"
+    return
+  fi
+
+  LOGTO_APPLICATION_SECRET="$secret"
+  export LOGTO_APPLICATION_SECRET
+}
+
 sync_worker_secrets() {
-  ensure_worker_secret STYTCH_SECRET "${STYTCH_SECRET:-}"
+  ensure_worker_secret LOGTO_APPLICATION_ID "${LOGTO_APPLICATION_ID:-}"
+  ensure_worker_secret LOGTO_APPLICATION_SECRET "${LOGTO_APPLICATION_SECRET:-}"
   ensure_worker_secret STRIPE_SECRET_KEY "${STRIPE_SECRET_KEY:-}"
   ensure_worker_secret STRIPE_WEBHOOK_SECRET "${STRIPE_WEBHOOK_SECRET:-}"
 }
@@ -498,14 +717,19 @@ update_wrangler_config() {
   local bucket_safe=$(escape_sed "${R2_BUCKET_NAME:-}")
   local landing_safe=$(escape_sed "${LANDING_URL:-}")
   local app_safe=$(escape_sed "${APP_URL:-}")
-  local stytch_project_safe=$(escape_sed "${STYTCH_PROJECT_ID:-}")
-  local stytch_secret_safe=$(escape_sed "${STYTCH_SECRET:-}")
+  local logto_issuer_safe=$(escape_sed "${LOGTO_ISSUER:-}")
+  local logto_jwks_safe=$(escape_sed "${LOGTO_JWKS_URI:-}")
+  local logto_resource_safe=$(escape_sed "${LOGTO_API_RESOURCE:-}")
+  local logto_endpoint_safe=$(escape_sed "${LOGTO_ENDPOINT:-}")
+  local logto_app_id_safe=$(escape_sed "${LOGTO_APPLICATION_ID:-}")
   local app_base_safe=$(escape_sed "${APP_BASE_URL_RESOLVED:-${APP_BASE_URL:-}}")
   local stripe_products_safe=$(escape_sed "${STRIPE_PRODUCTS:-[]}")
   local stripe_webhook_safe=$(escape_sed "${STRIPE_WEBHOOK_SECRET:-}")
   local cloudflare_zone_safe=$(escape_sed "${CLOUDFLARE_ZONE_ID:-}")
-  local expo_stytch_safe=$(escape_sed "${EXPO_PUBLIC_STYTCH_PUBLIC_TOKEN:-}")
-  local expo_stytch_base_safe=$(escape_sed "${EXPO_PUBLIC_STYTCH_BASE_URL:-}")
+  local expo_logto_endpoint_safe=$(escape_sed "${EXPO_PUBLIC_LOGTO_ENDPOINT:-${LOGTO_ENDPOINT:-}}")
+  local expo_logto_app_safe=$(escape_sed "${EXPO_PUBLIC_LOGTO_APP_ID:-${LOGTO_APPLICATION_ID:-}}")
+  local expo_resource_safe=$(escape_sed "${EXPO_PUBLIC_API_RESOURCE:-${LOGTO_API_RESOURCE:-}}")
+  local expo_logout_safe=$(escape_sed "${EXPO_PUBLIC_LOGTO_POST_LOGOUT_REDIRECT_URI:-}")
   local expo_worker_origin_safe=$(escape_sed "${EXPO_PUBLIC_WORKER_ORIGIN:-}")
   local tmp
   tmp=$(mktemp)
@@ -517,12 +741,17 @@ update_wrangler_config() {
     -e "s#{{LANDING_URL}}#${landing_safe}#g" \
     -e "s#{{APP_URL}}#${app_safe}#g" \
     -e "s#{{APP_BASE_URL}}#${app_base_safe}#g" \
-    -e "s#{{STYTCH_PROJECT_ID}}#${stytch_project_safe}#g" \
-    -e "s#{{STYTCH_SECRET}}#${stytch_secret_safe}#g" \
+    -e "s#{{LOGTO_ISSUER}}#${logto_issuer_safe}#g" \
+    -e "s#{{LOGTO_JWKS_URI}}#${logto_jwks_safe}#g" \
+    -e "s#{{LOGTO_API_RESOURCE}}#${logto_resource_safe}#g" \
+    -e "s#{{LOGTO_ENDPOINT}}#${logto_endpoint_safe}#g" \
+    -e "s#{{LOGTO_APPLICATION_ID}}#${logto_app_id_safe}#g" \
+    -e "s#{{EXPO_PUBLIC_LOGTO_ENDPOINT}}#${expo_logto_endpoint_safe}#g" \
+    -e "s#{{EXPO_PUBLIC_LOGTO_APP_ID}}#${expo_logto_app_safe}#g" \
+    -e "s#{{EXPO_PUBLIC_API_RESOURCE}}#${expo_resource_safe}#g" \
+    -e "s#{{EXPO_PUBLIC_LOGTO_POST_LOGOUT_REDIRECT_URI}}#${expo_logout_safe}#g" \
     -e "s#{{STRIPE_PRODUCTS}}#${stripe_products_safe}#g" \
     -e "s#{{STRIPE_WEBHOOK_SECRET}}#${stripe_webhook_safe}#g" \
-    -e "s#{{EXPO_PUBLIC_STYTCH_PUBLIC_TOKEN}}#${expo_stytch_safe}#g" \
-    -e "s#{{EXPO_PUBLIC_STYTCH_BASE_URL}}#${expo_stytch_base_safe}#g" \
     -e "s#{{EXPO_PUBLIC_WORKER_ORIGIN}}#${expo_worker_origin_safe}#g" \
     -e "s#{{CLOUDFLARE_ZONE_ID}}#${cloudflare_zone_safe}#g" \
     "$template" > "$tmp"
@@ -586,8 +815,24 @@ run_migrations() {
     log_info "[dry-run] node workers/api/scripts/migrate.js"
     return
   fi
-  log_info "Running D1 migrations"
-  (cd "$ROOT_DIR/workers/api" && D1_DATABASE="${D1_DATABASE_NAME:-$PROJECT_ID-d1}" node scripts/migrate.js)
+  log_info "Running D1 migrations against remote database"
+  (cd "$ROOT_DIR/workers/api" && node scripts/migrate.js --remote)
+
+  log_info "Running D1 migrations against local preview database"
+  (cd "$ROOT_DIR/workers/api" && node scripts/migrate.js)
+}
+
+get_d1_database_name() {
+  local wrangler_toml="$ROOT_DIR/workers/api/wrangler.toml"
+  if [[ -f "$wrangler_toml" ]]; then
+    local db_name
+    db_name=$(grep -E '^\s*database_name\s*=' "$wrangler_toml" | head -1 | sed -E 's/.*database_name\s*=\s*"([^"]+)".*/\1/')
+    if [[ -n "$db_name" ]]; then
+      echo "$db_name"
+      return
+    fi
+  fi
+  echo "${D1_DATABASE_NAME:-$PROJECT_ID-d1}"
 }
 
 seed_project() {
@@ -598,6 +843,8 @@ seed_project() {
   local escaped_app
   escaped_landing=$(printf "%s" "$landing_url" | sed "s/'/''/g")
   escaped_app=$(printf "%s" "$app_url" | sed "s/'/''/g")
+  local db_name
+  db_name=$(get_d1_database_name)
   local sql
   read -r -d '' sql <<SQL || true
 INSERT INTO projects (id, slug, landing_url, app_url, created_at)
@@ -605,11 +852,29 @@ VALUES ('${PROJECT_ID}', '${project_slug}', '${escaped_landing}', '${escaped_app
 ON CONFLICT(id) DO UPDATE SET slug=excluded.slug, landing_url=excluded.landing_url, app_url=excluded.app_url;
 SQL
   if [[ "$DRY_RUN" == "1" ]]; then
-    log_info "[dry-run] ${WRANGLER_LABEL} d1 execute ${D1_DATABASE_NAME:-$PROJECT_ID-d1} --command \"$sql\""
+    log_info "[dry-run] ${WRANGLER_LABEL} d1 execute ${db_name} --command \"$sql\""
     return
   fi
-  log_info "Seeding default project row"
-  "${WRANGLER_BASE[@]}" d1 execute "${D1_DATABASE_NAME:-$PROJECT_ID-d1}" --command "$sql" >/dev/null
+  log_info "Seeding default project row into database '${db_name}' (remote)"
+  "${WRANGLER_BASE[@]}" d1 execute "${db_name}" --remote --command "$sql" >/dev/null
+
+  log_info "Seeding default project row into database '${db_name}' (local preview)"
+  "${WRANGLER_BASE[@]}" d1 execute "${db_name}" --command "$sql" >/dev/null
+
+  # Verify seed succeeded
+  log_info "Verifying seed in remote database..."
+  local verify_sql="SELECT COUNT(*) as count FROM projects WHERE id='${PROJECT_ID}';"
+  local verify_result
+  verify_result=$("${WRANGLER_BASE[@]}" d1 execute "${db_name}" --remote --json --command "$verify_sql" 2>/dev/null || echo '[]')
+  local count
+  count=$(jq -r '.[0].results[0].count // 0' <<<"$verify_result" 2>/dev/null || echo "0")
+  if [[ "$count" -ge 1 ]]; then
+    log_info "✅ Seed verification passed: found ${count} row(s) for project '${PROJECT_ID}'"
+  else
+    log_error "❌ Seed verification failed: no rows found for project '${PROJECT_ID}' in remote database"
+    log_error "Verification result: $verify_result"
+    exit 1
+  fi
 }
 
 ensure_stripe_webhook() {
@@ -719,41 +984,27 @@ stripe_autoprune_provision() {
 }
 
 post_deploy_guidance() {
-  stytch_post_deploy_note
+  logto_post_deploy_note
   stripe_post_deploy_note
 }
 
-stytch_post_deploy_note() {
-  local origins=()
-  local origin
+logto_post_deploy_note() {
+  local endpoint="${LOGTO_MANAGEMENT_ENDPOINT%/}"
+  local callback="https://${PROJECT_ID}.justevery.com/callback"
+  local logout="https://${PROJECT_ID}.justevery.com/logout"
 
-  origin=$(extract_origin "${LANDING_URL:-}")
-  if [[ -n "$origin" ]]; then
-    origins+=("$origin")
+  log_info "Logto follow-up: confirm the SPA application allows the following redirect URIs:"
+  log_info "  - ${callback}"
+  log_info "  - ${logout}"
+
+  if [[ -n "${LOGTO_APPLICATION_ID:-}" ]]; then
+    log_info "Application ID: ${LOGTO_APPLICATION_ID}"
   fi
 
-  origin=$(extract_origin "${APP_URL:-}")
-  if [[ -n "$origin" ]]; then
-    origins+=("$origin")
-  fi
-
-  if [[ ${#origins[@]} -eq 0 ]]; then
-    log_warn "Stytch JS SDK allowlist: unable to derive origins from LANDING_URL or APP_URL. Update them in .env and rerun."
-    return
-  fi
-
-  local unique_origins
-  unique_origins=$(printf '%s\n' "${origins[@]}" | awk '!seen[$0]++')
-
-  log_info "Stytch follow-up: ensure the JS SDK allowed domains include the deployed origins below (dashboard > SDK configuration)."
-  while IFS= read -r line; do
-    log_info "  - $line"
-  done <<<"$unique_origins"
-
-  if [[ -n "${STYTCH_PROJECT_ID:-}" ]]; then
-    log_info "Manage domains at https://stytch.com/dashboard/redirect/sdks?project_id=${STYTCH_PROJECT_ID}"
+  if [[ -n "$endpoint" ]]; then
+    log_info "Manage the application at ${endpoint}/applications"
   else
-    log_warn "STYTCH_PROJECT_ID missing; update .env before editing allowed domains."
+    log_info "Manage the application via the Logto Console."
   fi
 }
 
@@ -797,36 +1048,38 @@ write_expo_env_file() {
   local target="$ROOT_DIR/apps/web/.env.local"
   log_info "Writing Expo env file to ${target#$ROOT_DIR/}"
   {
-    printf 'EXPO_PUBLIC_STYTCH_PUBLIC_TOKEN=%s\n' "${EXPO_PUBLIC_STYTCH_PUBLIC_TOKEN:-}"
-    printf 'EXPO_PUBLIC_STYTCH_B2B_PUBLIC_TOKEN=%s\n' "${EXPO_PUBLIC_STYTCH_B2B_PUBLIC_TOKEN:-}"
-    printf 'EXPO_PUBLIC_STYTCH_BASE_URL=%s\n' "${EXPO_PUBLIC_STYTCH_BASE_URL:-}"
+    printf 'EXPO_PUBLIC_LOGTO_ENDPOINT=%s\n' "${EXPO_PUBLIC_LOGTO_ENDPOINT:-}"
+    printf 'EXPO_PUBLIC_LOGTO_APP_ID=%s\n' "${EXPO_PUBLIC_LOGTO_APP_ID:-}"
+    printf 'EXPO_PUBLIC_API_RESOURCE=%s\n' "${EXPO_PUBLIC_API_RESOURCE:-}"
+    printf 'EXPO_PUBLIC_LOGTO_POST_LOGOUT_REDIRECT_URI=%s\n' "${EXPO_PUBLIC_LOGTO_POST_LOGOUT_REDIRECT_URI:-}"
     printf 'EXPO_PUBLIC_WORKER_ORIGIN=%s\n' "${EXPO_PUBLIC_WORKER_ORIGIN:-}"
   } >"$target"
 }
 
 export_expo_runtime_vars() {
-  local fallback_stytch_token="${STYTCH_PUBLIC_TOKEN:-}"
-  local fallback_b2b_token="${STYTCH_B2B_PUBLIC_TOKEN:-}"
-
-  if [[ -z "${EXPO_PUBLIC_STYTCH_PUBLIC_TOKEN:-}" ]]; then
-    if [[ -n "${EXPO_PUBLIC_STYTCH_B2B_PUBLIC_TOKEN:-}" ]]; then
-      EXPO_PUBLIC_STYTCH_PUBLIC_TOKEN="$EXPO_PUBLIC_STYTCH_B2B_PUBLIC_TOKEN"
-      export EXPO_PUBLIC_STYTCH_PUBLIC_TOKEN
-      log_info "Derived EXPO_PUBLIC_STYTCH_PUBLIC_TOKEN from EXPO_PUBLIC_STYTCH_B2B_PUBLIC_TOKEN"
-    elif [[ -n "$fallback_b2b_token" ]]; then
-      EXPO_PUBLIC_STYTCH_PUBLIC_TOKEN="$fallback_b2b_token"
-      export EXPO_PUBLIC_STYTCH_PUBLIC_TOKEN
-      log_info "Derived EXPO_PUBLIC_STYTCH_PUBLIC_TOKEN from STYTCH_B2B_PUBLIC_TOKEN"
-    elif [[ -n "$fallback_stytch_token" ]]; then
-      EXPO_PUBLIC_STYTCH_PUBLIC_TOKEN="$fallback_stytch_token"
-      export EXPO_PUBLIC_STYTCH_PUBLIC_TOKEN
-      log_info "Derived EXPO_PUBLIC_STYTCH_PUBLIC_TOKEN from STYTCH_PUBLIC_TOKEN"
-    else
-      log_warn "EXPO_PUBLIC_STYTCH_PUBLIC_TOKEN not set; Stytch login will be disabled"
-    fi
-  else
-    export EXPO_PUBLIC_STYTCH_PUBLIC_TOKEN
+  if [[ -z "${EXPO_PUBLIC_LOGTO_ENDPOINT:-}" && -n "${LOGTO_ENDPOINT:-}" ]]; then
+    EXPO_PUBLIC_LOGTO_ENDPOINT="$LOGTO_ENDPOINT"
+    log_info "Using LOGTO_ENDPOINT for EXPO_PUBLIC_LOGTO_ENDPOINT"
   fi
+  [[ -n "${EXPO_PUBLIC_LOGTO_ENDPOINT:-}" ]] && export EXPO_PUBLIC_LOGTO_ENDPOINT
+
+  if [[ -z "${EXPO_PUBLIC_LOGTO_APP_ID:-}" && -n "${LOGTO_APPLICATION_ID:-}" ]]; then
+    EXPO_PUBLIC_LOGTO_APP_ID="$LOGTO_APPLICATION_ID"
+    log_info "Using LOGTO_APPLICATION_ID for EXPO_PUBLIC_LOGTO_APP_ID"
+  fi
+  [[ -n "${EXPO_PUBLIC_LOGTO_APP_ID:-}" ]] && export EXPO_PUBLIC_LOGTO_APP_ID
+
+  if [[ -z "${EXPO_PUBLIC_API_RESOURCE:-}" && -n "${LOGTO_API_RESOURCE:-}" ]]; then
+    EXPO_PUBLIC_API_RESOURCE="$LOGTO_API_RESOURCE"
+    log_info "Using LOGTO_API_RESOURCE for EXPO_PUBLIC_API_RESOURCE"
+  fi
+  [[ -n "${EXPO_PUBLIC_API_RESOURCE:-}" ]] && export EXPO_PUBLIC_API_RESOURCE
+
+  if [[ -z "${EXPO_PUBLIC_LOGTO_POST_LOGOUT_REDIRECT_URI:-}" ]]; then
+    EXPO_PUBLIC_LOGTO_POST_LOGOUT_REDIRECT_URI="https://${PROJECT_ID}.justevery.com"
+    log_info "Defaulting EXPO_PUBLIC_LOGTO_POST_LOGOUT_REDIRECT_URI to ${EXPO_PUBLIC_LOGTO_POST_LOGOUT_REDIRECT_URI}"
+  fi
+  export EXPO_PUBLIC_LOGTO_POST_LOGOUT_REDIRECT_URI
 
   if [[ -z "${EXPO_PUBLIC_WORKER_ORIGIN:-}" ]]; then
     local resolved_origin=""
@@ -849,24 +1102,6 @@ export_expo_runtime_vars() {
     export EXPO_PUBLIC_WORKER_ORIGIN
   fi
 
-  if [[ -z "${EXPO_PUBLIC_STYTCH_BASE_URL:-}" ]]; then
-    local resolved_stytch_base=""
-    if [[ -n "${STYTCH_BASE_URL:-}" ]]; then
-      resolved_stytch_base="$(extract_origin "$STYTCH_BASE_URL")"
-    elif [[ -n "${OIDC_ISSUER:-}" ]]; then
-      resolved_stytch_base="$(extract_origin "$OIDC_ISSUER")"
-    fi
-
-    if [[ -n "$resolved_stytch_base" ]]; then
-      EXPO_PUBLIC_STYTCH_BASE_URL="$resolved_stytch_base"
-      export EXPO_PUBLIC_STYTCH_BASE_URL
-      log_info "Resolved EXPO_PUBLIC_STYTCH_BASE_URL to $EXPO_PUBLIC_STYTCH_BASE_URL"
-    else
-      log_warn "Unable to derive EXPO_PUBLIC_STYTCH_BASE_URL; Stytch SDK may enforce a custom domain"
-    fi
-  else
-    export EXPO_PUBLIC_STYTCH_BASE_URL
-  fi
 }
 
 build_web_bundle() {
@@ -917,8 +1152,6 @@ write_generated_env() {
   if [[ ${#SYNCED_SECRET_NAMES[@]} -gt 0 ]]; then
     secret_names=$(printf '%s\n' "${SYNCED_SECRET_NAMES[@]}" | awk '!seen[$0]++' | paste -sd',' -)
   fi
-  local expo_public_stytch_token="${EXPO_PUBLIC_STYTCH_PUBLIC_TOKEN:-${STYTCH_PUBLIC_TOKEN:-}}"
-
   {
     printf '# Autogenerated by bootstrap.sh on %s\n' "$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
     printf '# Do not edit manually – rerun bootstrap.sh instead.\n\n'
@@ -926,8 +1159,16 @@ write_generated_env() {
     printf 'LANDING_URL=%s\n' "${LANDING_URL:-}"
     printf 'APP_URL=%s\n' "${APP_URL:-}"
     printf 'APP_BASE_URL=%s\n' "${APP_BASE_URL_RESOLVED:-${APP_BASE_URL:-}}"
-    printf 'EXPO_PUBLIC_STYTCH_PUBLIC_TOKEN=%s\n' "${expo_public_stytch_token}"
-    printf 'EXPO_PUBLIC_STYTCH_BASE_URL=%s\n' "${EXPO_PUBLIC_STYTCH_BASE_URL:-}"
+    printf 'LOGTO_ENDPOINT=%s\n' "${LOGTO_ENDPOINT:-}"
+    printf 'LOGTO_APPLICATION_ID=%s\n' "${LOGTO_APPLICATION_ID:-}"
+    printf 'LOGTO_APPLICATION_SECRET=%s\n' "${LOGTO_APPLICATION_SECRET:-}"
+    printf 'LOGTO_ISSUER=%s\n' "${LOGTO_ISSUER:-}"
+    printf 'LOGTO_JWKS_URI=%s\n' "${LOGTO_JWKS_URI:-}"
+    printf 'LOGTO_API_RESOURCE=%s\n' "${LOGTO_API_RESOURCE:-}"
+    printf 'EXPO_PUBLIC_LOGTO_ENDPOINT=%s\n' "${EXPO_PUBLIC_LOGTO_ENDPOINT:-}"
+    printf 'EXPO_PUBLIC_LOGTO_APP_ID=%s\n' "${EXPO_PUBLIC_LOGTO_APP_ID:-}"
+    printf 'EXPO_PUBLIC_API_RESOURCE=%s\n' "${EXPO_PUBLIC_API_RESOURCE:-}"
+    printf 'EXPO_PUBLIC_LOGTO_POST_LOGOUT_REDIRECT_URI=%s\n' "${EXPO_PUBLIC_LOGTO_POST_LOGOUT_REDIRECT_URI:-}"
     printf 'EXPO_PUBLIC_WORKER_ORIGIN=%s\n' "${EXPO_PUBLIC_WORKER_ORIGIN:-}"
     printf 'D1_DATABASE_NAME=%s\n' "${D1_DATABASE_NAME:-}"
     printf 'D1_DATABASE_ID=%s\n' "${D1_DATABASE_ID:-}"
@@ -960,13 +1201,18 @@ main() {
   ensure_var CLOUDFLARE_ACCOUNT_ID
   ensure_var LANDING_URL
   ensure_var APP_URL
-  ensure_var STYTCH_PROJECT_ID
-  ensure_var STYTCH_SECRET
+  ensure_var LOGTO_MANAGEMENT_ENDPOINT
+  ensure_var LOGTO_MANAGEMENT_AUTH_BASIC
 
   resolve_stripe_secret
   prepare_cloudflare_env
   resolve_app_base_url
+  derive_logto_defaults
   export_expo_runtime_vars
+
+  mint_logto_management_token
+  ensure_logto_application
+  fetch_logto_application_secret
 
   ensure_cloudflare_auth
   ensure_d1

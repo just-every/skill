@@ -5,6 +5,10 @@ import * as Linking from 'expo-linking';
 
 type PublicRuntimeEnv = Partial<{
   workerOrigin: string;
+  logtoEndpoint: string;
+  logtoAppId: string;
+  logtoApiResource: string;
+  logtoPostLogoutRedirectUri: string;
 }>;
 
 const runtimeEnv = (globalThis as {
@@ -15,6 +19,11 @@ const runtimeEnv = (globalThis as {
 const injectedEnv = (globalThis as { __JUSTEVERY_ENV__?: PublicRuntimeEnv }).__JUSTEVERY_ENV__ ?? {};
 
 export const WORKER_ORIGIN = runtimeEnv?.EXPO_PUBLIC_WORKER_ORIGIN ?? injectedEnv.workerOrigin ?? '';
+export const LOGTO_ENDPOINT = runtimeEnv?.EXPO_PUBLIC_LOGTO_ENDPOINT ?? injectedEnv.logtoEndpoint ?? '';
+export const LOGTO_APP_ID = runtimeEnv?.EXPO_PUBLIC_LOGTO_APP_ID ?? injectedEnv.logtoAppId ?? '';
+export const LOGTO_API_RESOURCE = runtimeEnv?.EXPO_PUBLIC_API_RESOURCE ?? injectedEnv.logtoApiResource ?? '';
+export const LOGTO_POST_LOGOUT_REDIRECT_URI =
+  runtimeEnv?.EXPO_PUBLIC_LOGTO_POST_LOGOUT_REDIRECT_URI ?? injectedEnv.logtoPostLogoutRedirectUri ?? '';
 
 type WorkerLinkProps = {
   path: string;

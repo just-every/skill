@@ -1,10 +1,22 @@
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, vi, afterEach } from 'vitest';
 import Worker, { type Env } from '../src/index';
 import type { IncomingRequestCfProperties } from '@cloudflare/workers-types';
 
-if (typeof globalThis.btoa === 'undefined') {
-  (globalThis as any).btoa = (value: string) => Buffer.from(value, 'binary').toString('base64');
-}
+vi.mock('jose', () => {
+  return {
+    createRemoteJWKSet: vi.fn(() => vi.fn()),
+    jwtVerify: vi.fn(),
+  };
+});
+
+import { createRemoteJWKSet, jwtVerify } from 'jose';
+
+const mockedCreateRemoteJWKSet = vi.mocked(createRemoteJWKSet);
+const mockedJwtVerify = vi.mocked(jwtVerify);
+
+afterEach(() => {
+  vi.clearAllMocks();
+});
 
 function createMockEnv(overrides: Partial<Env> = {}): Env {
   const r2: R2Bucket = {
@@ -36,14 +48,20 @@ function createMockEnv(overrides: Partial<Env> = {}): Env {
   const env = {
     DB: db,
     STORAGE: r2,
-    STYTCH_PROJECT_ID: 'project-id',
-    STYTCH_SECRET: 'stytch-secret',
+    LOGTO_ISSUER: 'https://auth.example.com/oidc',
+    LOGTO_JWKS_URI: 'https://auth.example.com/oidc/jwks',
+    LOGTO_API_RESOURCE: 'https://api.example.com',
+    LOGTO_ENDPOINT: 'https://auth.example.com',
+    LOGTO_APPLICATION_ID: 'logto-app-id',
     STRIPE_WEBHOOK_SECRET: 'whsec_test',
     APP_BASE_URL: '/app',
     LANDING_URL: 'https://app.example.com',
     STRIPE_PRODUCTS: '[]',
     ASSETS: assetsFetcher as unknown as Env['ASSETS'],
-    EXPO_PUBLIC_STYTCH_BASE_URL: 'https://auth.example.com',
+    EXPO_PUBLIC_LOGTO_ENDPOINT: 'https://auth.example.com',
+    EXPO_PUBLIC_LOGTO_APP_ID: 'logto-public-app-id',
+    EXPO_PUBLIC_API_RESOURCE: 'https://api.example.com',
+    EXPO_PUBLIC_LOGTO_POST_LOGOUT_REDIRECT_URI: 'https://app.example.com/logout',
     ...overrides,
   } as Env;
 
@@ -88,21 +106,18 @@ describe('Worker routes', () => {
     expect(body).toEqual({ authenticated: false, session: null });
   });
 
-  it('authenticates bearer tokens against Stytch for /api/session', async () => {
+  it('authenticates valid Logto JWT for /api/session', async () => {
     const env = createMockEnv();
-    const stytchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
-      const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : (input as Request).url;
-      if (url.includes('/v1/b2b/sessions/authenticate')) {
-        expect(init?.headers).toMatchObject({ Authorization: expect.stringContaining('Basic ') });
-        const responseBody = {
-          session: { session_id: 'session-123', expires_at: new Date().toISOString() },
-          member: { member_id: 'member-abc', email_address: 'admin@example.com' },
-          organization: { organization_id: 'org-xyz', organization_name: 'Example, Inc.' },
-        };
-        return new Response(JSON.stringify(responseBody), { status: 200 });
-      }
-      return new Response(null, { status: 404 });
-    });
+    const jwksMock = vi.fn();
+    mockedCreateRemoteJWKSet.mockReturnValue(jwksMock as unknown as ReturnType<typeof createRemoteJWKSet>);
+    mockedJwtVerify.mockResolvedValue({
+      payload: {
+        sub: 'user-123',
+        exp: Math.floor(Date.now() / 1000) + 3600,
+        email: 'admin@example.com',
+        aud: env.LOGTO_API_RESOURCE,
+      },
+    } as any);
 
     const request = new Request('https://example.com/api/session', {
       headers: { Authorization: 'Bearer session_jwt_value' },
@@ -110,12 +125,37 @@ describe('Worker routes', () => {
 
     const response = await runFetch(request, env);
 
-    expect(response.status).toBe(200);
-    const body = (await response.json()) as { authenticated: boolean; session: { session_id: string } };
-    expect(body.authenticated).toBe(true);
-    expect(body.session.session_id).toBe('session-123');
+    expect(mockedCreateRemoteJWKSet).toHaveBeenCalledWith(new URL(env.LOGTO_JWKS_URI));
+    expect(mockedJwtVerify).toHaveBeenCalledWith(
+      'session_jwt_value',
+      jwksMock,
+      expect.objectContaining({
+        issuer: env.LOGTO_ISSUER,
+        audience: env.LOGTO_API_RESOURCE,
+      }),
+    );
 
-    stytchMock.mockRestore();
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as { authenticated: boolean; session: { session_id: string; email_address: string | null } };
+    expect(body.authenticated).toBe(true);
+    expect(body.session.session_id).toBe('user-123');
+    expect(body.session.email_address).toBe('admin@example.com');
+  });
+
+  it('returns 401 when JWT verification fails for /api/session', async () => {
+    const env = createMockEnv();
+    mockedCreateRemoteJWKSet.mockReturnValue(vi.fn() as unknown as ReturnType<typeof createRemoteJWKSet>);
+    mockedJwtVerify.mockRejectedValue(new Error('invalid token'));
+
+    const request = new Request('https://example.com/api/session', {
+      headers: { Authorization: 'Bearer bad-token' },
+    });
+
+    const response = await runFetch(request, env);
+
+    expect(response.status).toBe(401);
+    const body = (await response.json()) as { authenticated: boolean; session: null };
+    expect(body).toEqual({ authenticated: false, session: null });
   });
 
   it('rejects Stripe webhook without signature', async () => {
@@ -140,16 +180,14 @@ describe('Worker routes', () => {
 
   it('lists assets when bearer token is valid', async () => {
     const env = createMockEnv();
-    const stytchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-      new Response(
-        JSON.stringify({
-          session: { session_id: 'session-123', expires_at: new Date(Date.now() + 60000).toISOString() },
-          member: { member_id: 'member-abc', email_address: 'admin@example.com' },
-          organization: { organization_id: 'org-xyz', organization_name: 'Example Org' },
-        }),
-        { status: 200 },
-      ) as Response,
-    );
+    mockedCreateRemoteJWKSet.mockReturnValue(vi.fn() as unknown as ReturnType<typeof createRemoteJWKSet>);
+    mockedJwtVerify.mockResolvedValue({
+      payload: {
+        sub: 'user-123',
+        exp: Math.floor(Date.now() / 1000) + 3600,
+        aud: env.LOGTO_API_RESOURCE,
+      },
+    } as any);
 
     env.STORAGE.list = vi.fn().mockResolvedValue({
       objects: [
@@ -171,8 +209,6 @@ describe('Worker routes', () => {
     expect(response.status).toBe(200);
     const body = (await response.json()) as { objects: unknown[] };
     expect(body.objects).toHaveLength(1);
-
-    stytchMock.mockRestore();
   });
 
   it('proxies static asset requests to the ASSETS binding', async () => {
@@ -226,7 +262,7 @@ describe('Worker routes', () => {
     const text = await response.text();
     expect(text).toContain('app shell');
     expect(text).toContain('window.__JUSTEVERY_ENV__');
-    expect(text).toContain('public-token-live-123');
+    expect(text).toContain('logto-public-app-id');
     expect(text).toContain('https://example.com');
     expect(text).toContain('https://auth.example.com');
     const cacheControl = response.headers.get('cache-control');

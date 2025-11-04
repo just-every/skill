@@ -1,14 +1,14 @@
 import Head from 'expo-router/head';
 import { useRouter } from 'expo-router';
 import { useEffect, useMemo } from 'react';
-import { ActivityIndicator, ScrollView, Text, View } from 'react-native';
+import { ActivityIndicator, Pressable, ScrollView, Text, View } from 'react-native';
 
-import { StytchLogin, useStytch, useStytchSession } from '@stytch/react';
+import { useLogto } from '@logto/react';
 
-import { useStytchError, useStytchReady } from './_providers/StytchProvider';
+import { useLogtoError, useLogtoReady } from './_providers/LogtoProvider';
 
 export default function LoginScreen(): JSX.Element {
-  const ready = useStytchReady();
+  const ready = useLogtoReady();
 
   if (!ready) {
     return <LoginLoading />;
@@ -19,22 +19,28 @@ export default function LoginScreen(): JSX.Element {
 
 function LoginReady(): JSX.Element {
   const router = useRouter();
-  const stytch = useStytch();
-  const sessionState = useStytchSession();
+  const { isAuthenticated, signIn } = useLogto();
 
-  const redirectUrl = useMemo(() => {
+  const redirectUri = useMemo(() => {
     if (typeof window === 'undefined') {
-      return '/app';
+      return '/callback';
     }
-    return `${window.location.origin}/app`;
+    return `${window.location.origin}/callback`;
   }, []);
 
   useEffect(() => {
-    const tokens = stytch.session.getTokens();
-    if (tokens?.session_jwt) {
+    if (isAuthenticated) {
       router.replace('/app');
     }
-  }, [router, stytch]);
+  }, [isAuthenticated, router]);
+
+  const handleSignIn = async () => {
+    try {
+      await signIn(redirectUri);
+    } catch (error) {
+      console.error('Logto sign-in failed', error);
+    }
+  };
 
   return (
     <ScrollView
@@ -49,7 +55,7 @@ function LoginReady(): JSX.Element {
         <title>justevery • Sign in</title>
         <meta
           name="description"
-          content="Sign in with the Stytch prebuilt UI to access the justevery starter stack dashboard."
+          content="Sign in with Logto to access the justevery starter stack dashboard."
         />
       </Head>
 
@@ -67,25 +73,32 @@ function LoginReady(): JSX.Element {
         }}
       >
         <Text style={{ color: '#38bdf8', textTransform: 'uppercase', letterSpacing: 3 }}>Authentication</Text>
-        <Text style={{ color: '#e2e8f0', fontSize: 28, fontWeight: '700' }}>Sign in with Stytch</Text>
+        <Text style={{ color: '#e2e8f0', fontSize: 28, fontWeight: '700' }}>Sign in with Logto</Text>
         <Text style={{ color: '#cbd5f5', lineHeight: 22 }}>
-          The web client embeds the Stytch prebuilt login so you can complete the flow without leaving the app shell.
+          Use your organisation email to sign in securely. We’ll redirect you back to the dashboard once Logto completes
+          the flow.
         </Text>
 
-        <View style={{ padding: 16, borderRadius: 16, backgroundColor: 'rgba(30, 41, 59, 0.6)' }}>
-          <StytchLogin
-            config={{
-              products: ['emailMagicLinks'],
-              emailMagicLinksOptions: {
-                loginRedirectUrl: redirectUrl,
-                signupRedirectUrl: redirectUrl,
-              },
+        <View style={{ padding: 16, borderRadius: 16, backgroundColor: 'rgba(30, 41, 59, 0.6)', gap: 12 }}>
+          <Pressable
+            onPress={handleSignIn}
+            style={{
+              paddingHorizontal: 24,
+              paddingVertical: 14,
+              borderRadius: 12,
+              backgroundColor: '#38bdf8',
+              alignItems: 'center',
             }}
-          />
+          >
+            <Text style={{ color: '#0f172a', fontWeight: '600', fontSize: 16 }}>Continue with Logto</Text>
+          </Pressable>
+          <Text style={{ color: '#94a3b8', fontSize: 12 }}>
+            We’ll take you to Logto, then return here once you’re authenticated.
+          </Text>
         </View>
 
         <Text style={{ color: '#94a3b8', fontSize: 12 }}>
-          Sessions stay on the client. Worker requests send the Stytch session JWT as a bearer token for verification.
+          Sessions stay on the client. Worker requests send the Logto access token as a bearer for verification.
         </Text>
       </View>
     </ScrollView>
@@ -93,7 +106,7 @@ function LoginReady(): JSX.Element {
 }
 
 function LoginLoading(): JSX.Element {
-  const error = useStytchError();
+  const error = useLogtoError();
 
   return (
     <ScrollView
@@ -123,7 +136,7 @@ function LoginLoading(): JSX.Element {
         }}
       >
         {error ? (
-          <Text style={{ color: '#f87171', textAlign: 'center' }}>{error}</Text>
+          <Text style={{ color: '#f87171', textAlign: 'center' }}>{error.message}</Text>
         ) : (
           <>
             <ActivityIndicator color="#38bdf8" />

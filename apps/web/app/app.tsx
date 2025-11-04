@@ -2,10 +2,14 @@ import { type ChangeEvent, useCallback, useEffect, useMemo, useState } from 'rea
 import { ActivityIndicator, Button, ScrollView, Text, View } from 'react-native';
 import { Link } from 'expo-router';
 import { PlaceholderCard } from '@justevery/ui';
-import { useStytch } from '@stytch/react';
+import { useLogto } from '@logto/react';
 
-import { WORKER_ORIGIN, workerUrl } from './_components/RouteRedirect';
-import { useStytchReady } from './_providers/StytchProvider';
+import {
+  LOGTO_API_RESOURCE,
+  WORKER_ORIGIN,
+  workerUrl,
+} from './_components/RouteRedirect';
+import { useLogtoReady } from './_providers/LogtoProvider';
 
 type AssetObject = {
   key: string;
@@ -34,7 +38,7 @@ const SESSION_ENDPOINT = '/api/session';
 const ASSET_LIST_ENDPOINT = '/api/assets/list?prefix=uploads/';
 
 export default function AppScreen(): JSX.Element {
-  const ready = useStytchReady();
+  const ready = useLogtoReady();
 
   if (!ready) {
     return <AppLoading />;
@@ -44,9 +48,8 @@ export default function AppScreen(): JSX.Element {
 }
 
 function AppReady(): JSX.Element {
-  const stytch = useStytch();
-  const tokens = stytch.session.getTokens();
-  const sessionJwt = tokens?.session_jwt ?? null;
+  const { isAuthenticated, getAccessToken } = useLogto();
+  const [accessToken, setAccessToken] = useState<string | null>(null);
 
   const [serverSessionState, setServerSessionState] = useState<AsyncState<SessionResponse>>({ state: 'idle' });
   const [assetsState, setAssetsState] = useState<AsyncState<AssetObject[]>>({ state: 'idle' });
@@ -54,12 +57,42 @@ function AppReady(): JSX.Element {
   const [uploadStatus, setUploadStatus] = useState<AsyncState<null>>({ state: 'idle' });
   const [uploadError, setUploadError] = useState<string | null>(null);
 
+  useEffect(() => {
+    let cancelled = false;
+
+    async function fetchAccessToken() {
+      if (!isAuthenticated) {
+        setAccessToken(null);
+        return;
+      }
+
+      try {
+        const resource = LOGTO_API_RESOURCE || undefined;
+        const token = await getAccessToken(resource);
+        if (!cancelled) {
+          setAccessToken(token ?? null);
+        }
+      } catch (error) {
+        console.error('Failed to resolve Logto access token', error);
+        if (!cancelled) {
+          setAccessToken(null);
+        }
+      }
+    }
+
+    void fetchAccessToken();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [getAccessToken, isAuthenticated]);
+
   const authHeaders = useMemo(() => {
-    if (!sessionJwt) return undefined;
+    if (!accessToken) return undefined;
     return {
-      Authorization: `Bearer ${sessionJwt}`,
+      Authorization: `Bearer ${accessToken}`,
     } satisfies HeadersInit;
-  }, [sessionJwt]);
+  }, [accessToken]);
 
   const fetchServerSession = useCallback(async () => {
     if (!WORKER_ORIGIN) {
@@ -194,8 +227,8 @@ function AppReady(): JSX.Element {
         >
           <Text style={{ color: '#e2e8f0', fontSize: 26, fontWeight: '700' }}>Sign in to continue</Text>
           <Text style={{ color: '#94a3b8' }}>
-            Use the Stytch login screen to obtain a session. Once authenticated, your requests will include a bearer token
-            that the Worker validates against Stytch.
+            Use the Logto login screen to obtain a session. Once authenticated, your requests will include a bearer token
+            that the Worker validates against Logto before returning data.
           </Text>
           <Link
             href="/login"
@@ -245,14 +278,14 @@ function AppReady(): JSX.Element {
         <View style={{ gap: 8 }}>
           <Text style={{ color: '#e2e8f0', fontSize: 26, fontWeight: '700' }}>Welcome back</Text>
           <Text style={{ color: '#94a3b8' }}>
-            The Worker verifies your Stytch session on every request using the bearer token issued by the frontend SDK.
+            The Worker verifies your Logto session on every request using the bearer token issued by the frontend SDK.
           </Text>
         </View>
 
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 16 }}>
           <PlaceholderCard
             title="Email"
-            description={serverSession?.session?.member_email ?? serverSession?.session?.email_address ?? 'Unknown user'}
+            description={serverSession?.session?.email_address ?? 'Unknown user'}
           />
         </View>
 
@@ -274,7 +307,7 @@ function AppReady(): JSX.Element {
             View Stripe preview
           </Link>
           <Link
-            href="/login"
+            href="/logout"
             style={{
               borderColor: '#38bdf8',
               borderWidth: 1,
@@ -288,7 +321,7 @@ function AppReady(): JSX.Element {
               minWidth: 160,
             }}
           >
-            Switch account
+            Sign out
           </Link>
         </View>
 
@@ -305,7 +338,7 @@ function AppReady(): JSX.Element {
           <View style={{ gap: 4 }}>
             <Text style={{ color: '#e2e8f0', fontSize: 20, fontWeight: '600' }}>Storage demo (R2)</Text>
             <Text style={{ color: '#94a3b8' }}>
-              Files under <Text style={{ fontWeight: '600' }}>uploads/</Text> require a valid Stytch session. The Worker
+              Files under <Text style={{ fontWeight: '600' }}>uploads/</Text> require a valid Logto session. The Worker
               checks your bearer token before streaming anything from R2.
             </Text>
           </View>

@@ -9,7 +9,7 @@ environment files.
 - Node.js ≥ 18 and pnpm / npm for installing dependencies locally.
 - [Wrangler CLI](https://developers.cloudflare.com/workers/wrangler/install-and-update/) authenticated with an API token that has permission to manage Workers, D1, and R2.
 - `jq`, `curl`, and `sed` available on your PATH (installed by default on most developer machines).
-- Valid API keys for Stytch and Stripe stored in `/home/azureuser/.env` or the project `.env` file.
+- Valid credentials for Logto (management API client) and Stripe stored in `/home/azureuser/.env` or the project `.env` file.
 
 ## Required Environment Variables
 
@@ -19,9 +19,9 @@ Populate `.env` using `.env.example` as a template. At minimum you must define:
 - `LANDING_URL` & `APP_URL`
 - `CLOUDFLARE_ACCOUNT_ID` & `CLOUDFLARE_API_TOKEN`
 - `CLOUDFLARE_R2_BUCKET` (optional – falls back to `<project>-assets`)
-- `STYTCH_PROJECT_ID` & `STYTCH_SECRET`
-- `EXPO_PUBLIC_STYTCH_PUBLIC_TOKEN` (the public token consumed by the Expo login at `/login`)
-- `EXPO_PUBLIC_STYTCH_BASE_URL` (your Stytch CNAME when HTTP-only cookies are enforced)
+- `LOGTO_MANAGEMENT_ENDPOINT` & `LOGTO_MANAGEMENT_AUTH_BASIC` (base64 client credentials for the Logto management API)
+- `LOGTO_API_RESOURCE` (resource indicator to embed in issued access tokens)
+- Optional overrides: `LOGTO_ENDPOINT`, `LOGTO_APPLICATION_ID`, `LOGTO_APPLICATION_SECRET`
 - `STRIPE_PRODUCTS` (shorthand or JSON array) and optionally `STRIPE_SECRET_KEY`
 
 Set `DRY_RUN=1` to exercise the script without creating resources.
@@ -54,11 +54,11 @@ Key tasks performed:
 11. Syncs Worker secrets (unless `SYNC_SECRETS=0`) via `wrangler secret put`.
 12. Uploads a placeholder `welcome.txt` asset into the configured R2 bucket.
 13. Writes `.env.local.generated` containing resolved resource identifiers, Stripe outputs, and
-    the `EXPO_PUBLIC_STYTCH_PUBLIC_TOKEN` for the Expo client.
+    the `EXPO_PUBLIC_LOGTO_*` values consumed by the Expo client.
 
 After bootstrap completes, copy `.env.local.generated` into `apps/web/.env.local` (or export the
-keys in your shell) so the Expo runtime can read `EXPO_PUBLIC_STYTCH_PUBLIC_TOKEN` when rendering
-the Stytch login at `/login`.
+keys in your shell) so the Expo runtime can read `EXPO_PUBLIC_LOGTO_*` when rendering the Logto
+login at `/login`.
 
 ## Stripe Product Notation
 

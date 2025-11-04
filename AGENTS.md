@@ -10,8 +10,8 @@ This repository is the canonical justevery starter stack; future products should
 - Root helpers: `bootstrap.sh` provisions Cloudflare + Stripe resources; `scripts/deploy-worker.cjs` standardises deploys.
 
 ## Build, Test, and Development Commands
-- `npm run dev:web` – Expo web dev server with hot reload.
-- `npm run dev:worker` – Wrangler watch mode using `workers/api/wrangler.toml`.
+- `npm run dev:web` – Expo web dev server with hot reload. When pairing with the local Worker, set `EXPO_PUBLIC_WORKER_ORIGIN=http://127.0.0.1:8787` in `apps/web/.env`.
+- `npm run dev:worker` – Wrangler dev server (`wrangler dev --config workers/api/wrangler.toml`) backed by Miniflare; honours `.dev.vars` for env/bindings. Add D1/R2 bindings there so tests mirror production.
 - `npm run build` – Runs workspace builds (`expo export`, Worker bundle).
 - `npm test --workspace workers/api` – Vitest unit suites.
 - `npm run test:e2e` – Playwright against `E2E_BASE_URL` or `LANDING_URL`.
@@ -33,4 +33,6 @@ This repository is the canonical justevery starter stack; future products should
 
 ## Environment & Configuration Tips
 - Run `./bootstrap.sh` after cloning and when infra config changes; it is idempotent and reuses the `.env` metadata to skip recreating Cloudflare or Stripe resources.
-- Record updates to secrets, Stytch, or Stripe setup in `docs/SSO.md` or `docs/DEPLOYMENTS.md`, and mirror changes in `.dev.vars` files.
+- Record updates to secrets, Logto, or Stripe setup in `docs/SSO.md` or `docs/DEPLOYMENTS.md`, and mirror changes in `.dev.vars` files.
+- For local auth testing, create `workers/api/.dev.vars` with the same bindings used in production (D1, R2, LOGTO_*). Wrangler loads these automatically during `npm run dev:worker` and keeps state under `.wrangler/state/`.
+- Use `wrangler dev --remote` when you need Cloudflare’s edge runtime (JWT verification with real Logto tenant) while retaining hot reload.

@@ -1,3 +1,5 @@
+import { createRemoteJWKSet, jwtVerify, type JWTPayload, type JWTVerifyOptions } from 'jose';
+
 type AssetFetcher = {
   fetch(input: Request | string, init?: RequestInit): Promise<Response>;
 };
@@ -5,14 +7,19 @@ type AssetFetcher = {
 export interface Env {
   DB: D1Database;
   STORAGE: R2Bucket;
-  STYTCH_PROJECT_ID: string;
-  STYTCH_SECRET: string;
+  LOGTO_ISSUER: string;
+  LOGTO_JWKS_URI: string;
+  LOGTO_API_RESOURCE: string;
+  LOGTO_ENDPOINT?: string;
+  LOGTO_APPLICATION_ID?: string;
   APP_BASE_URL?: string;
   LANDING_URL?: string;
   STRIPE_PRODUCTS?: string;
   STRIPE_WEBHOOK_SECRET?: string;
-  EXPO_PUBLIC_STYTCH_PUBLIC_TOKEN?: string;
-  EXPO_PUBLIC_STYTCH_BASE_URL?: string;
+  EXPO_PUBLIC_LOGTO_ENDPOINT?: string;
+  EXPO_PUBLIC_LOGTO_APP_ID?: string;
+  EXPO_PUBLIC_API_RESOURCE?: string;
+  EXPO_PUBLIC_LOGTO_POST_LOGOUT_REDIRECT_URI?: string;
   EXPO_PUBLIC_WORKER_ORIGIN?: string;
   ASSETS?: AssetFetcher;
 }
@@ -38,11 +45,13 @@ const textEncoder = new TextEncoder();
 
 const STATIC_ASSET_PREFIXES = ["/_expo/", "/assets/"];
 const STATIC_ASSET_PATHS = new Set(["/favicon.ico", "/index.html", "/manifest.json"]);
-const SPA_EXTRA_ROUTES = ["/login", "/payments"];
+const SPA_EXTRA_ROUTES = ["/login", "/payments", "/callback", "/logout"];
 
 type RuntimeEnvPayload = {
-  stytchPublicToken: string | null;
-  stytchBaseUrl: string | null;
+  logtoEndpoint: string | null;
+  logtoAppId: string | null;
+  apiResource: string | null;
+  postLogoutRedirectUri: string | null;
   workerOrigin: string | null;
 };
 
@@ -156,7 +165,13 @@ async function serveAppShell(request: Request, env: Env): Promise<Response | nul
 
     try {
       const payload = resolveRuntimeEnvPayload(env);
-      if (payload.stytchPublicToken || payload.stytchBaseUrl || payload.workerOrigin) {
+      if (
+        payload.logtoEndpoint ||
+        payload.logtoAppId ||
+        payload.apiResource ||
+        payload.postLogoutRedirectUri ||
+        payload.workerOrigin
+      ) {
         const html = await response.clone().text();
         const injected = injectRuntimeEnv(html, payload);
         body = injected;
@@ -179,8 +194,13 @@ async function serveAppShell(request: Request, env: Env): Promise<Response | nul
 
 function resolveRuntimeEnvPayload(env: Env): RuntimeEnvPayload {
   return {
-    stytchPublicToken: env.EXPO_PUBLIC_STYTCH_PUBLIC_TOKEN ?? null,
-    stytchBaseUrl: env.EXPO_PUBLIC_STYTCH_BASE_URL ?? null,
+    logtoEndpoint:
+      env.EXPO_PUBLIC_LOGTO_ENDPOINT ?? env.LOGTO_ENDPOINT ?? null,
+    logtoAppId:
+      env.EXPO_PUBLIC_LOGTO_APP_ID ?? env.LOGTO_APPLICATION_ID ?? null,
+    apiResource:
+      env.EXPO_PUBLIC_API_RESOURCE ?? env.LOGTO_API_RESOURCE ?? null,
+    postLogoutRedirectUri: env.EXPO_PUBLIC_LOGTO_POST_LOGOUT_REDIRECT_URI ?? null,
     workerOrigin: resolveWorkerOrigin(env),
   };
 }
@@ -209,98 +229,23 @@ function injectRuntimeEnv(html: string, payload: RuntimeEnvPayload): string {
     window.__JUSTEVERY_ENV__ = env;
     try {
       if (typeof window.dispatchEvent === 'function') {
-        const detail = { stytchPublicToken: env.stytchPublicToken, stytchBaseUrl: env.stytchBaseUrl };
+        const detail = {
+          logtoEndpoint: env.logtoEndpoint,
+          logtoAppId: env.logtoAppId,
+          logtoApiResource: env.apiResource,
+          logtoPostLogoutRedirectUri: env.postLogoutRedirectUri,
+          workerOrigin: env.workerOrigin
+        };
         const event = typeof CustomEvent === 'function'
           ? new CustomEvent('justevery:env-ready', { detail })
           : new Event('justevery:env-ready');
-        if ('detail' in event) {
-          (event as CustomEvent<typeof detail>).detail.stytchPublicToken ??= env.stytchPublicToken;
-          (event as CustomEvent<typeof detail>).detail.stytchBaseUrl ??= env.stytchBaseUrl;
+        if ('detail' in event && event.detail && typeof event.detail === 'object') {
+          Object.assign(event.detail, detail);
         }
         window.dispatchEvent(event);
       }
     } catch (eventError) {
       console.warn('Failed to dispatch env-ready event', eventError);
-    }
-    const extractUrl = (input) => {
-      if (!input) return null;
-      if (typeof input === 'string') return input;
-      if (typeof URL !== 'undefined' && input instanceof URL) {
-        return input.toString();
-      }
-      if (typeof Request !== 'undefined' && input instanceof Request) {
-        return input.url;
-      }
-      if (typeof input === 'object' && typeof input.url === 'string') {
-        return input.url;
-      }
-      return null;
-    };
-
-    const rewriteIfStytch = (input) => {
-      if (!env || !env.stytchBaseUrl) return null;
-      const raw = extractUrl(input);
-      if (!raw) return null;
-      let parsed;
-      try {
-        parsed = new URL(raw);
-      } catch (error) {
-        return null;
-      }
-      const host = (parsed.hostname || '').toLowerCase();
-      if (!host.endsWith('stytch.com')) {
-        return null;
-      }
-      try {
-        const base = new URL(env.stytchBaseUrl);
-        const pathAndQuery = parsed.pathname + parsed.search + parsed.hash;
-        const rewritten = new URL(pathAndQuery, base);
-        return rewritten.toString();
-      } catch (error) {
-        console.warn('Stytch URL rewrite failed', error);
-        return null;
-      }
-    };
-
-    const originalRequest = window.Request;
-    if (typeof originalRequest === 'function') {
-      window.Request = new Proxy(originalRequest, {
-        construct(target, args) {
-          if (args && args.length > 0) {
-            const rewritten = rewriteIfStytch(args[0]);
-            if (rewritten) {
-              args[0] = rewritten;
-            }
-          }
-          return new target(...args);
-        },
-      });
-    }
-
-    if (typeof window.fetch === 'function') {
-      const originalFetch = window.fetch;
-      window.fetch = function patchedFetch(resource, init) {
-        const rewritten = rewriteIfStytch(resource);
-        if (rewritten) {
-          if (typeof Request !== 'undefined' && resource instanceof Request) {
-            const cloned = resource.clone();
-            resource = new Request(rewritten, cloned);
-          } else if (typeof URL !== 'undefined' && resource instanceof URL) {
-            resource = new URL(rewritten);
-          } else {
-            resource = rewritten;
-          }
-        }
-        return originalFetch.call(this, resource, init);
-      };
-    }
-
-    if (typeof window.XMLHttpRequest === 'function') {
-      const originalOpen = window.XMLHttpRequest.prototype.open;
-      window.XMLHttpRequest.prototype.open = function patchedOpen(method, url, ...rest) {
-        const rewritten = rewriteIfStytch(url);
-        return originalOpen.call(this, method, rewritten || url, ...rest);
-      };
     }
   })();`;
 
@@ -388,24 +333,20 @@ type AuthenticatedSession = {
   emailAddress?: string | null;
 };
 
-type StytchAuthenticateResponse = {
-  session_token: string;
-  session: {
-    session_id: string;
-    expires_at: string;
-    attributes?: {
-      ip_address?: string | null;
-      user_agent?: string | null;
-    } | null;
-  };
-  user: {
-    user_id: string;
-    email?: string | null;
-    emails?: Array<{ email: string; primary?: boolean | null }>;
-  };
-};
-
 const requestSessionCache = new WeakMap<Request, AuthenticatedSession | null>();
+
+let cachedJwks: ReturnType<typeof createRemoteJWKSet> | null = null;
+let cachedJwksUrl: string | null = null;
+
+function getRemoteJwks(jwksUri: string): ReturnType<typeof createRemoteJWKSet> {
+  if (cachedJwks && cachedJwksUrl === jwksUri) {
+    return cachedJwks;
+  }
+  const url = new URL(jwksUri);
+  cachedJwks = createRemoteJWKSet(url);
+  cachedJwksUrl = jwksUri;
+  return cachedJwks;
+}
 
 function extractBearerToken(request: Request): string | null {
   const authorization = request.headers.get("authorization") ?? request.headers.get("Authorization");
@@ -415,12 +356,6 @@ function extractBearerToken(request: Request): string | null {
     return null;
   }
   return token.trim();
-}
-
-function resolveStytchBaseUrl(env: Env): string {
-  return env.STYTCH_PROJECT_ID.startsWith("project-live-")
-    ? "https://api.stytch.com"
-    : "https://test.stytch.com";
 }
 
 async function authenticateRequest(request: Request, env: Env): Promise<AuthenticatedSession | null> {
@@ -434,44 +369,47 @@ async function authenticateRequest(request: Request, env: Env): Promise<Authenti
     return null;
   }
 
-  const baseUrl = resolveStytchBaseUrl(env);
-  const credentials = btoa(`${env.STYTCH_PROJECT_ID}:${env.STYTCH_SECRET}`);
-
-  let stytchResponse: Response;
+  let payload: JWTPayload;
   try {
-    stytchResponse = await fetch(`${baseUrl}/v1/sessions/authenticate`, {
-      method: "POST",
-      headers: {
-        Authorization: `Basic ${credentials}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ session_jwt: sessionJwt }),
-    });
+    const jwks = getRemoteJwks(env.LOGTO_JWKS_URI);
+    const options: JWTVerifyOptions = {
+      issuer: env.LOGTO_ISSUER,
+      audience: env.LOGTO_API_RESOURCE,
+    };
+
+    ({ payload } = await jwtVerify(sessionJwt, jwks, options));
   } catch (error) {
-    console.error("Stytch request failed", error);
+    console.error("JWT verification failed", error);
     requestSessionCache.set(request, null);
     return null;
   }
 
-  if (!stytchResponse.ok) {
-    const errorBody = await stytchResponse.text().catch(() => "<unavailable>");
-    console.warn("Stytch authentication rejected", stytchResponse.status, errorBody);
+  const audiences = Array.isArray(payload.aud) ? payload.aud : payload.aud ? [payload.aud] : [];
+  if (!audiences.includes(env.LOGTO_API_RESOURCE)) {
+    console.warn("JWT audience validation failed");
     requestSessionCache.set(request, null);
     return null;
   }
 
-  const body = (await stytchResponse.json()) as StytchAuthenticateResponse;
+  const exp = typeof payload.exp === "number" ? payload.exp : null;
+  const sub = typeof payload.sub === "string" ? payload.sub : null;
+  const claims = payload as Record<string, unknown>;
+  const email = typeof claims.email === "string" ? (claims.email as string) : null;
+  const sid = typeof claims.sid === "string" ? (claims.sid as string) : null;
+  const jti = typeof payload.jti === "string" ? payload.jti : null;
 
-  const primaryEmail = body.user.email ?? body.user.emails?.find((entry) => entry.primary)?.email ?? null;
+  if (!sub || !exp) {
+    console.warn("JWT missing required claims (sub or exp)");
+    requestSessionCache.set(request, null);
+    return null;
+  }
 
   const normalised: AuthenticatedSession = {
     sessionJwt,
-    sessionId: body.session.session_id,
-    expiresAt: body.session.expires_at,
-    memberId: body.user.user_id,
-    memberEmail: primaryEmail,
-    organizationId: '',
-    organizationName: null,
+    sessionId: sid ?? jti ?? sub,
+    expiresAt: new Date(exp * 1000).toISOString(),
+    userId: sub,
+    emailAddress: email,
   };
 
   requestSessionCache.set(request, normalised);
@@ -504,7 +442,7 @@ async function handleSessionApi(request: Request, env: Env): Promise<Response> {
 async function handleLogout(_request: Request, _env: Env): Promise<Response> {
   return jsonResponse({
     ok: true,
-    message: 'Sessions are managed by the Stytch frontend SDK; clear tokens there to log out.',
+    message: 'Sessions are managed by the Logto frontend SDK; clear tokens there to log out.',
   });
 }
 
@@ -774,7 +712,7 @@ function landingPageHtml(env: Env): string {
 <body>
 <main>
   <h1>Launch your product with confidence</h1>
-  <p>justevery ships a turnkey stack powered by Cloudflare, Stytch, and Stripe so you can focus on features, not plumbing. Sign in from the web client to obtain a Stytch session, then let the Worker validate every request.</p>
+  <p>justevery ships a turnkey stack powered by Cloudflare, Logto, and Stripe so you can focus on features, not plumbing. Sign in from the web client to obtain a Logto session, then let the Worker validate every request.</p>
   <a class="button" href="${loginUrl}">Open the app →</a>
   <footer>Need the dashboard? Jump to <a href="${appUrl}">${appUrl}</a> or visit <a href="${landingUrl}">${landingUrl}</a>.</footer>
 </main>

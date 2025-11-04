@@ -1,178 +1,55 @@
-# Project Bootstrap Plan
+# justevery Starter Stack – Delivery Plan (Updated 2025-11-04)
 
-## 1. Goals & Guiding Principles
-- Deliver a reusable starter repo for future `justevery.com` projects with opinionated defaults and batteries included.
-- Prioritise Cloudflare-native hosting (Workers + D1 + R2) and managed services (Stytch authentication, Stripe billing).
-- Keep the web experience deployable immediately, while the Expo/React Native codebase stays platform-agnostic for mobile expansion.
-- Automate provisioning and deployments via `wrangler` and a `bootstrap.sh` script using environment-driven configuration.
+## Snapshot
+- Repo already hosts the baseline Expo web shell, Cloudflare Worker, bootstrap automation, and docs.
+- D1 migrations, R2 stubs, and Stripe product scaffolding exist but need reliability hardening before the template can be tagged "ready".
+- Latest smoke run (2025-11-04) confirms landing, payments, and unauthenticated session endpoints respond, but the authenticated flow is still broken in production.
+- Wrangler local dev loop works (`npm run dev:worker` + `.dev.vars`); leverage it for the Logto fixes before deploying.
 
-## 2. Target Architecture
-- **Client**: Expo (React Native) app targeting web first (`expo-router` + `expo` web build). Separate routes for landing, login, authenticated app, and payments placeholder.
-- **Worker**: Cloudflare Worker serving SSR/static assets (landing, app shell) and acting as an API proxy to Stytch, Stripe, and D1. Protected requests include a bearer token that the Worker validates with Stytch before continuing.
-- **Database**: Cloudflare D1 for app data (users, subscriptions, feature flags, audit trail) with migrations managed via `drizzle-kit` or Wrangler migrations.
-- **Storage**: Cloudflare R2 for asset uploads (user avatars, marketing images). Access through signed URLs from the Worker.
-- **Authentication**: Stytch React B2B SDK in the Expo web app issues `session_jwt` tokens. The Worker expects `Authorization: Bearer <session_jwt>` on every call and uses `sessions.authenticate` to verify them.
-- **Payments**: Stripe Billing products configured per project; Worker webhook endpoint to sync status into D1.
-- **CI/CD**: GitHub Actions workflow deploying Worker via Wrangler, running tests/linting, building Expo web bundle, seeding D1, and validating bootstrap script.
+## Locked / No Further Action Needed
+- Architecture guardrails, repo layout, coding standards, and docs baseline (`README`, `docs/*`) are current.
+- Worker serves static assets, landing, payments placeholder, and Stripe wiring with idempotent seed scripts.
+- Bootstrap script provisions Cloudflare resources (D1, R2, Worker) and lays down WRANGLER config; reruns remain idempotent for infrastructure creation.
 
-## 3. Repository Structure
-- `apps/web/` – Expo project with `expo-router`, routes: `/` (landing), `/login`, `/app`, `/payments`.
-- `workers/api/` – Cloudflare Worker (TypeScript) handling SSR, auth callbacks, API routes, Stripe webhooks.
-- `packages/ui/` – Shared React Native components (buttons, layout, theming) reused across routes.
-- `packages/config/` – Centralised TypeScript config, environment schema (using `zod`), and service clients.
-- Config files: `wrangler.toml`, `tsconfig`, `.eslintrc`, `prettier`, `.github/workflows/deploy.yml`, `.env.example`, `bootstrap.sh`.
-- Docs: `README.md`, `PLAN.md` (this file), `docs/architecture.md`, `docs/bootstrap.md` (generated later).
+## Outstanding Work
+### 1. Logto Web Flow (Highest Priority)
+- **Bug**: `/app` gate relies on an undefined `sessionJwt` (apps/web/app/app.tsx:200) so the dashboard never unlocks after login.
+- **Fix**: Refactor Expo app to depend on `useLogto()` access tokens; remove the dead `sessionJwt` branch and ensure `useLogtoReady()` waits for injected env.
+- **Follow-up**: Confirm runtime env injection succeeds by reloading `https://demo.justevery.com/login` and observing the event handler consuming `window.__JUSTEVERY_ENV__`.
 
-## 4. Environment & Secrets Management
-- `.env` (local only) populated from `/home/azureuser/.env`; `.env.example` includes:
-  - `PROJECT_ID`, `LANDING_URL`, `APP_URL`, `STRIPE_PRODUCTS`, `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_R2_BUCKET`, `STYTCH_PROJECT_ID`, `STYTCH_SECRET`, `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`.
-- Use `dotenv` + `zod` validator inside Worker and Expo app for safe access.
-- Ensure `bootstrap.sh` loads `.env`, validates required variables, and exits early if any are missing.
+### 2. Auth Callback + Session API
+- Worker lacks a `/callback` handler to exchange Logto authorization code for tokens. Either add Worker exchange logic or rely on Logto SPA SDK redirect flow exclusively—documented behaviour must match implementation.
+- Add `/api/session` endpoint coverage for authorised requests (currently only 401 path is proven). Include a happy-path test in `workers/api/test/routes.extra.test.ts` with a mocked valid JWT.
 
-## 5. Feature Workstream Breakdown
-### 5.1 Marketing Landing Page
-- Implement placeholder hero layout in Expo route `/` with neutral design and CTA linking to `/login`.
-- Source assets from R2 (fallback to local placeholder). Ensure responsive design for desktop/mobile web.
-- Include metadata (SEO tags) via Expo Router head config.
+### 3. Bootstrap Validation
+- Re-run `./bootstrap.sh` (non-dry-run) after the auth fixes. Ensure the script:
+  - Executes migrations remotely (`wrangler d1 execute --remote demo-d1`).
+  - Seeds `projects` row and verifies count ≥ 1 in remote DB.
+  - Uploads placeholder asset to R2 (hero image) so app preview is populated.
+- Capture output (stdout + generated `.env.local.generated`) and attach to `docs/DEPLOYMENTS.md`.
 
-### 5.2 Login (Stytch React B2B)
-- Embed Stytch’s React B2B login component in the Expo `/login` route (web only). Native surfaces point users to the hosted login URL for now.
-- After authentication, capture the `session_jwt` from the SDK and store it in client state for API calls.
-- Update data-fetching hooks to send `Authorization: Bearer <session_jwt>` so the Worker can call Stytch’s `sessions.authenticate` endpoint before returning data.
-- Provide logout flow clearing session cookie.
+### 4. Smoke & Screenshot Harness Integration
+- Promote `scripts/smoke-check.cjs` and new screenshot harness into CI once auth is reliable.
+- Ensure `npm run smoke` and `npm run smoke:screens` include Logto-authorised checks when `LOGTO_TOKEN` is provided; document usage in README.
+- Expand coverage so every routed page (`/`, `/login`, `/callback`, `/logout`, `/app`, `/payments`) is exercised manually or via Playwright. Validate all internal links, external redirects, and R2-hosted assets render correctly before signing off.
 
-### 5.3 App Shell (Authenticated)
-- Expo `/app` route gated by session check (fetch to Worker `/api/session`).
-- Render placeholder dashboard with welcome message and upcoming project modules.
-- Define navigation skeleton for future features.
+### 5. Local Wrangler Workflow
+- Document and standardise `.dev.vars` under `workers/api/` with bindings for D1, R2, and `LOGTO_*` to mimic production secrets locally.
+- Encourage using `npm run dev:worker` (Miniflare) during feature work; combine with `EXPO_PUBLIC_WORKER_ORIGIN=http://127.0.0.1:8787` when running `npm run dev:web`.
+- Capture guidance for `wrangler dev --remote` when Logto JWT validation must hit the real tenant.
 
-### 5.4 Payments Placeholder
-- `/payments` route accessible from app shell.
-- Display Stripe product data fetched from Worker `/api/stripe/products` (seeded via bootstrap).
-- Add CTA button for buyers (links to Stripe Checkout placeholder).
+### 6. Documentation Updates
+- Update `docs/DEPLOYMENTS.md` and `docs/VERIFICATION.md` with the latest bootstrap run, including timestamps and D1 query output.
+- Add a “Logto troubleshooting” section in `docs/SSO.md` summarising the fixes above.
 
-### 5.5 Database Layer (Cloudflare D1)
-- Define schema using Drizzle ORM or SQL migrations: `users`, `sessions`, `projects`, `subscriptions`, `audit_log`.
-- Provide `scripts/migrate.ts` to run migrations via Wrangler.
-- Add seeding script run during `bootstrap.sh` to create initial project entry.
+## Risks & Watchlist
+- **Logto tokens**: Ensure environment variables remain in sync across Worker secrets and Expo runtime. Missing `LOGTO_JWKS_URI` will break auth silently.
+- **Cloudflare limits**: Bootstrap creates resources with deterministic names (`demo-d1`, `demo-assets`); ensure teardown or reuse when cloning template.
+- **Stripe mode drift**: Guard bootstrap to respect `STRIPE_MODE` and avoid contaminating live products with demo data.
 
-### 5.6 Storage (Cloudflare R2)
-- Configure bucket via Wrangler; ensure CORS for `*.justevery.com` origins.
-- Worker endpoint to generate signed upload/download URLs.
-- Expo app includes placeholder component demonstrating image upload (stub logic until mobile support).
+## Immediate Next Steps
+1. Patch Expo app & Worker auth flow (sections 1–2). Validate locally with `npm run dev:worker` + `npm run dev:web`, then rerun `npm test --workspace workers/api`.
+2. Exercise every published page locally and in staging (links, assets, redirects) using `npm run smoke`, `npm run smoke:screens`, and manual checks. Capture failures in `docs/VERIFICATION.md`.
+3. Execute bootstrap against https://demo.justevery.com, stash smoke/screenshot artifacts in `test-results/`, and refresh docs per sections 5–6 before cutting the template tag.
 
-### 5.7 GitHub Actions Deployment Workflow
-- Workflow triggers on `main` pushes + manual dispatch.
-- Jobs: install dependencies (pnpm), lint (dry-run first), run tests, build Expo web, run Worker typecheck, deploy via `wrangler deploy` (using GitHub secrets mirrored from `.env`).
-- Post-deploy job runs integration smoke tests hitting `/`, `/app`, and `/api/session` (with a seeded bearer token) using `wrangler dev` preview tokens.
-
-## 6. bootstrap.sh Responsibilities
-- Load `.env` and validate required keys.
-- Cloudflare setup:
-  1. Create/update Worker, bind D1 database, bind R2 bucket, configure routes for `https://{PROJECT_ID}.justevery.com` and `/app`.
-  2. Create D1 database if missing, run migrations, seed default records.
-  3. Create R2 bucket if missing and upload placeholder assets.
-- Stytch setup: document environment-specific `EXPO_PUBLIC_STYTCH_PUBLIC_TOKEN` values and ensure required OAuth/SAML providers are configured in Stytch.
-- Stripe setup: create or update products/prices listed in `STRIPE_PRODUCTS`, configure webhook endpoint pointing to Worker.
-- Output summary, store generated IDs in `.env.local.generated` for auditing.
-
-## 7. Documentation & Developer Experience
-- Update `README.md` with quick-start: prerequisites, environment setup, running dev server (`pnpm dev`), Worker preview (`wrangler dev`), Expo app instructions.
-- Add `docs/bootstrap.md` describing `bootstrap.sh` usage, expected outputs, rollback steps.
-- Provide `docs/architecture.md` with diagrams linking Worker, Expo client, Stytch, Stripe, D1, R2.
-- Include `CONTRIBUTING.md` with coding standards, lint/test instructions, branch naming, PR checklist.
-
-## 8. Testing Strategy
-- Unit tests for Worker handlers (session validation, Stripe webhook parsing) using Miniflare.
-- Component tests for Expo UI (React Testing Library + Jest).
-- E2E smoke tests using Playwright hitting the deployed preview (landing, login redirect, authenticated view) executed in CI and optionally via GitHub Actions workflow.
-- bootstrap script integration test (dry-run mode) verifying API calls are triggered without mutations.
-
-## 9. Roadmap & Stretch Goals
-- Implement feature flag management UI for upcoming projects.
-- Add support for mobile builds (iOS/Android) once web MVP stabilises.
-- Introduce analytics pipeline (PostHog) with Worker event forwarding.
-- Build CLI tool to scaffold new project clones using this template.
-
-## 10. Open Questions / Follow-Ups
-- Determine naming convention for Stripe products (`STRIPE_PRODUCTS` format) and storage for created IDs.
-- Evaluate whether the Worker should cache Stytch session verifications or rely on direct API calls for every request.
-- Confirm domain provisioning flow with Cloudflare (wildcard vs per-project DNS records).
-- Clarify access control model for internal admins vs external customers in D1 schema.
-- Establish secrets rotation process across Cloudflare, Stytch, Stripe, and GitHub Actions.
-
-## 11. Status (2025-11-03)
-- **Sections 1–5 (architecture, app, worker, data)**: ✅ Still current; no regressions detected.
-- **Section 6 (bootstrap.sh)**: 🔄 Bootstrap Idempotency agent completed review with actionable patches, but changes not merged yet. Cloudflare DNS + Worker deployment automation still pending.
-- **Section 7 (documentation)**: ✅ Up to date; no new docs required yet.
-- **Section 8 (testing)**: ✅ CI + smoke coverage unchanged; rerun recommended after Stytch fix lands.
-- **Sections 9–10**: 📌 Remain long-term roadmap.
-
-### 11.1 In-Flight Tasks
-- Merge agent outputs: Expo Web Audit and Worker Routing Review agents still need to be launched or results retrieved; bootstrap improvements awaiting manual merge.
-- Stytch web fixes: `apps/web/app/_providers/StytchProvider.tsx` must wrap the app in `StytchB2BProvider` using `EXPO_PUBLIC_STYTCH_*` env values; current web bundle throws `useStytchMemberSession` invariant.
-- Demo validation: After the provider fix and agent merges, rerun Expo web build and Worker smoke tests to confirm `demo.justevery.com` works end-to-end.
-- Deployment verification: Execute `./bootstrap.sh` (non-dry-run) to redeploy demo resources, fix all errors, and repeat until the deployed https://demo.justevery.com app is fully working.
-
-## 12. Completing the Bootstrap Flow with ~/.env Credentials
-
-The following steps describe how the single `bootstrap.sh` run should consume the existing secrets in `/home/azureuser/.env` so no manual follow-up is required. The script should guard each step, create missing resources, and patch mismatches.
-
-1. **Load configuration**
-   - Read shared platform credentials from `/home/azureuser/.env` (Cloudflare, Stripe, Stytch). These values apply to every subdomain under `justevery.com`.
-   - Pull per-product inputs (`PROJECT_ID`, `LANDING_URL`, `APP_URL`, `STRIPE_PRODUCTS`, optional `STRIPE_MODE`) from the repo-local `.env`. Each project template keeps its own `.env` with these overrides while still relying on the shared `$HOME/.env` for privileged keys.
-   - Export Cloudflare credentials: `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_API_TOKEN` (token must include Workers, D1, R2, DNS scopes). Keep `CLOUDFLARE_ZONE_ID`, `CLOUDFLARE_EMAIL`, `CLOUDFLARE_API_KEY` on hand for DNS APIs that still require the older key/email pair.
-
-2. **Cloudflare provisioning**
-   - **Workers + bindings**: Use `CLOUDFLARE_API_TOKEN` with Wrangler to ensure the Worker script exists, binding `DB` and `STORAGE`. Continue using the existing D1/R2 ensure functions.
-   - **DNS + routes**: With `CLOUDFLARE_ZONE_ID` and either the API token (preferred) or API key/email, check for a `CNAME` (or `AAAA` if using proxied Workers) pointing `{PROJECT_ID}.justevery.com` at the Worker. Create/update if missing.
-   - **Custom domain binding**: Call `wrangler routes`/Cloudflare Workers API to attach the Worker to the new hostname so requests resolve immediately.
-   - **Deployment**: Run `wrangler deploy` using the templated `workers/api/wrangler.toml` once bindings and DNS are ready.
-
-3. **Database + storage finalisation**
-   - Continue running migrations and seeding via `node workers/api/scripts/migrate.js` and D1 `execute` calls.
-   - Confirm R2 placeholder asset exists; re-upload if missing.
-
-4. **Stripe automation**
-   - Read `STRIPE_MODE` (default `test`). Select the matching secret key from `/home/azureuser/.env`: `STRIPE_TEST_SECRET_KEY` when `test`, `STRIPE_LIVE_SECRET_KEY` when `live`.
-   - Provision products/prices from `STRIPE_PRODUCTS`, create/update webhook endpoint at `${LANDING_URL}/webhook/stripe`, and capture `STRIPE_WEBHOOK_SECRET` in `.env.local.generated`.
-   - Push `STRIPE_WEBHOOK_SECRET` into Worker secrets automatically via `wrangler secret put` so the deployed Worker is ready.
-
-5. **Stytch management**
-   - Authenticate using `STYTCH_MANAGEMENT_KEY_ID` + `STYTCH_MANAGEMENT_SECRET` alongside `STYTCH_PROJECT_ID` and `STYTCH_PROJECT_ENVIRONMENT` to call the Management API.
-   - Ensure redirect URLs (`LANDING_URL`, `APP_URL`, `/auth/callback`) are registered and that the Connected App client in Stytch lists the same values.
-   - Sync runtime secrets into the Worker (`STYTCH_PROJECT_ID`, `STYTCH_SECRET`, Stripe keys) using `wrangler secret put` so bearer verification succeeds post-deploy.
-
-6. **Verification + reporting**
-   - Once provisioning completes, automate smoke checks (`curl` `/`, `/login`, `/app`, `/api/session`) and write the results to `docs/DEPLOYMENTS.md`.
-   - Update `.env.local.generated` with IDs and timestamps so future runs can diff expected vs actual resources.
-   - Emit a final summary indicating whether each subsystem changed (DNS, Worker, Stripe, Stytch) to make reruns idempotent.
-
-Implementing the remaining automation in steps 2–6 will deliver the desired one-command bootstrap experience while leveraging only the credentials already stored in `/home/azureuser/.env`.
-
-## 13. Cleanup & Production Readiness Checklist
-
-After the `demo.justevery.com` environment is fully automated and deployed, follow this list before cloning the template for new products. The intent is to keep the demo instance live (and its `.env` values checked into this repo) so future updates can be verified against a stable reference.
-
-1. **Confirm demo deployment health**
-   - Run bootstrap in non-dry-run mode and ensure the Worker, DNS, Stytch, and Stripe resources converge without manual intervention.
-   - Execute the smoke tests (`npm run test:e2e` or the CI workflow) and record results in `docs/DEPLOYMENTS.md`.
-
-2. **Snapshot credentials & metadata**
-   - Keep `./.env` in the repo with demo-specific values (non-secret identifiers only). Regenerate `.env.local.generated` and commit the diff to secrets storage (not to git) so the audit trail reflects the latest IDs.
-   - Ensure `/home/azureuser/.env` remains the canonical store for shared credentials the bootstrap script reads across all products.
-   - Document webhook endpoints, connection IDs, and database names in `docs/VERIFICATION.md` for quick validation.
-
-3. **Strip demo-only data from seed path**
-   - Ensure D1 migrations + seed scripts contain only generic bootstrap fixtures. Any demo content (sample users, marketing copy, Stripe products) should reside in `.env` or R2, not in code, so fresh products start clean.
-
-4. **Tag the template state**
-   - Create a git tag (e.g. `template-ready-2025-11-02`) after verifying the demo deployment. This tag becomes the starting point when spinning up future product repos.
-
-5. **Document clone procedure**
-   - Update `docs/bootstrap.md` with a “New product rollout” appendix that references the final bootstrap script, required `.env` overrides, and any environment-specific gotchas discovered while finishing demo.justevery.com.
-
-6. **Lock down production secrets**
-   - Rotate or remove any demo API keys that shouldn’t inform production. Ensure the management keys in `/home/azureuser/.env` remain valid, but set expectations (e.g. label them “demo/seed only”) so production clones supply their own credentials.
-
-Once these items are checked, the repo can serve as the canonical starter kit. Future products inherit the documented bootstrap flow, while the live demo deployment stays in sync to validate upcoming changes.
+Once these steps are complete, the starter stack can be declared production-ready for cloning into new `justevery` products.

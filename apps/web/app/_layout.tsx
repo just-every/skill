@@ -1,11 +1,11 @@
 import { Stack } from 'expo-router';
 
-import StytchProvider from './_providers/StytchProvider';
+import LogtoProvider from './_providers/LogtoProvider';
 
 export default function RootLayout(): JSX.Element {
   return (
-    <StytchProvider>
+    <LogtoProvider>
       <Stack screenOptions={{ headerShown: false }} />
-    </StytchProvider>
+    </LogtoProvider>
   );
 }

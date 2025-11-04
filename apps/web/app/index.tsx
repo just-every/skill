@@ -13,7 +13,7 @@ const featureHighlights = [
   },
   {
     title: 'Authentication baked-in',
-    description: 'Stytch React B2B runs in the web client while Workers verify bearer tokens for every request.',
+    description: 'Logto React runs in the web client while Workers verify bearer tokens for every request.',
   },
   {
     title: 'Stripe-ready billing',
@@ -106,7 +106,7 @@ export default function LandingScreen() {
           ) : null}
         </View>
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 12 }}>
-          <WorkerLink path="/login" label="Sign in with Stytch" />
+          <WorkerLink path="/login" label="Sign in with Logto" />
           <WorkerLink path="/payments" label="Preview pricing" variant="secondary" />
         </View>
         <Text style={{ color: '#64748b', fontSize: 12 }}>
