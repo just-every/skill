@@ -233,7 +233,7 @@ function injectRuntimeEnv(html: string, payload: RuntimeEnvPayload): string {
         const detail = {
           logtoEndpoint: env.logtoEndpoint,
           logtoAppId: env.logtoAppId,
-          logtoApiResource: env.apiResource,
+          apiResource: env.apiResource,
           logtoPostLogoutRedirectUri: env.postLogoutRedirectUri,
           workerOrigin: env.workerOrigin
         };

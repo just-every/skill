@@ -6,7 +6,7 @@ const RUNTIME_EVENT = 'justevery:env-ready';
 type RuntimeEnv = Partial<{
   logtoEndpoint: string;
   logtoAppId: string;
-  logtoApiResource: string;
+  apiResource: string;
   logtoPostLogoutRedirectUri: string;
 }>;
 
@@ -54,7 +54,7 @@ function buildLogtoConfig(detail: RuntimeEnv | undefined): LogtoConfig | null {
 
   const endpoint = normalise(detail?.logtoEndpoint) ?? normalise(injected.logtoEndpoint) ?? normalise(processEnv.EXPO_PUBLIC_LOGTO_ENDPOINT);
   const appId = normalise(detail?.logtoAppId) ?? normalise(injected.logtoAppId) ?? normalise(processEnv.EXPO_PUBLIC_LOGTO_APP_ID);
-  const apiResource = normalise(detail?.logtoApiResource) ?? normalise(injected.logtoApiResource) ?? normalise(processEnv.EXPO_PUBLIC_API_RESOURCE);
+  const apiResource = normalise(detail?.apiResource) ?? normalise(injected.apiResource) ?? normalise(processEnv.EXPO_PUBLIC_API_RESOURCE);
 
   if (!endpoint || !appId) {
     return null;

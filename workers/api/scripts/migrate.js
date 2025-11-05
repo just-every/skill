@@ -51,7 +51,7 @@ async function main() {
   for (const file of files) {
     const filePath = join(MIGRATIONS_DIR, file);
     console.log(`→ Applying migration ${file}`);
-    await execWrangler(['d1', 'execute', DATABASE_NAME, '--file', filePath, ...process.argv.slice(2)]);
+    await execWrangler(['d1', 'execute', DATABASE_NAME, '--yes', '--file', filePath, ...process.argv.slice(2)]);
   }
 
   console.log('\n✅ All migrations applied successfully');

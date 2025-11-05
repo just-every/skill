@@ -409,58 +409,8 @@ ensure_logto_application() {
   log_info "Created Logto application ${app_name} (${LOGTO_APPLICATION_ID})"
 }
 
-fetch_logto_application_secret() {
-  if [[ -n "${LOGTO_APPLICATION_SECRET:-}" ]]; then
-    return
-  fi
-
-  if [[ -z "${LOGTO_APPLICATION_ID:-}" ]]; then
-    log_warn "LOGTO_APPLICATION_ID not set; skipping secret fetch"
-    return
-  fi
-
-  if [[ -z "${LOGTO_MANAGEMENT_TOKEN:-}" ]]; then
-    mint_logto_management_token
-  fi
-
-  if [[ "$DRY_RUN" == "1" ]]; then
-    LOGTO_APPLICATION_SECRET="dry-run-logto-secret"
-    export LOGTO_APPLICATION_SECRET
-    log_info "[dry-run] Would fetch Logto application secret"
-    return
-  fi
-
-  local endpoint="${LOGTO_MANAGEMENT_ENDPOINT%/}"
-  local secrets_url="${endpoint}/api/applications/${LOGTO_APPLICATION_ID}/secrets"
-
-  log_info "Fetching Logto application secret"
-
-  local response
-  if ! response=$(run_cmd_capture curl -sS --fail-with-body -X GET \
-    -H "Authorization: Bearer ${LOGTO_MANAGEMENT_TOKEN}" \
-    "$secrets_url"); then
-    log_warn "Unable to fetch Logto application secret"
-    return
-  fi
-
-  local secret
-  secret=$(jq -r '.items[]? | .value // empty' <<<"$response" 2>/dev/null || true)
-  if [[ -z "$secret" ]]; then
-    secret=$(jq -r '.data[]? | .value // empty' <<<"$response" 2>/dev/null || true)
-  fi
-
-  if [[ -z "$secret" ]]; then
-    log_warn "Logto secrets response did not include a secret value"
-    return
-  fi
-
-  LOGTO_APPLICATION_SECRET="$secret"
-  export LOGTO_APPLICATION_SECRET
-}
-
 sync_worker_secrets() {
   ensure_worker_secret LOGTO_APPLICATION_ID "${LOGTO_APPLICATION_ID:-}"
-  ensure_worker_secret LOGTO_APPLICATION_SECRET "${LOGTO_APPLICATION_SECRET:-}"
   ensure_worker_secret STRIPE_SECRET_KEY "${STRIPE_SECRET_KEY:-}"
   ensure_worker_secret STRIPE_WEBHOOK_SECRET "${STRIPE_WEBHOOK_SECRET:-}"
 }
@@ -1001,6 +951,26 @@ ensure_stripe_webhook() {
   local target_url
   target_url="${LANDING_URL%/}/webhook/stripe"
 
+  local cached_endpoint_id=""
+  local cached_secret=""
+  if [[ -f "$GENERATED_ENV_FILE" ]]; then
+    cached_endpoint_id=$(grep -E '^STRIPE_WEBHOOK_ENDPOINT_ID=' "$GENERATED_ENV_FILE" 2>/dev/null | cut -d= -f2-)
+    cached_secret=$(grep -E '^STRIPE_WEBHOOK_SECRET=' "$GENERATED_ENV_FILE" 2>/dev/null | cut -d= -f2-)
+  fi
+
+  if [[ -z "${STRIPE_WEBHOOK_ENDPOINT_ID:-}" && -n "$cached_endpoint_id" ]]; then
+    STRIPE_WEBHOOK_ENDPOINT_ID="$cached_endpoint_id"
+  fi
+
+  if [[ -z "${STRIPE_WEBHOOK_SECRET:-}" && -n "$cached_secret" ]]; then
+    STRIPE_WEBHOOK_SECRET="$cached_secret"
+  fi
+
+  if [[ -n "${STRIPE_WEBHOOK_ENDPOINT_ID:-}" && -n "${STRIPE_WEBHOOK_SECRET:-}" ]]; then
+    log_info "Stripe webhook already configured (${STRIPE_WEBHOOK_ENDPOINT_ID}); skipping provisioning"
+    return
+  fi
+
   if [[ "$DRY_RUN" == "1" ]]; then
     STRIPE_WEBHOOK_ENDPOINT_ID="dry-run-webhook"
     STRIPE_WEBHOOK_SECRET="whsec_dry_run"
@@ -1009,6 +979,39 @@ ensure_stripe_webhook() {
   fi
 
   log_info "Reconciling Stripe webhook endpoint for $target_url"
+
+  create_new_endpoint() {
+    log_info "Creating new Stripe webhook endpoint for $target_url"
+    local response
+    if ! response=$(run_cmd_capture curl -sS -X POST https://api.stripe.com/v1/webhook_endpoints \
+      -u "$STRIPE_SECRET_KEY:" \
+      -d url="$target_url" \
+      -d enabled_events[]="checkout.session.completed" \
+      -d enabled_events[]="customer.subscription.created" \
+      -d enabled_events[]="customer.subscription.updated" \
+      -d enabled_events[]="invoice.payment_succeeded" \
+      -d enabled_events[]="invoice.payment_failed"); then
+      log_warn "Failed to create Stripe webhook endpoint: $response"
+      return 1
+    fi
+
+    STRIPE_WEBHOOK_ENDPOINT_ID=$(jq -r '.id // empty' <<<"$response")
+    STRIPE_WEBHOOK_SECRET=$(jq -r '.secret // empty' <<<"$response")
+
+    if [[ -z "${STRIPE_WEBHOOK_ENDPOINT_ID:-}" ]]; then
+      log_warn "Stripe webhook creation response did not include an endpoint id: $response"
+      return 1
+    fi
+
+    if [[ -z "${STRIPE_WEBHOOK_SECRET:-}" || "${STRIPE_WEBHOOK_SECRET}" == "null" ]]; then
+      log_warn "Stripe webhook creation response did not include a secret; manual intervention required."
+      STRIPE_WEBHOOK_SECRET=""
+    else
+      log_info "Created Stripe webhook endpoint: $STRIPE_WEBHOOK_ENDPOINT_ID"
+    fi
+
+    return 0
+  }
 
   # List all existing webhook endpoints
   local list_response
@@ -1029,60 +1032,17 @@ ensure_stripe_webhook() {
   local expected_events=("checkout.session.completed" "customer.subscription.created" "customer.subscription.updated" "invoice.payment_succeeded" "invoice.payment_failed")
 
   if [[ "$endpoint_count" -eq 0 ]]; then
-    # No existing endpoint - create new one
     log_info "No existing webhook endpoint found for $target_url; creating new endpoint"
-    local response
-    response=$(run_cmd_capture curl -sS -X POST https://api.stripe.com/v1/webhook_endpoints \
-      -u "$STRIPE_SECRET_KEY:" \
-      -d url="$target_url" \
-      -d enabled_events[]="checkout.session.completed" \
-      -d enabled_events[]="customer.subscription.created" \
-      -d enabled_events[]="customer.subscription.updated" \
-      -d enabled_events[]="invoice.payment_succeeded" \
-      -d enabled_events[]="invoice.payment_failed")
-    STRIPE_WEBHOOK_ENDPOINT_ID=$(jq -r '.id // empty' <<<"$response")
-    STRIPE_WEBHOOK_SECRET=$(jq -r '.secret // empty' <<<"$response")
-    if [[ -z "$STRIPE_WEBHOOK_ENDPOINT_ID" ]]; then
-      log_warn "Failed to create Stripe webhook endpoint: $response"
-    else
-      log_info "Created Stripe webhook endpoint: $STRIPE_WEBHOOK_ENDPOINT_ID"
-    fi
-  elif [[ "$endpoint_count" -eq 1 ]]; then
-    # Exactly one endpoint exists - reuse it
-    local existing_id
-    existing_id=$(echo "$matching_endpoints" | head -1)
-    log_info "Found existing Stripe webhook endpoint: $existing_id"
+    create_new_endpoint
+    return
+  fi
 
-    # Fetch the full endpoint details to get the secret
-    local endpoint_response
-    endpoint_response=$(run_cmd_capture curl -sS -X GET "https://api.stripe.com/v1/webhook_endpoints/$existing_id" \
-      -u "$STRIPE_SECRET_KEY:" 2>&1)
+  local selected_id=""
 
-    STRIPE_WEBHOOK_ENDPOINT_ID="$existing_id"
-    STRIPE_WEBHOOK_SECRET=$(jq -r '.secret // empty' <<<"$endpoint_response")
-
-    # Verify that enabled_events match expected events
-    local current_events
-    current_events=$(jq -r '.enabled_events[]' <<<"$endpoint_response" | sort | tr '\n' ',' | sed 's/,$//')
-    local expected_events_sorted
-    expected_events_sorted=$(printf '%s\n' "${expected_events[@]}" | sort | tr '\n' ',' | sed 's/,$//')
-
-    if [[ "$current_events" != "$expected_events_sorted" ]]; then
-      log_info "Webhook events mismatch; updating endpoint $existing_id"
-      local update_response
-      update_response=$(run_cmd_capture curl -sS -X POST "https://api.stripe.com/v1/webhook_endpoints/$existing_id" \
-        -u "$STRIPE_SECRET_KEY:" \
-        -d enabled_events[]="checkout.session.completed" \
-        -d enabled_events[]="customer.subscription.created" \
-        -d enabled_events[]="customer.subscription.updated" \
-        -d enabled_events[]="invoice.payment_succeeded" \
-        -d enabled_events[]="invoice.payment_failed")
-      log_info "Updated webhook endpoint events"
-    else
-      log_info "Webhook endpoint events already match; no update needed"
-    fi
+  if [[ "$endpoint_count" -eq 1 ]]; then
+    selected_id=$(echo "$matching_endpoints" | head -1)
+    log_info "Found existing Stripe webhook endpoint: $selected_id"
   else
-    # Multiple endpoints exist for the same URL
     if [[ "${STRIPE_PRUNE_DUPLICATE_WEBHOOKS:-0}" == "1" ]]; then
       log_info "Found $endpoint_count webhook endpoints for $target_url; pruning duplicates (STRIPE_PRUNE_DUPLICATE_WEBHOOKS=1)"
       local kept_id=""
@@ -1097,26 +1057,50 @@ ensure_stripe_webhook() {
             -u "$STRIPE_SECRET_KEY:" >/dev/null
         fi
       done <<<"$matching_endpoints"
-
-      # Fetch the kept endpoint to get the secret
-      local endpoint_response
-      endpoint_response=$(run_cmd_capture curl -sS -X GET "https://api.stripe.com/v1/webhook_endpoints/$kept_id" \
-        -u "$STRIPE_SECRET_KEY:" 2>&1)
-      STRIPE_WEBHOOK_ENDPOINT_ID="$kept_id"
-      STRIPE_WEBHOOK_SECRET=$(jq -r '.secret // empty' <<<"$endpoint_response")
+      selected_id="$kept_id"
     else
-      # Just use the first one and warn
-      local first_id
-      first_id=$(echo "$matching_endpoints" | head -1)
-      log_warn "Found $endpoint_count webhook endpoints for $target_url; using first one ($first_id). Set STRIPE_PRUNE_DUPLICATE_WEBHOOKS=1 to clean up duplicates."
-      STRIPE_WEBHOOK_ENDPOINT_ID="$first_id"
-
-      # Fetch the endpoint to get the secret
-      local endpoint_response
-      endpoint_response=$(run_cmd_capture curl -sS -X GET "https://api.stripe.com/v1/webhook_endpoints/$first_id" \
-        -u "$STRIPE_SECRET_KEY:" 2>&1)
-      STRIPE_WEBHOOK_SECRET=$(jq -r '.secret // empty' <<<"$endpoint_response")
+      selected_id=$(echo "$matching_endpoints" | head -1)
+      log_warn "Found $endpoint_count webhook endpoints for $target_url; using first one ($selected_id). Set STRIPE_PRUNE_DUPLICATE_WEBHOOKS=1 to clean up duplicates."
     fi
+  fi
+
+  if [[ -z "$selected_id" ]]; then
+    log_warn "Unable to determine Stripe webhook endpoint to reuse; creating new endpoint"
+    create_new_endpoint
+    return
+  fi
+
+  local endpoint_response
+  endpoint_response=$(run_cmd_capture curl -sS -X GET "https://api.stripe.com/v1/webhook_endpoints/$selected_id" \
+    -u "$STRIPE_SECRET_KEY:" 2>&1)
+
+  STRIPE_WEBHOOK_ENDPOINT_ID="$selected_id"
+  STRIPE_WEBHOOK_SECRET=$(jq -r '.secret // empty' <<<"$endpoint_response")
+
+  if [[ -z "${STRIPE_WEBHOOK_SECRET:-}" || "${STRIPE_WEBHOOK_SECRET}" == "null" ]]; then
+    log_warn "Existing Stripe webhook endpoint $selected_id does not expose a secret; replacing it with a fresh endpoint"
+    run_cmd_capture curl -sS -X DELETE "https://api.stripe.com/v1/webhook_endpoints/$selected_id" \
+      -u "$STRIPE_SECRET_KEY:" >/dev/null || true
+    create_new_endpoint
+    return
+  fi
+
+  local current_events
+  current_events=$(jq -r '.enabled_events[]' <<<"$endpoint_response" | sort | tr '\n' ',' | sed 's/,$//')
+  local expected_events_sorted
+  expected_events_sorted=$(printf '%s\n' "${expected_events[@]}" | sort | tr '\n' ',' | sed 's/,$//')
+
+  if [[ "$current_events" != "$expected_events_sorted" ]]; then
+    log_info "Webhook events mismatch; updating endpoint $selected_id"
+    run_cmd_capture curl -sS -X POST "https://api.stripe.com/v1/webhook_endpoints/$selected_id" \
+      -u "$STRIPE_SECRET_KEY:" \
+      -d enabled_events[]="checkout.session.completed" \
+      -d enabled_events[]="customer.subscription.created" \
+      -d enabled_events[]="customer.subscription.updated" \
+      -d enabled_events[]="invoice.payment_succeeded" \
+      -d enabled_events[]="invoice.payment_failed" >/dev/null
+  else
+    log_info "Webhook endpoint events already match; no update needed"
   fi
 }
 
@@ -1299,7 +1283,6 @@ write_generated_env() {
     printf 'APP_BASE_URL=%s\n' "${APP_BASE_URL_RESOLVED:-${APP_BASE_URL:-}}"
     printf 'LOGTO_ENDPOINT=%s\n' "${LOGTO_ENDPOINT:-}"
     printf 'LOGTO_APPLICATION_ID=%s\n' "${LOGTO_APPLICATION_ID:-}"
-    printf 'LOGTO_APPLICATION_SECRET=%s\n' "${LOGTO_APPLICATION_SECRET:-}"
     printf 'LOGTO_ISSUER=%s\n' "${LOGTO_ISSUER:-}"
     printf 'LOGTO_JWKS_URI=%s\n' "${LOGTO_JWKS_URI:-}"
     printf 'LOGTO_API_RESOURCE=%s\n' "${LOGTO_API_RESOURCE:-}"
@@ -1371,7 +1354,6 @@ main() {
 
   mint_logto_management_token
   ensure_logto_application
-  fetch_logto_application_secret
 
   ensure_cloudflare_auth
   ensure_d1

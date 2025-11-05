@@ -1,4 +1,5 @@
-import { useCallback } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import type { Dispatch, SetStateAction } from 'react';
 import { Platform, Pressable, Text } from 'react-native';
 import { Link } from 'expo-router';
 import * as Linking from 'expo-linking';
@@ -7,12 +8,20 @@ type PublicRuntimeEnv = Partial<{
   workerOrigin: string;
   logtoEndpoint: string;
   logtoAppId: string;
-  logtoApiResource: string;
+  apiResource: string;
   logtoPostLogoutRedirectUri: string;
 }>;
 
 type GlobalWithRuntime = typeof globalThis & {
   __JUSTEVERY_ENV__?: PublicRuntimeEnv;
+};
+
+type RuntimeSnapshot = {
+  workerOrigin: string;
+  logtoEndpoint: string;
+  logtoAppId: string;
+  apiResource: string;
+  logtoPostLogoutRedirectUri: string;
 };
 
 const runtimeEnv = (globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env;
@@ -35,22 +44,59 @@ function pickEnv(...candidates: Array<string | undefined>): string {
   return '';
 }
 
+const listeners = new Set<Dispatch<SetStateAction<RuntimeSnapshot>>>();
+
 export let WORKER_ORIGIN = '';
 export let LOGTO_ENDPOINT = '';
 export let LOGTO_APP_ID = '';
 export let LOGTO_API_RESOURCE = '';
 export let LOGTO_POST_LOGOUT_REDIRECT_URI = '';
 
+let SNAPSHOT: RuntimeSnapshot = {
+  workerOrigin: '',
+  logtoEndpoint: '',
+  logtoAppId: '',
+  apiResource: '',
+  logtoPostLogoutRedirectUri: '',
+};
+
+function updateSnapshot(next: RuntimeSnapshot) {
+  const changed =
+    SNAPSHOT.apiResource !== next.apiResource ||
+    SNAPSHOT.logtoAppId !== next.logtoAppId ||
+    SNAPSHOT.logtoEndpoint !== next.logtoEndpoint ||
+    SNAPSHOT.workerOrigin !== next.workerOrigin ||
+    SNAPSHOT.logtoPostLogoutRedirectUri !== next.logtoPostLogoutRedirectUri;
+
+  SNAPSHOT = next;
+
+  if (!changed) {
+    return;
+  }
+
+  listeners.forEach((listener) => listener(next));
+}
+
 function applyRuntimeEnv(detail?: PublicRuntimeEnv) {
   const injected = detail ?? currentInjectedEnv();
-  WORKER_ORIGIN = pickEnv(runtimeEnv?.EXPO_PUBLIC_WORKER_ORIGIN, injected.workerOrigin);
-  LOGTO_ENDPOINT = pickEnv(runtimeEnv?.EXPO_PUBLIC_LOGTO_ENDPOINT, injected.logtoEndpoint);
-  LOGTO_APP_ID = pickEnv(runtimeEnv?.EXPO_PUBLIC_LOGTO_APP_ID, injected.logtoAppId);
-  LOGTO_API_RESOURCE = pickEnv(runtimeEnv?.EXPO_PUBLIC_API_RESOURCE, injected.logtoApiResource);
-  LOGTO_POST_LOGOUT_REDIRECT_URI = pickEnv(
-    runtimeEnv?.EXPO_PUBLIC_LOGTO_POST_LOGOUT_REDIRECT_URI,
-    injected.logtoPostLogoutRedirectUri,
-  );
+  const resolved: RuntimeSnapshot = {
+    workerOrigin: pickEnv(runtimeEnv?.EXPO_PUBLIC_WORKER_ORIGIN, injected.workerOrigin),
+    logtoEndpoint: pickEnv(runtimeEnv?.EXPO_PUBLIC_LOGTO_ENDPOINT, injected.logtoEndpoint),
+    logtoAppId: pickEnv(runtimeEnv?.EXPO_PUBLIC_LOGTO_APP_ID, injected.logtoAppId),
+    apiResource: pickEnv(runtimeEnv?.EXPO_PUBLIC_API_RESOURCE, injected.apiResource),
+    logtoPostLogoutRedirectUri: pickEnv(
+      runtimeEnv?.EXPO_PUBLIC_LOGTO_POST_LOGOUT_REDIRECT_URI,
+      injected.logtoPostLogoutRedirectUri,
+    ),
+  };
+
+  WORKER_ORIGIN = resolved.workerOrigin;
+  LOGTO_ENDPOINT = resolved.logtoEndpoint;
+  LOGTO_APP_ID = resolved.logtoAppId;
+  LOGTO_API_RESOURCE = resolved.apiResource;
+  LOGTO_POST_LOGOUT_REDIRECT_URI = resolved.logtoPostLogoutRedirectUri;
+
+  updateSnapshot(resolved);
 }
 
 applyRuntimeEnv();
@@ -68,6 +114,19 @@ if (typeof window !== 'undefined') {
   });
 }
 
+export function useRuntimeEnv(): RuntimeSnapshot {
+  const [snapshot, setSnapshot] = useState<RuntimeSnapshot>(SNAPSHOT);
+
+  useEffect(() => {
+    listeners.add(setSnapshot);
+    return () => {
+      listeners.delete(setSnapshot);
+    };
+  }, []);
+
+  return snapshot;
+}
+
 type WorkerLinkProps = {
   path: string;
   label: string;
@@ -81,13 +140,15 @@ export function workerUrl(path: string) {
   if (!path.startsWith('/')) {
     return path;
   }
-  return WORKER_ORIGIN ? `${WORKER_ORIGIN}${path}` : path;
+  return SNAPSHOT.workerOrigin ? `${SNAPSHOT.workerOrigin}${path}` : path;
 }
 
 export function WorkerLink({ path, label, variant = 'primary' }: WorkerLinkProps) {
-  const target = workerUrl(path);
+  const runtime = useRuntimeEnv();
+
+  const target = useMemo(() => workerUrl(path), [path, runtime.workerOrigin]);
   const shouldForceWorkerNavigation =
-    typeof path === 'string' && path.startsWith('/') && WORKER_REDIRECT_PATHS.has(path.split('?')[0]);
+    typeof path === 'string' && path.startsWith('/') && runtime.workerOrigin && WORKER_REDIRECT_PATHS.has(path.split('?')[0]);
 
   const handlePress = useCallback(() => {
     if (Platform.OS === 'web' && typeof window !== 'undefined') {

@@ -4,11 +4,7 @@ import { Link } from 'expo-router';
 import { PlaceholderCard } from '@justevery/ui';
 import { useLogto } from '@logto/react';
 
-import {
-  LOGTO_API_RESOURCE,
-  WORKER_ORIGIN,
-  workerUrl,
-} from './_components/RouteRedirect';
+import { useRuntimeEnv, workerUrl } from './_components/RouteRedirect';
 import { useLogtoError, useLogtoReady } from './_providers/LogtoProvider';
 
 type AssetObject = {
@@ -44,6 +40,7 @@ export default function AppScreen(): JSX.Element {
 }
 
 function AppReady(): JSX.Element {
+  const runtimeEnv = useRuntimeEnv();
   const logtoError = useLogtoError();
   const { isAuthenticated, getAccessToken } = useLogto();
   const [accessToken, setAccessToken] = useState<string | null>(null);
@@ -65,7 +62,7 @@ function AppReady(): JSX.Element {
         return;
       }
 
-      const resource = LOGTO_API_RESOURCE?.trim() ?? '';
+      const resource = runtimeEnv.apiResource?.trim() ?? '';
       if (!resource) {
         setAccessToken(null);
         setTokenError('Configure EXPO_PUBLIC_API_RESOURCE so Logto issues a resource-scoped access token.');
@@ -97,7 +94,7 @@ function AppReady(): JSX.Element {
     return () => {
       cancelled = true;
     };
-  }, [getAccessToken, isAuthenticated]);
+  }, [getAccessToken, isAuthenticated, runtimeEnv.apiResource]);
 
   const authHeaders = useMemo(() => {
     if (!accessToken) return undefined;
@@ -107,7 +104,7 @@ function AppReady(): JSX.Element {
   }, [accessToken]);
 
   const fetchServerSession = useCallback(async () => {
-    if (!WORKER_ORIGIN) {
+    if (!runtimeEnv.workerOrigin) {
       setServerSessionState({
         state: 'error',
         error: 'Configure EXPO_PUBLIC_WORKER_ORIGIN to talk to the Worker.',
@@ -139,10 +136,10 @@ function AppReady(): JSX.Element {
     } catch (error) {
       setServerSessionState({ state: 'error', error: (error as Error).message });
     }
-  }, [authHeaders]);
+  }, [authHeaders, runtimeEnv.workerOrigin]);
 
   const fetchAssets = useCallback(async () => {
-    if (!WORKER_ORIGIN) {
+    if (!runtimeEnv.workerOrigin) {
       setAssetsState({ state: 'error', error: 'Worker origin not configured.' });
       return;
     }
@@ -164,7 +161,7 @@ function AppReady(): JSX.Element {
     } catch (error) {
       setAssetsState({ state: 'error', error: (error as Error).message });
     }
-  }, [authHeaders]);
+  }, [authHeaders, runtimeEnv.workerOrigin]);
 
   const hasSession = isAuthenticated && !!accessToken;
 
@@ -256,7 +253,7 @@ function AppReady(): JSX.Element {
           <Text style={{ color: '#e2e8f0', fontSize: 26, fontWeight: '700' }}>Sign in to continue</Text>
           <Text style={{ color: '#94a3b8' }}>
             Use the Logto login screen to obtain a session. Once authenticated, your requests will include a bearer token
-            that the Worker validates against Logto before returning data.
+            that the Worker validates against Logto before returning data. Test
           </Text>
           {tokenError ? <Text style={{ color: '#f87171' }}>{tokenError}</Text> : null}
           {logtoError ? <Text style={{ color: '#f87171' }}>{logtoError.message}</Text> : null}
