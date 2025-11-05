@@ -63,9 +63,9 @@ function run(command, args, options = {}) {
 async function main() {
   const argv = parseArgs(process.argv.slice(2));
 
-  const baseArg = argv.base || process.env.E2E_BASE_URL || process.env.LANDING_URL;
+  const baseArg = argv.base || process.env.E2E_BASE_URL || process.env.PROJECT_DOMAIN;
   if (!baseArg) {
-    throw new Error('Provide --base or set LANDING_URL/E2E_BASE_URL for the smoke suite.');
+    throw new Error('Provide --base or set PROJECT_DOMAIN/E2E_BASE_URL for the smoke suite.');
   }
   const baseUrl = resolveBase(baseArg);
 

@@ -37,8 +37,8 @@ wrangler secret put STRIPE_WEBHOOK_SECRET --config workers/api/wrangler.toml
 export LOGTO_TOKEN="$(npm run --silent token:logto)"
 
 # 6. Run authenticated smoke + screenshots once the token exists
-npm run smoke -- --mode full --base "$LANDING_URL" --token "$LOGTO_TOKEN"
-node scripts/smoke-screens.cjs --base "$LANDING_URL"
+npm run smoke -- --mode full --base "$PROJECT_DOMAIN" --token "$LOGTO_TOKEN"
+node scripts/smoke-screens.cjs --base "$PROJECT_DOMAIN"
 ```
 
 Each helper script logs a clear error if prerequisites are missing. The CI workflows (`bootstrap-validate.yml`, `smoke.yml`) also run `npm run assert:secrets` and `npm run assert:r2` before continuing, so the pipelines will halt until these values are in place.
@@ -49,8 +49,8 @@ Each helper script logs a clear error if prerequisites are missing. The CI workf
 npm run validate:bootstrap:remote -- --token "$LOGTO_TOKEN"
 
 # Full smoke + screenshots with token
-npm run smoke -- --mode full --base "$LANDING_URL" --token "$LOGTO_TOKEN"
-node scripts/smoke-screens.cjs --base "$LANDING_URL"
+npm run smoke -- --mode full --base "$PROJECT_DOMAIN" --token "$LOGTO_TOKEN"
+node scripts/smoke-screens.cjs --base "$PROJECT_DOMAIN"
 
 # Append summary to verification log
 node - <<'PY'

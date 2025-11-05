@@ -8,7 +8,7 @@ This project ships a Cloudflare Worker that fronts authentication (Logto), billi
 - Access to the `justevery.com` zone (`CLOUDFLARE_ZONE_ID`); bootstrap uses it when creating Worker routes.
 - Logto management credentials (`LOGTO_MANAGEMENT_ENDPOINT`, `LOGTO_MANAGEMENT_AUTH_BASIC`).
 - (Optional) Stripe API keys if you want bootstrap to seed products/webhooks (`STRIPE_TEST_SECRET_KEY` / `STRIPE_LIVE_SECRET_KEY` and `STRIPE_PRODUCTS`).
-- Update `.env` from `.env.example` with project-specific URLs (`PROJECT_ID`, `LANDING_URL`, `APP_URL`, `APP_BASE_URL` if you need a non-default path).
+- Update `.env` from `.env.example` with project-specific URLs (`PROJECT_ID`, `PROJECT_DOMAIN`, `APP_URL`, `APP_BASE_URL` if you need a non-default path).
 
 ## Bootstrap workflow
 
@@ -27,7 +27,7 @@ Key steps performed (non dry-run):
 3. Templates `workers/api/wrangler.toml` with project identifiers, bindings, and service variables (including `[[routes]]` for custom domains).
 4. Runs D1 migrations and seeds the `projects` table with the landing/app URLs.
 5. Seeds Stripe products (if Stripe credentials and `STRIPE_PRODUCTS` are supplied).
-6. Creates a Stripe webhook at `${LANDING_URL}/webhook/stripe` and stores `STRIPE_WEBHOOK_SECRET`.
+6. Creates a Stripe webhook at `${PROJECT_DOMAIN}/webhook/stripe` and stores `STRIPE_WEBHOOK_SECRET`.
 7. Pushes Worker secrets (`LOGTO_APPLICATION_ID`, `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`) via `wrangler secret put` unless `SYNC_SECRETS=0`.
 8. Uploads a placeholder asset to R2.
 9. Writes `.env.local.generated` with resolved identifiers, secrets, and Stripe outputs.
@@ -56,7 +56,7 @@ After deployment Cloudflare claims the routes recorded in `.env.local.generated`
 
 ## Post-deploy verification
 
-1. Visit `LANDING_URL` – the Worker should serve the marketing page.
+1. Visit `PROJECT_DOMAIN` – the Worker should serve the marketing page.
 2. Navigate to `/login` – ensure the redirect URL points to `${APP_URL}/auth/callback`.
 3. Complete an SSO flow to confirm the Worker sets the `je_session` cookie and the app shell loads.
 4. Trigger the Stripe webhook (or use the dashboard's "send test" feature) to verify signature validation.

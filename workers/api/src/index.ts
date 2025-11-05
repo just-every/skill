@@ -13,7 +13,7 @@ export interface Env {
   LOGTO_ENDPOINT?: string;
   LOGTO_APPLICATION_ID?: string;
   APP_BASE_URL?: string;
-  LANDING_URL?: string;
+  PROJECT_DOMAIN?: string;
   STRIPE_PRODUCTS?: string;
   STRIPE_WEBHOOK_SECRET?: string;
   EXPO_PUBLIC_LOGTO_ENDPOINT?: string;
@@ -211,7 +211,7 @@ function resolveWorkerOrigin(env: Env): string | null {
     return env.EXPO_PUBLIC_WORKER_ORIGIN;
   }
 
-  const landing = env.LANDING_URL ? extractOriginFromUrl(env.LANDING_URL) : null;
+  const landing = env.PROJECT_DOMAIN ? extractOriginFromUrl(env.PROJECT_DOMAIN) : null;
   return landing ?? null;
 }
 
@@ -917,7 +917,7 @@ function generateSessionId(): string {
 function landingPageHtml(env: Env): string {
   const appUrl = env.APP_BASE_URL ?? "/app";
   const loginUrl = appUrl;
-  const landingUrl = env.LANDING_URL ?? "https://justevery.com";
+  const landingUrl = env.PROJECT_DOMAIN ?? "https://justevery.com";
   return `<!DOCTYPE html>
 <html lang="en">
 <head>

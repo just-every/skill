@@ -27,7 +27,7 @@ jobs:
       STRIPE_WEBHOOK_SECRET: ${{ secrets.STRIPE_WEBHOOK_SECRET || '' }}
       D1_DATABASE_NAME: ${{ secrets.D1_DATABASE_NAME || '' }}
       R2_BUCKET: ${{ secrets.R2_BUCKET || '' }}
-      LANDING_URL: ${{ secrets.BOOTSTRAP_BASE_URL || secrets.LANDING_URL || '' }}
+      PROJECT_DOMAIN: ${{ secrets.BOOTSTRAP_BASE_URL || secrets.PROJECT_DOMAIN || '' }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -67,8 +67,8 @@ jobs:
           fi
 
           BASE="${{ inputs.base || '' }}"
-          if [ -z "$BASE" ] && [ -n "$LANDING_URL" ]; then
-            BASE="$LANDING_URL"
+          if [ -z "$BASE" ] && [ -n "$PROJECT_DOMAIN" ]; then
+            BASE="$PROJECT_DOMAIN"
           fi
 
           CMD=(node scripts/bootstrap-validate.cjs --mode "$MODE")

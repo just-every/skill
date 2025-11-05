@@ -45,7 +45,7 @@ STRIPE_PRODUCTS="Basic:1000,usd,month;Pro:5000,usd,month" ./bootstrap.sh
 
 **Reconciliation Strategy:**
 - Lists all webhook endpoints via Stripe API
-- Filters by target URL: `${LANDING_URL}/webhook/stripe`
+- Filters by target URL: `${PROJECT_DOMAIN}/webhook/stripe`
 - Reconciles based on endpoint count:
   - **0 endpoints:** Creates new endpoint
   - **1 endpoint:** Reuses existing, verifies/updates enabled_events if needed

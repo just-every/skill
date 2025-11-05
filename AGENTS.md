@@ -14,7 +14,7 @@ This repository is the canonical justevery starter stack; future products should
 - `npm run dev:worker` – Wrangler dev server (`wrangler dev --config workers/api/wrangler.toml`) backed by Miniflare; honours `.dev.vars` for env/bindings. Add D1/R2 bindings there so tests mirror production.
 - `npm run build` – Runs workspace builds (`expo export`, Worker bundle).
 - `npm test --workspace workers/api` – Vitest unit suites.
-- `npm run test:e2e` – Playwright against `E2E_BASE_URL` or `LANDING_URL`.
+- `npm run test:e2e` – Playwright against `E2E_BASE_URL` or `PROJECT_DOMAIN`.
 - `npm run deploy:worker` – Scripted Wrangler deploy; ensure environment is bootstrapped first.
 
 ## Coding Style & Naming Conventions

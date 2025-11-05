@@ -176,9 +176,9 @@ async function main() {
   const mode = modeArg === 'minimal' ? 'minimal' : 'full';
   const skipWrangler = mode === 'minimal' || argv['skip-wrangler'] === 'true' || process.env.SMOKE_SKIP_WRANGLER === '1';
 
-  const baseFromArgs = argv.base || process.env.E2E_BASE_URL || process.env.LANDING_URL || envValues.LANDING_URL;
+  const baseFromArgs = argv.base || process.env.E2E_BASE_URL || process.env.PROJECT_DOMAIN || envValues.PROJECT_DOMAIN;
   if (!baseFromArgs) {
-    console.error('A base URL is required. Provide --base or set LANDING_URL/E2E_BASE_URL.');
+    console.error('A base URL is required. Provide --base or set PROJECT_DOMAIN/E2E_BASE_URL.');
     process.exitCode = 1;
     return;
   }
@@ -241,7 +241,7 @@ async function main() {
           dbName,
           '--remote',
           '--command',
-          'SELECT id, landing_url, app_url FROM projects LIMIT 5;',
+          'SELECT id, PROJECT_DOMAIN, app_url FROM projects LIMIT 5;',
           '--json',
         ]);
         const parsed = JSON.parse(stdout);

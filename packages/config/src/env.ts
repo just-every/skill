@@ -1,7 +1,7 @@
 export type ResolvedEnv = {
   PROJECT_NAME: string;
   PROJECT_ID: string;
-  LANDING_URL: string;
+  PROJECT_DOMAIN: string;
   APP_URL: string;
   STRIPE_PRODUCTS: string;
   LOGTO_ISSUER: string;
@@ -21,7 +21,7 @@ export type ResolvedEnv = {
 const REQUIRED_KEYS = [
   'PROJECT_NAME',
   'PROJECT_ID',
-  'LANDING_URL',
+  'PROJECT_DOMAIN',
   'APP_URL',
   'STRIPE_PRODUCTS',
   'LOGTO_ISSUER',
@@ -42,7 +42,7 @@ const OPTIONAL_KEYS = [
 ] as const;
 
 const URL_KEYS = new Set<keyof ResolvedEnv>([
-  'LANDING_URL',
+  'PROJECT_DOMAIN',
   'APP_URL',
   'LOGTO_ISSUER',
   'LOGTO_JWKS_URI',

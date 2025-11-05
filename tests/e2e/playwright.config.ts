@@ -1,6 +1,6 @@
 import { defineConfig } from '@playwright/test';
 
-const baseURL = process.env.E2E_BASE_URL ?? process.env.LANDING_URL ?? 'https://demo.justevery.com';
+const baseURL = process.env.E2E_BASE_URL ?? process.env.PROJECT_DOMAIN ?? 'https://demo.justevery.com';
 
 export default defineConfig({
   testDir: './',

@@ -53,7 +53,7 @@ function createMockEnv(overrides: Partial<Env> = {}): Env {
     LOGTO_APPLICATION_ID: 'logto-app-id',
     STRIPE_WEBHOOK_SECRET: 'whsec_test',
     APP_BASE_URL: '/app',
-    LANDING_URL: 'https://app.example.com',
+    PROJECT_DOMAIN: 'https://app.example.com',
     STRIPE_PRODUCTS: '[]',
     ASSETS: assetsFetcher as unknown as Env['ASSETS'],
     EXPO_PUBLIC_LOGTO_ENDPOINT: 'https://auth.example.com',

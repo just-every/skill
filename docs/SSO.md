@@ -3,7 +3,7 @@
 These steps help you mint a temporary Logto access token for smoke tests and keep the Worker’s application secret in sync. Never commit real credentials to the repo.
 
 ## 1. Prerequisites
-- `LANDING_URL` exported or present in `.env`.
+- `PROJECT_DOMAIN` exported or present in `.env`.
 - Logto tenant details configured in `.env.local.generated` / Wrangler secrets (`LOGTO_ISSUER`, `LOGTO_API_RESOURCE`, etc.).
 - `wrangler` authenticated against the target Cloudflare account.
 
@@ -11,7 +11,7 @@ These steps help you mint a temporary Logto access token for smoke tests and kee
 Choose one of the flows below:
 
 ### Option A – Hosted login (recommended)
-1. Open `${LANDING_URL}/login` in a browser.
+1. Open `${PROJECT_DOMAIN}/login` in a browser.
 2. Sign in with a disposable test account.
 3. In DevTools run `window.localStorage.getItem('logto:session')` (or inspect the network tab) to copy the `access_token`.
 4. Export it for tooling:
@@ -62,7 +62,7 @@ Once exported, the smoke suite automatically uses `LOGTO_TOKEN` for authenticate
 
 ## 4. Run Local Smoke Checks
 ```bash
-export LANDING_URL='https://demo.justevery.com'
+export PROJECT_DOMAIN='https://demo.justevery.com'
 npm run smoke -- --mode full
 ```
 Artefacts are written to `test-results/smoke/run-<timestamp>/`, including `checks/<endpoint>/headers.json` and a JSON or text capture for `/callback?error=debug`.

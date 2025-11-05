@@ -102,10 +102,10 @@ async function captureRoute(context, baseUrl, route, destination) {
 
 async function main() {
   const argv = parseArgs(process.argv.slice(2));
-  const baseFromArgs = argv.base || process.env.E2E_BASE_URL || process.env.LANDING_URL || readEnvValue('LANDING_URL');
+  const baseFromArgs = argv.base || process.env.E2E_BASE_URL || process.env.PROJECT_DOMAIN || readEnvValue('PROJECT_DOMAIN');
 
   if (!baseFromArgs) {
-    throw new Error('A base URL is required. Provide --base or set LANDING_URL/E2E_BASE_URL.');
+    throw new Error('A base URL is required. Provide --base or set PROJECT_DOMAIN/E2E_BASE_URL.');
   }
 
   let baseUrl;

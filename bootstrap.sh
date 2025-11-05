@@ -13,7 +13,6 @@ RESET="$(tput sgr0 2>/dev/null || true)"
 DRY_RUN=${DRY_RUN:-0}
 GENERATED_ENV_FILE="$ROOT_DIR/.env.local.generated"
 STRIPE_SECRET_SOURCE="STRIPE_SECRET_KEY"
-APP_BASE_URL_RESOLVED=""
 SYNCED_SECRET_NAMES=()
 SYNC_SECRETS=${SYNC_SECRETS:-1}
 FORCE_SECRET_SYNC=${FORCE_SECRET_SYNC:-0}
@@ -141,24 +140,6 @@ prepare_cloudflare_env() {
   fi
 }
 
-derive_app_base_from_url() {
-  local url=$1
-  if [[ -z "$url" ]]; then
-    echo "/app"
-    return
-  fi
-  if [[ "$url" =~ ^https?://[^/]+(/.*)$ ]]; then
-    local path="${BASH_REMATCH[1]}"
-    if [[ -z "$path" || "$path" == "/" ]]; then
-      echo "/app"
-    else
-      echo "$path"
-    fi
-    return
-  fi
-  echo "$url"
-}
-
 extract_origin() {
   local url=$1
   if [[ -z "$url" ]]; then
@@ -170,15 +151,6 @@ extract_origin() {
     return
   fi
   echo "$url"
-}
-
-resolve_app_base_url() {
-  local resolved="${APP_BASE_URL:-}"
-  if [[ -z "$resolved" ]]; then
-    resolved=$(derive_app_base_from_url "${APP_URL:-}")
-  fi
-  APP_BASE_URL_RESOLVED="$resolved"
-  export APP_BASE_URL="$resolved"
 }
 
 derive_host() {
@@ -317,62 +289,24 @@ derive_logto_defaults() {
   export LOGTO_API_RESOURCE
 }
 
-ensure_logto_application() {
-  if [[ -n "${LOGTO_APPLICATION_ID:-}" ]]; then
-    return
-  fi
+build_logto_application_payload() {
+  local display_name=$1
+  local include_type=${2:-0}
+  local description=$3
+  local redirect_uri=$4
+  local logout_uri=$5
+  local subdomain=$6
 
-  if [[ -z "${LOGTO_MANAGEMENT_TOKEN:-}" ]]; then
-    mint_logto_management_token
-  fi
-
-  local endpoint="${LOGTO_MANAGEMENT_ENDPOINT%/}"
-  local apps_url="${endpoint}/api/applications"
-  local app_name="${PROJECT_ID}"
-
-  if [[ "$DRY_RUN" == "1" ]]; then
-    LOGTO_APPLICATION_ID="dry-run-logto-app"
-    export LOGTO_APPLICATION_ID
-    log_info "[dry-run] Would ensure Logto application ${app_name}"
-    return
-  fi
-
-  log_info "Ensuring Logto application ${app_name} exists"
-
-  local list_response
-  if ! list_response=$(run_cmd_capture curl -sS --fail-with-body -X GET \
-    -H "Authorization: Bearer ${LOGTO_MANAGEMENT_TOKEN}" \
-    "$apps_url"); then
-    log_error "Failed to list Logto applications"
-    exit 1
-  fi
-
-  local existing_id
-  existing_id=$(jq -r --arg name "$app_name" '.items[]? | select(.name == $name) | .id // empty' <<<"$list_response" 2>/dev/null || true)
-  if [[ -z "$existing_id" ]]; then
-    existing_id=$(jq -r --arg name "$app_name" '.data[]? | select(.name == $name) | .id // empty' <<<"$list_response" 2>/dev/null || true)
-  fi
-
-  if [[ -n "$existing_id" ]]; then
-    LOGTO_APPLICATION_ID="$existing_id"
-    export LOGTO_APPLICATION_ID
-    log_info "Found existing Logto application ${app_name} (${existing_id})"
-    return
-  fi
-
-  local redirect_uri="https://${PROJECT_ID}.justevery.com/callback"
-  local logout_uri="https://${PROJECT_ID}.justevery.com/logout"
-
-  local payload
-  payload=$(jq -nc \
-    --arg name "$app_name" \
-    --arg desc "Generated for ${PROJECT_ID} project" \
+  jq -nc \
+    --arg name "$display_name" \
+    --arg desc "$description" \
     --arg redirect "$redirect_uri" \
     --arg logout "$logout_uri" \
+    --arg subdomain "$subdomain" \
+    --arg include_type "$include_type" \
     '{
       name: $name,
       description: $desc,
-      type: "SPA",
       oidcClientMetadata: {
         redirectUris: [$redirect],
         postLogoutRedirectUris: [$logout]
@@ -382,10 +316,169 @@ ensure_logto_application() {
         rotateRefreshToken: true
       },
       protectedAppMetadata: {
-        subDomain: ($name + ".justevery.com"),
+        subDomain: $subdomain,
         origin: "justevery.com"
       }
-    }')
+    }
+    | if $include_type == "1" then . + {type: "SPA"} else . end'
+}
+
+reconcile_logto_application_metadata() {
+  local app_id=$1
+  local apps_url=$2
+  local display_name=$3
+  local description=$4
+  local redirect_uri=$5
+  local logout_uri=$6
+  local subdomain=$7
+
+  local expected_payload existing_response
+  expected_payload=$(build_logto_application_payload "$display_name" 0 "$description" "$redirect_uri" "$logout_uri" "$subdomain")
+
+  if ! existing_response=$(run_cmd_capture curl -sS --fail-with-body -X GET \
+    -H "Authorization: Bearer ${LOGTO_MANAGEMENT_TOKEN}" \
+    "${apps_url}/${app_id}"); then
+    log_warn "Failed to fetch Logto application ${app_id}; will attempt to recreate"
+    return 1
+  fi
+
+  local patch_required=0
+  local current_name current_description current_subdomain has_redirect has_logout always_issue rotate_refresh
+  current_name=$(jq -r '.name // empty' <<<"$existing_response" 2>/dev/null || true)
+  if [[ "$current_name" != "$display_name" ]]; then
+    patch_required=1
+  fi
+
+  current_description=$(jq -r '.description // empty' <<<"$existing_response" 2>/dev/null || true)
+  if [[ "$current_description" != "$description" ]]; then
+    patch_required=1
+  fi
+
+  has_redirect=$(jq --arg redirect "$redirect_uri" '.oidcClientMetadata.redirectUris // [] | index($redirect)' <<<"$existing_response" 2>/dev/null || echo "null")
+  if [[ "$has_redirect" == "null" ]]; then
+    patch_required=1
+  fi
+
+  has_logout=$(jq --arg logout "$logout_uri" '.oidcClientMetadata.postLogoutRedirectUris // [] | index($logout)' <<<"$existing_response" 2>/dev/null || echo "null")
+  if [[ "$has_logout" == "null" ]]; then
+    patch_required=1
+  fi
+
+  current_subdomain=$(jq -r '.protectedAppMetadata.subDomain // empty' <<<"$existing_response" 2>/dev/null || true)
+  if [[ "$current_subdomain" != "$subdomain" ]]; then
+    patch_required=1
+  fi
+
+  always_issue=$(jq -r '.customClientMetadata.alwaysIssueRefreshToken // empty' <<<"$existing_response" 2>/dev/null || true)
+  if [[ "$always_issue" != "true" ]]; then
+    patch_required=1
+  fi
+
+  rotate_refresh=$(jq -r '.customClientMetadata.rotateRefreshToken // empty' <<<"$existing_response" 2>/dev/null || true)
+  if [[ "$rotate_refresh" != "true" ]]; then
+    patch_required=1
+  fi
+
+  if [[ $patch_required -eq 0 ]]; then
+    log_info "Existing Logto application ${display_name} (${app_id}) is up-to-date"
+    LOGTO_APPLICATION_ID="$app_id"
+    export LOGTO_APPLICATION_ID
+    return 0
+  fi
+
+  log_info "Updating Logto application ${display_name} (${app_id})"
+
+  local patch_response=""
+  local patch_status=0
+  patch_response=$(run_cmd_capture curl -sS --fail-with-body -X PATCH \
+    -H "Authorization: Bearer ${LOGTO_MANAGEMENT_TOKEN}" \
+    -H "Content-Type: application/json" \
+    -d "$expected_payload" \
+    "${apps_url}/${app_id}") || patch_status=$?
+
+  if [[ $patch_status -eq 0 ]]; then
+    LOGTO_APPLICATION_ID="$app_id"
+    export LOGTO_APPLICATION_ID
+    log_info "Updated Logto application metadata for ${display_name} (${app_id})"
+    return 0
+  fi
+
+  log_warn "Failed to update Logto application ${app_id}: ${patch_response}"
+  return 1
+}
+
+ensure_logto_application() {
+  if [[ -z "${LOGTO_MANAGEMENT_TOKEN:-}" ]]; then
+    mint_logto_management_token
+  fi
+
+  local endpoint="${LOGTO_MANAGEMENT_ENDPOINT%/}"
+  local apps_url="${endpoint}/api/applications"
+  local display_name="${PROJECT_NAME:-$PROJECT_ID}"
+  [[ -z "$display_name" ]] && display_name="$PROJECT_ID"
+
+  local description="Managed for ${PROJECT_ID} project"
+  if [[ -n "${PROJECT_NAME:-}" ]]; then
+    description="Managed for ${PROJECT_NAME} (${PROJECT_ID}) project"
+  fi
+
+  local redirect_uri="https://${PROJECT_ID}.justevery.com/callback"
+  local logout_uri="https://${PROJECT_ID}.justevery.com/logout"
+  local subdomain="${PROJECT_ID}.justevery.com"
+
+  local -a search_names=()
+  if [[ -n "$display_name" ]]; then
+    search_names+=("$display_name")
+  fi
+  if [[ "$display_name" != "$PROJECT_ID" ]]; then
+    search_names+=("$PROJECT_ID")
+  fi
+
+  if [[ "$DRY_RUN" == "1" ]]; then
+    LOGTO_APPLICATION_ID="dry-run-logto-app"
+    export LOGTO_APPLICATION_ID
+    log_info "[dry-run] Would ensure Logto application ${display_name}"
+    return
+  fi
+
+  if [[ -n "${LOGTO_APPLICATION_ID:-}" ]]; then
+    if reconcile_logto_application_metadata "$LOGTO_APPLICATION_ID" "$apps_url" "$display_name" "$description" "$redirect_uri" "$logout_uri" "$subdomain"; then
+      return
+    fi
+    log_warn "Configured LOGTO_APPLICATION_ID (${LOGTO_APPLICATION_ID}) could not be reconciled; attempting lookup by name"
+    LOGTO_APPLICATION_ID=""
+  fi
+
+  local list_response
+  if ! list_response=$(run_cmd_capture curl -sS --fail-with-body -X GET \
+    -H "Authorization: Bearer ${LOGTO_MANAGEMENT_TOKEN}" \
+    "$apps_url"); then
+    log_error "Failed to list Logto applications"
+    exit 1
+  fi
+
+  local existing_id=""
+  local matched_name=""
+  for candidate_name in "${search_names[@]}"; do
+    [[ -z "$candidate_name" ]] && continue
+    existing_id=$(jq -r --arg name "$candidate_name" '((.items // []) + (.data // [])) | map(select(.name == $name) | .id) | .[0] // empty' <<<"$list_response" 2>/dev/null || true)
+    if [[ -n "$existing_id" ]]; then
+      matched_name="$candidate_name"
+      break
+    fi
+  done
+
+  if [[ -n "$existing_id" ]]; then
+    LOGTO_APPLICATION_ID="$existing_id"
+    export LOGTO_APPLICATION_ID
+    log_info "Found existing Logto application ${matched_name} (${existing_id})"
+    reconcile_logto_application_metadata "$existing_id" "$apps_url" "$display_name" "$description" "$redirect_uri" "$logout_uri" "$subdomain" || true
+    return
+  fi
+
+  log_info "Creating Logto application ${display_name}"
+  local payload
+  payload=$(build_logto_application_payload "$display_name" 1 "$description" "$redirect_uri" "$logout_uri" "$subdomain")
 
   local create_response
   if ! create_response=$(run_cmd_capture curl -sS --fail-with-body -X POST \
@@ -393,7 +486,7 @@ ensure_logto_application() {
     -H "Content-Type: application/json" \
     -d "$payload" \
     "$apps_url"); then
-    log_error "Failed to create Logto application ${app_name}"
+    log_error "Failed to create Logto application ${display_name}"
     exit 1
   fi
 
@@ -406,7 +499,7 @@ ensure_logto_application() {
 
   LOGTO_APPLICATION_ID="$new_id"
   export LOGTO_APPLICATION_ID
-  log_info "Created Logto application ${app_name} (${LOGTO_APPLICATION_ID})"
+  log_info "Created Logto application ${display_name} (${LOGTO_APPLICATION_ID})"
 }
 
 sync_worker_secrets() {
@@ -477,11 +570,11 @@ ensure_worker_routes() {
   log_info "Skipping worker route provisioning; managed via wrangler.toml routes"
   return
   local landing_host app_host base_host script
-  landing_host=$(derive_host "${LANDING_URL:-}")
+  landing_host=$(derive_host "${PROJECT_DOMAIN:-}")
   app_host=$(derive_host "${APP_URL:-}")
 
   if [[ -z "$landing_host" && -z "$app_host" ]]; then
-    log_warn "Unable to derive host from LANDING_URL or APP_URL; skipping worker route provisioning"
+    log_warn "Unable to derive host from PROJECT_DOMAIN or APP_URL; skipping worker route provisioning"
     return
   fi
 
@@ -496,16 +589,6 @@ ensure_worker_routes() {
 
   if [[ -n "$app_host" && "$app_host" != "$base_host" ]]; then
     patterns+=("${app_host}/*")
-  else
-    local app_path
-    app_path=$(derive_app_base_from_url "${APP_URL:-}")
-    if [[ -n "$app_path" && "$app_path" != "/" ]]; then
-      local normalized="${app_path#/}"
-      normalized="${normalized%/}"
-      if [[ -n "$normalized" ]]; then
-        patterns+=("${base_host}/${normalized}*")
-      fi
-    fi
   fi
 
   local -a unique_patterns=()
@@ -732,14 +815,14 @@ update_wrangler_config() {
   local d1_safe=$(escape_sed "${D1_DATABASE_ID:-}")
   local d1_name_safe=$(escape_sed "${D1_DATABASE_NAME:-}")
   local bucket_safe=$(escape_sed "${R2_BUCKET_NAME:-}")
-  local landing_safe=$(escape_sed "${LANDING_URL:-}")
+  local landing_safe=$(escape_sed "${PROJECT_DOMAIN:-}")
   local app_safe=$(escape_sed "${APP_URL:-}")
   local logto_issuer_safe=$(escape_sed "${LOGTO_ISSUER:-}")
   local logto_jwks_safe=$(escape_sed "${LOGTO_JWKS_URI:-}")
   local logto_resource_safe=$(escape_sed "${LOGTO_API_RESOURCE:-}")
   local logto_endpoint_safe=$(escape_sed "${LOGTO_ENDPOINT:-}")
   local logto_app_id_safe=$(escape_sed "${LOGTO_APPLICATION_ID:-}")
-  local app_base_safe=$(escape_sed "${APP_BASE_URL_RESOLVED:-${APP_BASE_URL:-}}")
+  local app_base_safe=$(escape_sed "${APP_BASE_URL:-}")
   local stripe_products_safe=$(escape_sed "${STRIPE_PRODUCTS:-[]}")
   local stripe_webhook_safe=$(escape_sed "${STRIPE_WEBHOOK_SECRET:-}")
   local cloudflare_zone_safe=$(escape_sed "${CLOUDFLARE_ZONE_ID:-}")
@@ -755,7 +838,7 @@ update_wrangler_config() {
     -e "s/{{D1_DATABASE_ID}}/${d1_safe}/g" \
     -e "s/{{D1_DATABASE_NAME}}/${d1_name_safe}/g" \
     -e "s/{{R2_BUCKET_NAME}}/${bucket_safe}/g" \
-    -e "s#{{LANDING_URL}}#${landing_safe}#g" \
+    -e "s#{{PROJECT_DOMAIN}}#${landing_safe}#g" \
     -e "s#{{APP_URL}}#${app_safe}#g" \
     -e "s#{{APP_BASE_URL}}#${app_base_safe}#g" \
     -e "s#{{LOGTO_ISSUER}}#${logto_issuer_safe}#g" \
@@ -902,19 +985,19 @@ get_d1_database_name() {
 
 seed_project() {
   local project_slug="$PROJECT_ID"
-  local landing_url="${LANDING_URL:-}"
+  local PROJECT_DOMAIN="${PROJECT_DOMAIN:-}"
   local app_url="${APP_URL:-}"
   local escaped_landing
   local escaped_app
-  escaped_landing=$(printf "%s" "$landing_url" | sed "s/'/''/g")
+  escaped_landing=$(printf "%s" "$PROJECT_DOMAIN" | sed "s/'/''/g")
   escaped_app=$(printf "%s" "$app_url" | sed "s/'/''/g")
   local db_name
   db_name=$(get_d1_database_name)
   local sql
   read -r -d '' sql <<SQL || true
-INSERT INTO projects (id, slug, landing_url, app_url, created_at)
+INSERT INTO projects (id, slug, PROJECT_DOMAIN, app_url, created_at)
 VALUES ('${PROJECT_ID}', '${project_slug}', '${escaped_landing}', '${escaped_app}', CURRENT_TIMESTAMP)
-ON CONFLICT(id) DO UPDATE SET slug=excluded.slug, landing_url=excluded.landing_url, app_url=excluded.app_url;
+ON CONFLICT(id) DO UPDATE SET slug=excluded.slug, PROJECT_DOMAIN=excluded.PROJECT_DOMAIN, app_url=excluded.app_url;
 SQL
   if [[ "$DRY_RUN" == "1" ]]; then
     log_info "[dry-run] ${WRANGLER_LABEL} d1 execute ${db_name} --command \"$sql\""
@@ -949,7 +1032,7 @@ ensure_stripe_webhook() {
   fi
 
   local target_url
-  target_url="${LANDING_URL%/}/webhook/stripe"
+  target_url="${PROJECT_DOMAIN%/}/webhook/stripe"
 
   local cached_endpoint_id=""
   local cached_secret=""
@@ -1131,7 +1214,7 @@ logto_post_deploy_note() {
 }
 
 stripe_post_deploy_note() {
-  local target_url="${LANDING_URL%/}/webhook/stripe"
+  local target_url="${PROJECT_DOMAIN%/}/webhook/stripe"
 
   if [[ -z "${STRIPE_SECRET_KEY:-}" ]]; then
     log_warn "Stripe follow-up: STRIPE_SECRET_KEY not provided; webhook secret could not be managed."
@@ -1209,8 +1292,8 @@ export_expo_runtime_vars() {
       resolved_origin="$WORKER_ORIGIN"
     elif [[ -n "${APP_URL:-}" ]]; then
       resolved_origin="$(extract_origin "$APP_URL")"
-    elif [[ -n "${LANDING_URL:-}" ]]; then
-      resolved_origin="$(extract_origin "$LANDING_URL")"
+    elif [[ -n "${PROJECT_DOMAIN:-}" ]]; then
+      resolved_origin="$(extract_origin "$PROJECT_DOMAIN")"
     fi
 
     if [[ -n "$resolved_origin" ]]; then
@@ -1278,9 +1361,9 @@ write_generated_env() {
     printf '# Autogenerated by bootstrap.sh on %s\n' "$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
     printf '# Do not edit manually – rerun bootstrap.sh instead.\n\n'
     printf 'PROJECT_ID=%s\n' "${PROJECT_ID:-}"
-    printf 'LANDING_URL=%s\n' "${LANDING_URL:-}"
+    printf 'PROJECT_DOMAIN=%s\n' "${PROJECT_DOMAIN:-}"
     printf 'APP_URL=%s\n' "${APP_URL:-}"
-    printf 'APP_BASE_URL=%s\n' "${APP_BASE_URL_RESOLVED:-${APP_BASE_URL:-}}"
+    printf 'APP_BASE_URL=%s\n' "${APP_BASE_URL:-}"
     printf 'LOGTO_ENDPOINT=%s\n' "${LOGTO_ENDPOINT:-}"
     printf 'LOGTO_APPLICATION_ID=%s\n' "${LOGTO_APPLICATION_ID:-}"
     printf 'LOGTO_ISSUER=%s\n' "${LOGTO_ISSUER:-}"
@@ -1314,41 +1397,32 @@ main() {
   require_command node
 
   load_env_file "$HOME/.env"
-  load_env_file "/home/azureuser/.env"
   load_env_file "$ROOT_DIR/.env"
+  load_env_file "$ROOT_DIR/.env.local.generated"
   set +a
 
   ensure_var PROJECT_ID
-  if [[ -z "${LANDING_URL:-}" ]]; then
-    LANDING_URL="https://${PROJECT_ID}.justevery.com"
-    export LANDING_URL
-    log_info "Defaulting LANDING_URL to ${LANDING_URL} (derived from PROJECT_ID)"
+  if [[ -z "${PROJECT_DOMAIN:-}" ]]; then
+    PROJECT_DOMAIN="https://${PROJECT_ID}.justevery.com"
+    export PROJECT_DOMAIN
+    log_info "Defaulting PROJECT_DOMAIN to ${PROJECT_DOMAIN}"
   fi
 
-  local app_path="${APP_PATH:-${APP_BASE_URL:-/app}}"
-  if [[ -z "$app_path" ]]; then
-    app_path="/app"
-  fi
-  if [[ "${app_path:0:1}" != "/" ]]; then
-    app_path="/${app_path}"
-  fi
-
-  if [[ -z "${APP_URL:-}" && -n "${LANDING_URL:-}" ]]; then
-    local landing_trimmed="${LANDING_URL%/}"
-    APP_URL="${landing_trimmed}${app_path}"
+  if [[ -z "${APP_URL:-}" && -n "${PROJECT_DOMAIN:-}" ]]; then
+    local landing_trimmed="${PROJECT_DOMAIN%/}"
+    APP_URL="${landing_trimmed}${APP_BASE_URL:-/app}"
     export APP_URL
-    log_info "Defaulting APP_URL to ${APP_URL} (derived from LANDING_URL and ${app_path})"
+    log_info "Defaulting APP_URL to ${APP_URL}"
   fi
 
-  ensure_var CLOUDFLARE_ACCOUNT_ID
-  ensure_var LANDING_URL
+  ensure_var PROJECT_DOMAIN
   ensure_var APP_URL
+  ensure_var CLOUDFLARE_ACCOUNT_ID
   ensure_var LOGTO_MANAGEMENT_ENDPOINT
   ensure_var LOGTO_MANAGEMENT_AUTH_BASIC
 
   resolve_stripe_secret
   prepare_cloudflare_env
-  resolve_app_base_url
   derive_logto_defaults
   export_expo_runtime_vars
 

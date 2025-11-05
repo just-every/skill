@@ -18,7 +18,7 @@ environment files.
 Populate `.env` using `.env.example` as a template. At minimum you must define:
 
 - `PROJECT_ID`
-- `LANDING_URL` & `APP_URL`
+- `PROJECT_DOMAIN` & `APP_URL`
 - `CLOUDFLARE_ACCOUNT_ID` & `CLOUDFLARE_API_TOKEN`
 - `CLOUDFLARE_R2_BUCKET` (optional – falls back to `<project>-assets`)
 - `LOGTO_MANAGEMENT_ENDPOINT` & `LOGTO_MANAGEMENT_AUTH_BASIC` (base64 client credentials for the Logto management API)
@@ -84,14 +84,14 @@ On every run, `bootstrap.sh` reconciles resources to ensure they exist and match
 
 1. Ensures the `wrangler`, `jq`, `curl`, `sed`, and `node` commands are available.
 2. Loads environment variables from `/home/azureuser/.env` followed by `./.env`.
-3. Verifies mandatory configuration values (including `LANDING_URL` and `APP_URL`).
+3. Verifies mandatory configuration values (including `PROJECT_DOMAIN` and `APP_URL`).
 4. **Reconciles** Cloudflare D1 and R2 resources (reuses existing or creates new).
 5. Updates `workers/api/wrangler.toml` from the template, storing a backup copy.
 6. Confirms the Worker configuration (`wrangler.toml`) is up to date; `wrangler deploy` later applies the `[[routes]]` block and manages the custom domain automatically (requires DNS scope on your Wrangler login or API token).
 7. Runs database migrations via `node workers/api/scripts/migrate.js`.
 8. Seeds the `projects` table with the default project row (upserts on conflict).
 9. **Reconciles** Stripe products + prices based on `STRIPE_PRODUCTS` (reuses by metadata).
-10. **Reconciles** Stripe webhook endpoint for `${LANDING_URL}/webhook/stripe` (single endpoint per URL).
+10. **Reconciles** Stripe webhook endpoint for `${PROJECT_DOMAIN}/webhook/stripe` (single endpoint per URL).
 11. Syncs Worker secrets (skips already-synced secrets unless `FORCE_SECRET_SYNC=1`).
 12. Uploads a placeholder `welcome.txt` asset into the configured R2 bucket.
 13. Writes `.env.local.generated` containing resolved resource identifiers, Stripe outputs, and
@@ -127,7 +127,7 @@ Worker has baseline metadata available immediately.
 ## Stripe Webhook Setup
 
 When `STRIPE_SECRET_KEY` is defined, `bootstrap.sh` creates a webhook endpoint at
-`${LANDING_URL}/webhook/stripe` listening to checkout, subscription, and invoice
+`${PROJECT_DOMAIN}/webhook/stripe` listening to checkout, subscription, and invoice
 events. The generated endpoint ID and secret are written to
 `.env.local.generated` for safe storage.
 

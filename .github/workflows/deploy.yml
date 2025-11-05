@@ -12,7 +12,7 @@ jobs:
     env:
       NODE_VERSION: '18'
       PROJECT_ID: ci-dry-run
-      LANDING_URL: https://ci-dry-run.justevery.com
+      PROJECT_DOMAIN: https://ci-dry-run.justevery.com
       APP_URL: https://ci-dry-run.justevery.com/app
       APP_BASE_URL: ${{ secrets.APP_BASE_URL }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
@@ -68,8 +68,8 @@ jobs:
         if: ${{ github.ref == 'refs/heads/main' && secrets.CLOUDFLARE_API_TOKEN != '' }}
         run: |
           set -euo pipefail
-          curl -f -I "$LANDING_URL"
-          curl -f -I "$LANDING_URL/login"
+          curl -f -I "$PROJECT_DOMAIN"
+          curl -f -I "$PROJECT_DOMAIN/login"
           curl -f -I "$APP_URL"
 
       - name: Install Playwright browsers
@@ -79,5 +79,5 @@ jobs:
       - name: Run Playwright E2E tests
         if: ${{ github.ref == 'refs/heads/main' && secrets.CLOUDFLARE_API_TOKEN != '' }}
         env:
-          E2E_BASE_URL: ${{ env.LANDING_URL }}
+          E2E_BASE_URL: ${{ env.PROJECT_DOMAIN }}
         run: npm run test:e2e

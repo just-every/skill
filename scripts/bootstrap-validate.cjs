@@ -338,7 +338,7 @@ async function checkStripeResources({ env, generatedEnv, expectedPlans, checks, 
     checks.push({
       component: 'Stripe Webhook',
       status: CHECK_STATUS.SKIP,
-      message: 'LANDING_URL not set; skipping webhook validation.',
+      message: 'PROJECT_DOMAIN not set; skipping webhook validation.',
     });
   } else {
     const webhookResponse = await fetchStripe('/v1/webhook_endpoints?limit=100', stripeKey);
@@ -604,7 +604,7 @@ async function main() {
   }
 
   const env = { ...generatedEnv, ...process.env };
-  const landingUrl = env.LANDING_URL || generatedEnv.APP_URL || generatedEnv.LANDING_URL;
+  const landingUrl = env.PROJECT_DOMAIN || generatedEnv.APP_URL || generatedEnv.PROJECT_DOMAIN;
   const stripeProductsSource = env.STRIPE_PRODUCTS || generatedEnv.STRIPE_PRODUCTS;
   const expectedPlans = parseStripeProductsConfig(stripeProductsSource);
 

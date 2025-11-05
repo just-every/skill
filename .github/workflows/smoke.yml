@@ -20,9 +20,9 @@ jobs:
     permissions:
       contents: read
     env:
-      SMOKE_BASE_URL: ${{ inputs.base || secrets.SMOKE_BASE_URL || secrets.LANDING_URL || '' }}
+      SMOKE_BASE_URL: ${{ inputs.base || secrets.SMOKE_BASE_URL || secrets.PROJECT_DOMAIN || '' }}
       SMOKE_MODE: ${{ inputs.mode || secrets.SMOKE_MODE || '' }}
-      LANDING_URL: ${{ secrets.LANDING_URL || '' }}
+      PROJECT_DOMAIN: ${{ secrets.PROJECT_DOMAIN || '' }}
       LOGTO_TOKEN: ${{ secrets.LOGTO_TOKEN || '' }}
       SMOKE_BEARER_TOKEN: ${{ secrets.LOGTO_TOKEN || '' }}
       PROJECT_ID: ${{ secrets.PROJECT_ID || '' }}
@@ -61,9 +61,9 @@ jobs:
         run: |
           set -euo pipefail
 
-          BASE="${SMOKE_BASE_URL:-$LANDING_URL}"
+          BASE="${SMOKE_BASE_URL:-$PROJECT_DOMAIN}"
           if [ -z "$BASE" ]; then
-            echo "SMOKE_BASE_URL or LANDING_URL secret is required"
+            echo "SMOKE_BASE_URL or PROJECT_DOMAIN secret is required"
             exit 1
           fi
 
