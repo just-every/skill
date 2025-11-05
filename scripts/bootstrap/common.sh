@@ -43,6 +43,23 @@ load_env_file() {
   fi
 }
 
+format_env_value() {
+  local value=$1
+  printf '%q' "$value"
+}
+
+print_env_line() {
+  local key=$1
+  local value=${2-}
+
+  if [[ -z "$value" ]]; then
+    printf '%s=\n' "$key"
+    return
+  fi
+
+  printf '%s=%s\n' "$key" "$(format_env_value "$value")"
+}
+
 ensure_var() {
   local name=$1
   if [[ -z "${!name:-}" ]]; then

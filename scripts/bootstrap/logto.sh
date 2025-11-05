@@ -257,6 +257,137 @@ ensure_logto_application() {
   log_info "Created Logto application ${display_name} (${LOGTO_APPLICATION_ID})"
 }
 
+ensure_logto_api_resource() {
+  if [[ -z "${LOGTO_MANAGEMENT_TOKEN:-}" ]]; then
+    mint_logto_management_token
+  fi
+
+  if [[ -z "${LOGTO_API_RESOURCE:-}" ]]; then
+    log_warn "LOGTO_API_RESOURCE is not set; skipping API resource reconciliation"
+    return
+  fi
+
+  local api_base="${LOGTO_MANAGEMENT_ENDPOINT%/}/api"
+  local resources_endpoint="${api_base}/resources"
+  local resource_payload resource_lookup resource_name
+  local resources_json=""
+
+  resources_json=$(run_cmd_capture curl -sS -H "Authorization: Bearer ${LOGTO_MANAGEMENT_TOKEN}" -H "Accept: application/json" "$resources_endpoint" 2>/dev/null)
+
+  local existing_id=""
+  existing_id=$(jq -r --arg indicator "${LOGTO_API_RESOURCE}" '
+    def normalise($s): ($s // "") | sub("\\s+$"; "");
+    (map(select(normalise(.indicator) == normalise($indicator))) | first | .id) // ""
+  ' <<<"${resources_json:-[]}" 2>/dev/null || true)
+
+  if [[ -n "$existing_id" ]]; then
+    LOGTO_API_RESOURCE_ID="$existing_id"
+    export LOGTO_API_RESOURCE_ID
+    log_info "Found existing Logto API resource ${LOGTO_API_RESOURCE} (${LOGTO_API_RESOURCE_ID})"
+    return
+  fi
+
+  local resource_label="Worker"
+  if [[ -n "${PROJECT_NAME:-}" ]]; then
+    resource_label="${PROJECT_NAME}"
+  elif [[ -n "${PROJECT_ID:-}" ]]; then
+    resource_label=$(printf '%s' "${PROJECT_ID}" | awk '{print toupper(substr($0,1,1)) tolower(substr($0,2))}')
+  fi
+
+  resource_name="${LOGTO_API_RESOURCE_NAME:-${resource_label} Worker API}"
+  resource_payload=$(jq -nc --arg name "$resource_name" --arg indicator "${LOGTO_API_RESOURCE}" '{name: $name, indicator: $indicator}')
+
+  local create_response=""
+  create_response=$(run_cmd_capture curl -sS -X POST "$resources_endpoint" \
+    -H "Authorization: Bearer ${LOGTO_MANAGEMENT_TOKEN}" \
+    -H "Content-Type: application/json" \
+    -d "$resource_payload" 2>/dev/null)
+
+  local created_id=""
+  created_id=$(jq -r '.id // empty' <<<"${create_response:-}" 2>/dev/null || true)
+  if [[ -z "$created_id" ]]; then
+    log_warn "Failed to ensure Logto API resource ${LOGTO_API_RESOURCE}: ${create_response:-<no response>}"
+    return
+  fi
+
+  LOGTO_API_RESOURCE_ID="$created_id"
+  export LOGTO_API_RESOURCE_ID
+  log_info "Created Logto API resource ${LOGTO_API_RESOURCE} (${LOGTO_API_RESOURCE_ID})"
+}
+
+ensure_logto_m2m_application() {
+  if [[ -z "${LOGTO_MANAGEMENT_TOKEN:-}" ]]; then
+    mint_logto_management_token
+  fi
+
+  local api_base="${LOGTO_MANAGEMENT_ENDPOINT%/}/api"
+  local apps_endpoint="${api_base}/applications"
+  local default_app_label="Worker"
+  if [[ -n "${PROJECT_NAME:-}" ]]; then
+    default_app_label="${PROJECT_NAME}"
+  elif [[ -n "${PROJECT_ID:-}" ]]; then
+    default_app_label=$(printf '%s' "${PROJECT_ID}" | awk '{print toupper(substr($0,1,1)) tolower(substr($0,2))}')
+  fi
+
+  local desired_name="${LOGTO_M2M_APP_NAME:-${default_app_label} Worker Smoke Tests}"
+  local application_json=""
+
+  if [[ -n "${LOGTO_M2M_CLIENT_ID:-}" ]]; then
+    application_json=$(run_cmd_capture curl -sS -H "Authorization: Bearer ${LOGTO_MANAGEMENT_TOKEN}" \
+      "$apps_endpoint/${LOGTO_M2M_CLIENT_ID}" 2>/dev/null)
+    local current_type=""
+    current_type=$(jq -r '.type // empty' <<<"${application_json:-}" 2>/dev/null || true)
+    if [[ "$current_type" != "MachineToMachine" ]]; then
+      application_json=""
+    fi
+  fi
+
+  if [[ -z "${application_json:-}" ]]; then
+    local list_response=""
+    list_response=$(run_cmd_capture curl -sS -H "Authorization: Bearer ${LOGTO_MANAGEMENT_TOKEN}" \
+      -G "$apps_endpoint" --data-urlencode 'types=MachineToMachine' 2>/dev/null)
+
+    application_json=$(jq -r --arg name "$desired_name" '
+      (map(select(.name == $name)) | first) // empty
+    ' <<<"${list_response:-[]}" 2>/dev/null || true)
+  fi
+
+  if [[ -z "${application_json:-}" ]]; then
+    local create_payload=""
+    create_payload=$(jq -nc --arg name "$desired_name" '{name: $name, type: "MachineToMachine"}')
+    application_json=$(run_cmd_capture curl -sS -X POST "$apps_endpoint" \
+      -H "Authorization: Bearer ${LOGTO_MANAGEMENT_TOKEN}" \
+      -H "Content-Type: application/json" \
+      -d "$create_payload" 2>/dev/null)
+  fi
+
+  local client_id=""
+  client_id=$(jq -r '.id // empty' <<<"${application_json:-}" 2>/dev/null || true)
+  local client_secret=""
+  client_secret=$(jq -r '.secret // empty' <<<"${application_json:-}" 2>/dev/null || true)
+
+  if [[ -z "$client_id" ]]; then
+    log_warn "Failed to ensure Logto machine-to-machine application ${desired_name}: ${application_json:-<no response>}"
+    return
+  fi
+
+  if [[ -z "$client_secret" ]]; then
+    log_warn "Logto machine-to-machine application ${desired_name} (${client_id}) does not expose a secret; configure manually."
+  fi
+
+  LOGTO_M2M_CLIENT_ID="$client_id"
+  export LOGTO_M2M_CLIENT_ID
+  if [[ -n "$client_secret" ]]; then
+    LOGTO_M2M_CLIENT_SECRET="$client_secret"
+    export LOGTO_M2M_CLIENT_SECRET
+  fi
+
+  LOGTO_M2M_APP_NAME="$desired_name"
+  export LOGTO_M2M_APP_NAME
+
+  log_info "Ensured Logto machine-to-machine application ${desired_name} (${LOGTO_M2M_CLIENT_ID})"
+}
+
 logto_post_deploy_note() {
   local endpoint="${LOGTO_MANAGEMENT_ENDPOINT%/}"
   local callback="https://${PROJECT_ID}.justevery.com/callback"

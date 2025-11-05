@@ -2,7 +2,7 @@
   "name": "@justevery/web",
   "version": "0.1.0",
   "private": true,
-  "main": "expo/AppEntry",
+  "main": "./index.ts",
   "scripts": {
     "dev": "expo start --web",
     "start": "expo start --web",

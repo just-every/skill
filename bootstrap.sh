@@ -37,6 +37,12 @@ bootstrap_defaults() {
     log_info "Defaulting PROJECT_DOMAIN to ${PROJECT_DOMAIN}"
   fi
 
+  if [[ -z "${APP_BASE_URL:-}" ]]; then
+    APP_BASE_URL="/app"
+    export APP_BASE_URL
+    log_info "Defaulting APP_BASE_URL to ${APP_BASE_URL}"
+  fi
+
   if [[ -z "${APP_URL:-}" && -n "${PROJECT_DOMAIN:-}" ]]; then
     local landing_trimmed="${PROJECT_DOMAIN%/}"
     APP_URL="${landing_trimmed}${APP_BASE_URL:-/app}"
@@ -72,6 +78,8 @@ run_bootstrap() {
 
   mint_logto_management_token
   ensure_logto_application
+  ensure_logto_api_resource
+  ensure_logto_m2m_application
 
   ensure_cloudflare_auth
   ensure_d1

@@ -46,9 +46,10 @@ if (!tokenEndpoint) {
 }
 
 const basicAuth = process.env.LOGTO_MANAGEMENT_AUTH_BASIC;
-const clientId = process.env.LOGTO_CLIENT_ID;
-const clientSecret = process.env.LOGTO_CLIENT_SECRET;
+const clientId = process.env.LOGTO_CLIENT_ID ?? process.env.LOGTO_M2M_CLIENT_ID;
+const clientSecret = process.env.LOGTO_CLIENT_SECRET ?? process.env.LOGTO_M2M_CLIENT_SECRET;
 const resource = process.env.LOGTO_API_RESOURCE;
+const tokenScope = process.env.LOGTO_TOKEN_SCOPE ?? process.env.LOGTO_SCOPE;
 
 if (!basicAuth && (!clientId || !clientSecret)) {
   const missing = [];
@@ -67,6 +68,10 @@ if (resource) {
 if (!basicAuth) {
   body.set('client_id', clientId);
   body.set('client_secret', clientSecret);
+}
+
+if (tokenScope) {
+  body.set('scope', tokenScope);
 }
 
 const headers = { 'content-type': 'application/x-www-form-urlencoded' };

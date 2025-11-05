@@ -19,13 +19,13 @@ Choose one of the flows below:
    export LOGTO_TOKEN='<copied_access_token>'
    ```
 
-### Option B – Client credentials (if your tenant exposes an API client)
-1. Export credentials locally (do not commit them):
+### Option B – Client credentials (bootstrap-managed machine-to-machine client)
+1. Export credentials locally (do not commit them). `bootstrap.sh` records the latest client in `.env.local.generated` as `LOGTO_M2M_CLIENT_ID` / `LOGTO_M2M_CLIENT_SECRET`.
    ```bash
-   export LOGTO_ENDPOINT='https://login.justevery.com'
-   export LOGTO_API_RESOURCE='https://demo.justevery.com/api'
-   export LOGTO_CLIENT_ID='<machine_to_machine_client_id>'
-   export LOGTO_CLIENT_SECRET='<machine_to_machine_client_secret>'
+    export LOGTO_ENDPOINT='https://login.justevery.com'
+    export LOGTO_API_RESOURCE='https://demo.justevery.com/api'
+    export LOGTO_CLIENT_ID="$LOGTO_M2M_CLIENT_ID"
+    export LOGTO_CLIENT_SECRET="$LOGTO_M2M_CLIENT_SECRET"
    ```
 2. Request a token using the helper script:
    ```bash

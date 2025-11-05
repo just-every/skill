@@ -241,7 +241,7 @@ async function main() {
           dbName,
           '--remote',
           '--command',
-          'SELECT id, PROJECT_DOMAIN, app_url FROM projects LIMIT 5;',
+          'SELECT id, slug, domain, app_url FROM projects LIMIT 5;',
           '--json',
         ]);
         const parsed = JSON.parse(stdout);
