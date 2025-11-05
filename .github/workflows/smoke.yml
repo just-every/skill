@@ -1,0 +1,98 @@
+name: Smoke Suite
+
+on:
+  schedule:
+    - cron: '0 4 * * *'
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      base:
+        description: 'Override base URL (optional)'
+        required: false
+      mode:
+        description: 'Override mode (full|minimal)'
+        required: false
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      SMOKE_BASE_URL: ${{ inputs.base || secrets.SMOKE_BASE_URL || secrets.LANDING_URL || '' }}
+      SMOKE_MODE: ${{ inputs.mode || secrets.SMOKE_MODE || '' }}
+      LANDING_URL: ${{ secrets.LANDING_URL || '' }}
+      LOGTO_TOKEN: ${{ secrets.LOGTO_TOKEN || '' }}
+      SMOKE_BEARER_TOKEN: ${{ secrets.LOGTO_TOKEN || '' }}
+      PROJECT_ID: ${{ secrets.PROJECT_ID || '' }}
+      D1_DATABASE_NAME: ${{ secrets.D1_DATABASE_NAME || '' }}
+      STRIPE_WEBHOOK_SECRET: ${{ secrets.STRIPE_WEBHOOK_SECRET || '' }}
+      SMOKE_SKIP_WRANGLER: ${{ secrets.SMOKE_SKIP_WRANGLER || '' }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID || '' }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN || '' }}
+      CLOUDFLARE_ZONE_ID: ${{ secrets.CLOUDFLARE_ZONE_ID || '' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Enable corepack
+        run: corepack enable
+
+      - name: Use Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Assert required secrets
+        run: npm run assert:secrets
+
+      - name: Assert Cloudflare token scopes
+        run: npm run assert:r2
+
+      - name: Install Playwright browsers
+        run: pnpm exec playwright install --with-deps
+
+      - name: Run smoke suite
+        run: |
+          set -euo pipefail
+
+          BASE="${SMOKE_BASE_URL:-$LANDING_URL}"
+          if [ -z "$BASE" ]; then
+            echo "SMOKE_BASE_URL or LANDING_URL secret is required"
+            exit 1
+          fi
+
+          MODE="$SMOKE_MODE"
+          if [ -z "$MODE" ]; then
+            if [ -z "$D1_DATABASE_NAME" ] || [ -z "$STRIPE_WEBHOOK_SECRET" ]; then
+              MODE="minimal"
+            else
+              MODE="full"
+            fi
+          fi
+
+          CMD=(node scripts/run-smoke-suite.cjs --base "$BASE" --mode "$MODE")
+          if [ -n "$PROJECT_ID" ]; then
+            CMD+=(--project-id "$PROJECT_ID")
+          fi
+          if [ -n "$D1_DATABASE_NAME" ]; then
+            CMD+=(--d1-name "$D1_DATABASE_NAME")
+          fi
+          if [ -n "$LOGTO_TOKEN" ]; then
+            CMD+=(--token "$LOGTO_TOKEN")
+          fi
+
+          "${CMD[@]}"
+
+      - name: Upload smoke artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: smoke-results
+          path: test-results/smoke/
+          if-no-files-found: ignore

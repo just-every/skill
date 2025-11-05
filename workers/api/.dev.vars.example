@@ -1,0 +1,21 @@
+# Local-only bindings for `wrangler dev`
+# Copy to workers/api/.dev.vars and fill in per environment.
+
+# D1 database binding as defined in wrangler.toml
+DB=app-db
+
+# R2 bucket binding
+ASSETS=local-assets
+
+# Logto / Auth configuration
+LOGTO_ISSUER=https://tenant.logto.app/oidc
+LOGTO_AUDIENCE=https://demo.justevery.com/api
+LOGTO_JWKS_URI=https://tenant.logto.app/oidc/jwks
+LOGTO_APPLICATION_ID=app_xxxxx
+
+# Optional integrations
+STRIPE_SECRET_KEY=
+STRIPE_WEBHOOK_SECRET=
+
+# Uncomment to override Expo defaults while pairing with the worker locally
+#EXPO_PUBLIC_WORKER_ORIGIN=http://127.0.0.1:8787

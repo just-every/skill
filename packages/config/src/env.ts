@@ -1,4 +1,5 @@
 export type ResolvedEnv = {
+  PROJECT_NAME: string;
   PROJECT_ID: string;
   LANDING_URL: string;
   APP_URL: string;
@@ -11,7 +12,6 @@ export type ResolvedEnv = {
   CLOUDFLARE_ZONE_ID?: string;
   LOGTO_ENDPOINT?: string;
   LOGTO_APPLICATION_ID?: string;
-  LOGTO_APPLICATION_SECRET?: string;
   EXPO_PUBLIC_LOGTO_ENDPOINT?: string;
   EXPO_PUBLIC_LOGTO_APP_ID?: string;
   EXPO_PUBLIC_API_RESOURCE?: string;
@@ -19,6 +19,7 @@ export type ResolvedEnv = {
 };
 
 const REQUIRED_KEYS = [
+  'PROJECT_NAME',
   'PROJECT_ID',
   'LANDING_URL',
   'APP_URL',
@@ -34,7 +35,6 @@ const OPTIONAL_KEYS = [
   'CLOUDFLARE_ZONE_ID',
   'LOGTO_ENDPOINT',
   'LOGTO_APPLICATION_ID',
-  'LOGTO_APPLICATION_SECRET',
   'EXPO_PUBLIC_LOGTO_ENDPOINT',
   'EXPO_PUBLIC_LOGTO_APP_ID',
   'EXPO_PUBLIC_API_RESOURCE',

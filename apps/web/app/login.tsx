@@ -20,6 +20,7 @@ export default function LoginScreen(): JSX.Element {
 function LoginReady(): JSX.Element {
   const router = useRouter();
   const { isAuthenticated, signIn } = useLogto();
+  const logtoError = useLogtoError();
 
   const redirectUri = useMemo(() => {
     if (typeof window === 'undefined') {
@@ -78,6 +79,13 @@ function LoginReady(): JSX.Element {
           Use your organisation email to sign in securely. We’ll redirect you back to the dashboard once Logto completes
           the flow.
         </Text>
+
+        {logtoError ? (
+          <View style={{ padding: 16, borderRadius: 12, backgroundColor: 'rgba(239, 68, 68, 0.16)', gap: 8 }}>
+            <Text style={{ color: '#f87171', fontWeight: '600' }}>Logto configuration error</Text>
+            <Text style={{ color: '#fecaca', fontSize: 12 }}>{logtoError.message}</Text>
+          </View>
+        ) : null}
 
         <View style={{ padding: 16, borderRadius: 16, backgroundColor: 'rgba(30, 41, 59, 0.6)', gap: 12 }}>
           <Pressable

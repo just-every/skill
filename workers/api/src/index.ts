@@ -46,6 +46,7 @@ const textEncoder = new TextEncoder();
 const STATIC_ASSET_PREFIXES = ["/_expo/", "/assets/"];
 const STATIC_ASSET_PATHS = new Set(["/favicon.ico", "/index.html", "/manifest.json"]);
 const SPA_EXTRA_ROUTES = ["/login", "/payments", "/callback", "/logout"];
+const MARKETING_ROUTE_PREFIX = "/marketing/";
 
 type RuntimeEnvPayload = {
   logtoEndpoint: string | null;
@@ -276,11 +277,13 @@ const Worker: ExportedHandler<Env> = {
       }
     }
 
+    if (pathname === "/marketing" || pathname.startsWith(MARKETING_ROUTE_PREFIX)) {
+      return handleMarketingAsset(request, env, pathname);
+    }
+
     switch (pathname) {
       case "/":
         return htmlResponse(landingPageHtml(env));
-      case "/logout":
-        return handleLogout(request, env);
       case "/checkout":
         return jsonResponse({
           ok: true,
@@ -333,7 +336,27 @@ type AuthenticatedSession = {
   emailAddress?: string | null;
 };
 
-const requestSessionCache = new WeakMap<Request, AuthenticatedSession | null>();
+type AuthFailureReason =
+  | 'missing_token'
+  | 'invalid_token'
+  | 'insufficient_scope'
+  | 'upstream_error';
+
+type AuthSuccess = {
+  ok: true;
+  session: AuthenticatedSession;
+};
+
+type AuthFailure = {
+  ok: false;
+  reason: AuthFailureReason;
+  error?: unknown;
+  errorDescription?: string;
+};
+
+type AuthResult = AuthSuccess | AuthFailure;
+
+const requestSessionCache = new WeakMap<Request, AuthResult>();
 
 let cachedJwks: ReturnType<typeof createRemoteJWKSet> | null = null;
 let cachedJwksUrl: string | null = null;
@@ -358,15 +381,17 @@ function extractBearerToken(request: Request): string | null {
   return token.trim();
 }
 
-async function authenticateRequest(request: Request, env: Env): Promise<AuthenticatedSession | null> {
-  if (requestSessionCache.has(request)) {
-    return requestSessionCache.get(request) ?? null;
+async function authenticateRequest(request: Request, env: Env): Promise<AuthResult> {
+  const cached = requestSessionCache.get(request);
+  if (cached) {
+    return cached;
   }
 
   const sessionJwt = extractBearerToken(request);
   if (!sessionJwt) {
-    requestSessionCache.set(request, null);
-    return null;
+    const failure: AuthFailure = { ok: false, reason: 'missing_token', errorDescription: 'Bearer token required' };
+    requestSessionCache.set(request, failure);
+    return failure;
   }
 
   let payload: JWTPayload;
@@ -379,29 +404,37 @@ async function authenticateRequest(request: Request, env: Env): Promise<Authenti
 
     ({ payload } = await jwtVerify(sessionJwt, jwks, options));
   } catch (error) {
-    console.error("JWT verification failed", error);
-    requestSessionCache.set(request, null);
-    return null;
+    const failure = classifyJwtError(error);
+    requestSessionCache.set(request, failure);
+    return failure;
   }
 
   const audiences = Array.isArray(payload.aud) ? payload.aud : payload.aud ? [payload.aud] : [];
   if (!audiences.includes(env.LOGTO_API_RESOURCE)) {
-    console.warn("JWT audience validation failed");
-    requestSessionCache.set(request, null);
-    return null;
+    const failure: AuthFailure = {
+      ok: false,
+      reason: 'insufficient_scope',
+      errorDescription: 'Access token audience does not match LOGTO_API_RESOURCE',
+    };
+    requestSessionCache.set(request, failure);
+    return failure;
   }
 
-  const exp = typeof payload.exp === "number" ? payload.exp : null;
-  const sub = typeof payload.sub === "string" ? payload.sub : null;
+  const exp = typeof payload.exp === 'number' ? payload.exp : null;
+  const sub = typeof payload.sub === 'string' ? payload.sub : null;
   const claims = payload as Record<string, unknown>;
-  const email = typeof claims.email === "string" ? (claims.email as string) : null;
-  const sid = typeof claims.sid === "string" ? (claims.sid as string) : null;
-  const jti = typeof payload.jti === "string" ? payload.jti : null;
+  const email = typeof claims.email === 'string' ? (claims.email as string) : null;
+  const sid = typeof claims.sid === 'string' ? (claims.sid as string) : null;
+  const jti = typeof payload.jti === 'string' ? payload.jti : null;
 
   if (!sub || !exp) {
-    console.warn("JWT missing required claims (sub or exp)");
-    requestSessionCache.set(request, null);
-    return null;
+    const failure: AuthFailure = {
+      ok: false,
+      reason: 'invalid_token',
+      errorDescription: 'JWT missing required subject or expiry claims',
+    };
+    requestSessionCache.set(request, failure);
+    return failure;
   }
 
   const normalised: AuthenticatedSession = {
@@ -412,38 +445,216 @@ async function authenticateRequest(request: Request, env: Env): Promise<Authenti
     emailAddress: email,
   };
 
-  requestSessionCache.set(request, normalised);
-  return normalised;
+  const success: AuthSuccess = { ok: true, session: normalised };
+  requestSessionCache.set(request, success);
+  return success;
 }
 
-async function requireAuthenticatedSession(request: Request, env: Env): Promise<AuthenticatedSession | null> {
+async function requireAuthenticatedSession(request: Request, env: Env): Promise<AuthResult> {
   return authenticateRequest(request, env);
 }
 
-function unauthorizedResponse(): Response {
-  return jsonResponse({ error: "Unauthorized" }, 401);
+function classifyJwtError(error: unknown): AuthFailure {
+  const errorObject = error as { code?: string; message?: string } | undefined;
+  const code = errorObject?.code ?? (errorObject && 'name' in errorObject ? (errorObject as { name?: string }).name : undefined);
+
+  let reason: AuthFailureReason = 'invalid_token';
+  let description = 'JWT verification failed';
+
+  if (code === 'ERR_JWT_EXPIRED') {
+    description = 'JWT expired';
+  } else if (code && code.startsWith('ERR_JWKS')) {
+    reason = 'upstream_error';
+    description = 'Failed to resolve JWKS for token verification';
+  } else if (error instanceof TypeError) {
+    reason = 'upstream_error';
+    description = error.message || 'Network error while verifying token';
+  }
+
+  if (reason === 'upstream_error') {
+    console.error('JWT verification failed due to upstream error', error);
+  } else {
+    console.error('JWT verification failed', error);
+  }
+
+  return {
+    ok: false,
+    reason,
+    error,
+    errorDescription: description,
+  };
+}
+
+function interpretAuthFailure(
+  failure: AuthFailure,
+): { status: number; challenge?: string; error: string; description: string } {
+  const description = failure.errorDescription ??
+    (failure.reason === 'missing_token'
+      ? 'Bearer token required'
+      : failure.reason === 'insufficient_scope'
+        ? 'Access token audience does not match LOGTO_API_RESOURCE'
+        : failure.reason === 'upstream_error'
+          ? 'Unable to validate token via identity provider'
+          : 'JWT verification failed');
+
+  switch (failure.reason) {
+    case 'missing_token':
+      return {
+        status: 401,
+        challenge: `Bearer realm="worker", error="invalid_request", error_description="${description}"`,
+        error: 'invalid_request',
+        description,
+      };
+    case 'invalid_token':
+      return {
+        status: 401,
+        challenge: `Bearer realm="worker", error="invalid_token", error_description="${description}"`,
+        error: 'invalid_token',
+        description,
+      };
+    case 'insufficient_scope':
+      return {
+        status: 403,
+        challenge: `Bearer realm="worker", error="insufficient_scope", error_description="${description}"`,
+        error: 'insufficient_scope',
+        description,
+      };
+    case 'upstream_error':
+      return {
+        status: 502,
+        error: 'bad_gateway',
+        description,
+      };
+    default:
+      return {
+        status: 401,
+        challenge: `Bearer realm="worker", error="invalid_token", error_description="${description}"`,
+        error: 'invalid_token',
+        description,
+      };
+  }
+}
+
+function sessionSuccessResponse(session: AuthenticatedSession): Response {
+  return jsonResponse({
+    authenticated: true,
+    sessionId: session.sessionId,
+    expiresAt: session.expiresAt,
+    emailAddress: session.emailAddress ?? null,
+  });
+}
+
+function sessionFailureResponse(failure: AuthFailure): Response {
+  const { status, challenge } = interpretAuthFailure(failure);
+  const headers: Record<string, string> = {};
+  if (challenge) {
+    headers['WWW-Authenticate'] = challenge;
+  }
+  return jsonResponse(
+    {
+      authenticated: false,
+      sessionId: null,
+      expiresAt: null,
+      emailAddress: null,
+    },
+    status,
+    headers,
+  );
+}
+
+function authFailureResponse(failure: AuthFailure): Response {
+  const { status, challenge, error, description } = interpretAuthFailure(failure);
+  const headers: Record<string, string> = {};
+  if (challenge) {
+    headers['WWW-Authenticate'] = challenge;
+  }
+  return jsonResponse({ error, error_description: description }, status, headers);
 }
 
 async function handleSessionApi(request: Request, env: Env): Promise<Response> {
-  const session = await authenticateRequest(request, env);
-  if (!session) {
-    return jsonResponse({ authenticated: false, session: null }, 401);
+  const auth = await authenticateRequest(request, env);
+  if (!auth.ok) {
+    return sessionFailureResponse(auth);
   }
-  return jsonResponse({
-    authenticated: true,
-    session: {
-      session_id: session.sessionId,
-      expires_at: session.expiresAt,
-      email_address: session.emailAddress ?? null,
-    },
-  });
+
+  return sessionSuccessResponse(auth.session);
 }
 
-async function handleLogout(_request: Request, _env: Env): Promise<Response> {
-  return jsonResponse({
-    ok: true,
-    message: 'Sessions are managed by the Logto frontend SDK; clear tokens there to log out.',
-  });
+async function handleMarketingAsset(request: Request, env: Env, pathname: string): Promise<Response> {
+  if (!env.STORAGE) {
+    return jsonResponse({ error: "Storage binding not configured" }, 500);
+  }
+
+  if (request.method !== "GET" && request.method !== "HEAD") {
+    return jsonResponse({ error: "Method Not Allowed" }, 405);
+  }
+
+  const suffix = pathname.length > MARKETING_ROUTE_PREFIX.length
+    ? pathname.slice(MARKETING_ROUTE_PREFIX.length)
+    : "";
+  const key = parseMarketingKey(suffix);
+  if (!key) {
+    return jsonResponse({ error: "Not Found" }, 404);
+  }
+
+  try {
+    const metadata = request.method === "HEAD"
+      ? await env.STORAGE.head(key)
+      : await env.STORAGE.get(key);
+
+    if (!metadata) {
+      return jsonResponse({ error: "Not Found" }, 404);
+    }
+
+    const headers = new Headers();
+    const extension = key.split(".").pop()?.toLowerCase() ?? "";
+    const contentType = metadata.httpMetadata?.contentType ?? CONTENT_TYPE_BY_EXTENSION[extension] ?? "application/octet-stream";
+    headers.set("Content-Type", contentType);
+    headers.set(
+      "Cache-Control",
+      metadata.httpMetadata?.cacheControl ?? "public, max-age=31536000, immutable",
+    );
+    headers.set("Access-Control-Allow-Origin", "*");
+    if (typeof metadata.size === "number") {
+      headers.set("Content-Length", metadata.size.toString());
+    }
+
+    if (request.method === "HEAD") {
+      return new Response(null, { status: 200, headers });
+    }
+
+    const objectBody = (metadata as { body?: ReadableStream | null }).body;
+    if (!objectBody) {
+      return jsonResponse({ error: "Not Found" }, 404);
+    }
+
+    return new Response(objectBody, {
+      status: 200,
+      headers,
+    });
+  } catch (error) {
+    console.error("Failed to serve marketing asset", error);
+    return jsonResponse({ error: "Internal Server Error" }, 500);
+  }
+}
+
+function extractProviderError(payload: unknown): string | null {
+  if (!payload || typeof payload !== 'object') {
+    return null;
+  }
+
+  const { error, error_description: errorDescription } = payload as {
+    error?: unknown;
+    error_description?: unknown;
+  };
+
+  const errorText = typeof error === 'string' ? error : null;
+  const descriptionText = typeof errorDescription === 'string' ? errorDescription : null;
+
+  if (errorText && descriptionText) {
+    return `${errorText}: ${descriptionText}`;
+  }
+  return descriptionText ?? errorText;
 }
 
 async function handleMe(request: Request, env: Env): Promise<Response> {
@@ -451,10 +662,11 @@ async function handleMe(request: Request, env: Env): Promise<Response> {
     return jsonResponse({ error: "Method Not Allowed" }, 405);
   }
 
-  const session = await requireAuthenticatedSession(request, env);
-  if (!session) {
-    return unauthorizedResponse();
+  const auth = await requireAuthenticatedSession(request, env);
+  if (!auth.ok) {
+    return authFailureResponse(auth);
   }
+  const session = auth.session;
 
   return jsonResponse({
     authenticated: true,
@@ -471,8 +683,9 @@ async function handleAssetsList(request: Request, env: Env): Promise<Response> {
     return jsonResponse({ error: "Method Not Allowed" }, 405);
   }
 
-  if (!(await requireAuthenticatedSession(request, env))) {
-    return unauthorizedResponse();
+  const auth = await requireAuthenticatedSession(request, env);
+  if (!auth.ok) {
+    return authFailureResponse(auth);
   }
 
   const url = new URL(request.url);
@@ -515,8 +728,9 @@ async function handleAssetsGet(request: Request, env: Env): Promise<Response> {
     return jsonResponse({ error: "Method Not Allowed" }, 405);
   }
 
-  if (!(await requireAuthenticatedSession(request, env))) {
-    return unauthorizedResponse();
+  const auth = await requireAuthenticatedSession(request, env);
+  if (!auth.ok) {
+    return authFailureResponse(auth);
   }
 
   const url = new URL(request.url);
@@ -571,8 +785,9 @@ async function handleAssetsPut(request: Request, env: Env): Promise<Response> {
     return jsonResponse({ error: "Method Not Allowed" }, 405);
   }
 
-  if (!(await requireAuthenticatedSession(request, env))) {
-    return unauthorizedResponse();
+  const auth = await requireAuthenticatedSession(request, env);
+  if (!auth.ok) {
+    return authFailureResponse(auth);
   }
 
   const url = new URL(request.url);
@@ -596,8 +811,9 @@ async function handleAssetsDelete(request: Request, env: Env): Promise<Response>
     return jsonResponse({ error: "Method Not Allowed" }, 405);
   }
 
-  if (!(await requireAuthenticatedSession(request, env))) {
-    return unauthorizedResponse();
+  const auth = await requireAuthenticatedSession(request, env);
+  if (!auth.ok) {
+    return authFailureResponse(auth);
   }
 
   const url = new URL(request.url);
@@ -668,20 +884,30 @@ function htmlResponse(html: string, status = 200): Response {
   });
 }
 
-function jsonResponse(data: unknown, status = 200): Response {
+function jsonResponse(data: unknown, status = 200, extraHeaders?: HeadersInit): Response {
+  const headers = new Headers({ "Content-Type": "application/json; charset=UTF-8" });
+  if (extraHeaders) {
+    if (extraHeaders instanceof Headers) {
+      extraHeaders.forEach((value, key) => headers.set(key, value));
+    } else if (Array.isArray(extraHeaders)) {
+      for (const [key, value] of extraHeaders) {
+        headers.set(key, value);
+      }
+    } else if (typeof extraHeaders === 'object') {
+      for (const [key, value] of Object.entries(extraHeaders)) {
+        if (value !== undefined) {
+          headers.set(key, value as string);
+        }
+      }
+    }
+  }
+
   return cors(
     new Response(JSON.stringify(data), {
       status,
-      headers: { "Content-Type": "application/json; charset=UTF-8" },
+      headers,
     }),
   );
-}
-
-function redirectResponse(location: string, status = 302): Response {
-  return new Response(null, {
-    status,
-    headers: { Location: location },
-  });
 }
 
 function generateSessionId(): string {
@@ -744,6 +970,28 @@ function parseKey(
   }
 
   return normalised;
+}
+
+function parseMarketingKey(raw: string): string | null {
+  if (raw === undefined || raw === null) {
+    return null;
+  }
+
+  const candidate = parseKey(raw, {});
+  if (!candidate) {
+    return null;
+  }
+
+  if (candidate.endsWith('/')) {
+    return null;
+  }
+
+  const fullKey = candidate.startsWith('marketing/') ? candidate : `marketing/${candidate}`;
+  if (!fullKey.startsWith('marketing/') || fullKey === 'marketing/') {
+    return null;
+  }
+
+  return fullKey;
 }
 
 function parseStripeProducts(raw: string | undefined): unknown[] {

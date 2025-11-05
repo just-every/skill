@@ -11,19 +11,62 @@ type PublicRuntimeEnv = Partial<{
   logtoPostLogoutRedirectUri: string;
 }>;
 
-const runtimeEnv = (globalThis as {
-  process?: { env?: Record<string, string | undefined> };
+type GlobalWithRuntime = typeof globalThis & {
   __JUSTEVERY_ENV__?: PublicRuntimeEnv;
-}).process?.env;
+};
 
-const injectedEnv = (globalThis as { __JUSTEVERY_ENV__?: PublicRuntimeEnv }).__JUSTEVERY_ENV__ ?? {};
+const runtimeEnv = (globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env;
 
-export const WORKER_ORIGIN = runtimeEnv?.EXPO_PUBLIC_WORKER_ORIGIN ?? injectedEnv.workerOrigin ?? '';
-export const LOGTO_ENDPOINT = runtimeEnv?.EXPO_PUBLIC_LOGTO_ENDPOINT ?? injectedEnv.logtoEndpoint ?? '';
-export const LOGTO_APP_ID = runtimeEnv?.EXPO_PUBLIC_LOGTO_APP_ID ?? injectedEnv.logtoAppId ?? '';
-export const LOGTO_API_RESOURCE = runtimeEnv?.EXPO_PUBLIC_API_RESOURCE ?? injectedEnv.logtoApiResource ?? '';
-export const LOGTO_POST_LOGOUT_REDIRECT_URI =
-  runtimeEnv?.EXPO_PUBLIC_LOGTO_POST_LOGOUT_REDIRECT_URI ?? injectedEnv.logtoPostLogoutRedirectUri ?? '';
+function currentInjectedEnv(): PublicRuntimeEnv {
+  try {
+    return ((globalThis as GlobalWithRuntime).__JUSTEVERY_ENV__ ?? {}) satisfies PublicRuntimeEnv;
+  } catch {
+    return {};
+  }
+}
+
+function pickEnv(...candidates: Array<string | undefined>): string {
+  for (const candidate of candidates) {
+    const trimmed = candidate?.trim();
+    if (trimmed) {
+      return trimmed;
+    }
+  }
+  return '';
+}
+
+export let WORKER_ORIGIN = '';
+export let LOGTO_ENDPOINT = '';
+export let LOGTO_APP_ID = '';
+export let LOGTO_API_RESOURCE = '';
+export let LOGTO_POST_LOGOUT_REDIRECT_URI = '';
+
+function applyRuntimeEnv(detail?: PublicRuntimeEnv) {
+  const injected = detail ?? currentInjectedEnv();
+  WORKER_ORIGIN = pickEnv(runtimeEnv?.EXPO_PUBLIC_WORKER_ORIGIN, injected.workerOrigin);
+  LOGTO_ENDPOINT = pickEnv(runtimeEnv?.EXPO_PUBLIC_LOGTO_ENDPOINT, injected.logtoEndpoint);
+  LOGTO_APP_ID = pickEnv(runtimeEnv?.EXPO_PUBLIC_LOGTO_APP_ID, injected.logtoAppId);
+  LOGTO_API_RESOURCE = pickEnv(runtimeEnv?.EXPO_PUBLIC_API_RESOURCE, injected.logtoApiResource);
+  LOGTO_POST_LOGOUT_REDIRECT_URI = pickEnv(
+    runtimeEnv?.EXPO_PUBLIC_LOGTO_POST_LOGOUT_REDIRECT_URI,
+    injected.logtoPostLogoutRedirectUri,
+  );
+}
+
+applyRuntimeEnv();
+
+const RUNTIME_EVENT = 'justevery:env-ready';
+
+if (typeof window !== 'undefined') {
+  const withRuntime = window as unknown as GlobalWithRuntime;
+  if (withRuntime.__JUSTEVERY_ENV__) {
+    applyRuntimeEnv(withRuntime.__JUSTEVERY_ENV__);
+  }
+  window.addEventListener(RUNTIME_EVENT, (event) => {
+    const detail = event instanceof CustomEvent ? (event.detail as PublicRuntimeEnv | undefined) : undefined;
+    applyRuntimeEnv(detail);
+  });
+}
 
 type WorkerLinkProps = {
   path: string;
@@ -31,11 +74,11 @@ type WorkerLinkProps = {
   variant?: 'primary' | 'secondary';
 };
 
+// Routes that rely on Worker-injected runtime config must reload from the Worker.
+const WORKER_REDIRECT_PATHS = new Set(['/login', '/callback', '/logout']);
+
 export function workerUrl(path: string) {
   if (!path.startsWith('/')) {
-    return path;
-  }
-  if (path === '/login' || path.startsWith('/login?')) {
     return path;
   }
   return WORKER_ORIGIN ? `${WORKER_ORIGIN}${path}` : path;
@@ -43,6 +86,8 @@ export function workerUrl(path: string) {
 
 export function WorkerLink({ path, label, variant = 'primary' }: WorkerLinkProps) {
   const target = workerUrl(path);
+  const shouldForceWorkerNavigation =
+    typeof path === 'string' && path.startsWith('/') && WORKER_REDIRECT_PATHS.has(path.split('?')[0]);
 
   const handlePress = useCallback(() => {
     if (Platform.OS === 'web' && typeof window !== 'undefined') {
@@ -63,6 +108,23 @@ export function WorkerLink({ path, label, variant = 'primary' }: WorkerLinkProps
   };
 
   if (Platform.OS === 'web') {
+    const isExternal = /^https?:\/\//i.test(target);
+    if (isExternal || shouldForceWorkerNavigation) {
+      return (
+        <a
+          href={target}
+          style={{
+            ...sharedStyles,
+            color: variant === 'primary' ? '#0f172a' : '#e2e8f0',
+            backgroundColor: variant === 'primary' ? '#38bdf8' : 'transparent',
+            borderWidth: variant === 'secondary' ? 1 : 0,
+            borderColor: '#38bdf8',
+          }}
+        >
+          {label}
+        </a>
+      );
+    }
     return (
       <Link
         href={target}

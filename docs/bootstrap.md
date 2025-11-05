@@ -4,6 +4,8 @@ The `bootstrap.sh` script provisions Cloudflare resources, templates Wrangler
 configuration, and optionally seeds Stripe products based on the values in your
 environment files.
 
+**Idempotency Guarantee:** `bootstrap.sh` is fully idempotent. Reruns with the same configuration will reuse existing resources instead of creating duplicates. See [BOOTSTRAP_VALIDATION.md](./BOOTSTRAP_VALIDATION.md) for detailed rerun behavior and validation tests.
+
 ## Prerequisites
 
 - Node.js ≥ 18 and pnpm / npm for installing dependencies locally.
@@ -32,26 +34,65 @@ Set `DRY_RUN=1` to exercise the script without creating resources.
 # Preview without side effects
 DRY_RUN=1 ./bootstrap.sh
 
-# Execute against Cloudflare and Stripe
+# Execute against Cloudflare and Stripe (first run)
+./bootstrap.sh
+
+# Rerun safely - will reuse all existing resources
 ./bootstrap.sh
 
 # Deploy the Worker once resources exist
 npx wrangler deploy --config workers/api/wrangler.toml
 ```
 
-Key tasks performed:
+### Idempotency Flags
+
+The following flags control rerun behavior:
+
+| Flag | Default | Purpose |
+|------|---------|---------|
+| `DRY_RUN` | `0` | Preview actions without creating/updating resources |
+| `SYNC_SECRETS` | `1` | Set to `0` to skip all secret synchronization |
+| `FORCE_SECRET_SYNC` | `0` | Set to `1` to force re-sync all secrets (use when values changed) |
+| `STRIPE_PRUNE_DUPLICATE_WEBHOOKS` | `0` | Set to `1` to automatically delete duplicate webhook endpoints |
+
+**Examples:**
+
+```bash
+# Force secret re-sync after updating values in .env
+FORCE_SECRET_SYNC=1 ./bootstrap.sh
+
+# Clean up duplicate Stripe webhook endpoints
+STRIPE_PRUNE_DUPLICATE_WEBHOOKS=1 ./bootstrap.sh
+
+# Skip secret sync entirely (for faster reruns)
+SYNC_SECRETS=0 ./bootstrap.sh
+```
+
+## How Bootstrap Works
+
+### Idempotent Resource Provisioning
+
+On every run, `bootstrap.sh` reconciles resources to ensure they exist and match configuration:
+
+1. **Stripe Products**: Queries by `metadata.project_id`, reuses matching products and prices
+2. **Stripe Webhook**: Reconciles single endpoint by URL, updates events if needed
+3. **D1 Database**: Verifies cached ID from `.env.local.generated`, falls back to name search
+4. **R2 Bucket**: Verifies cached name from `.env.local.generated`, falls back to name search
+5. **Worker Secrets**: Skips sync for already-synced secrets (unless `FORCE_SECRET_SYNC=1`)
+
+### Task Flow
 
 1. Ensures the `wrangler`, `jq`, `curl`, `sed`, and `node` commands are available.
 2. Loads environment variables from `/home/azureuser/.env` followed by `./.env`.
 3. Verifies mandatory configuration values (including `LANDING_URL` and `APP_URL`).
-4. Creates or reuses Cloudflare D1 and R2 resources, matching names to `PROJECT_ID`.
+4. **Reconciles** Cloudflare D1 and R2 resources (reuses existing or creates new).
 5. Updates `workers/api/wrangler.toml` from the template, storing a backup copy.
 6. Confirms the Worker configuration (`wrangler.toml`) is up to date; `wrangler deploy` later applies the `[[routes]]` block and manages the custom domain automatically (requires DNS scope on your Wrangler login or API token).
 7. Runs database migrations via `node workers/api/scripts/migrate.js`.
-8. Seeds the `projects` table with the default project row.
-9. Optionally provisions Stripe products + prices based on `STRIPE_PRODUCTS`.
-10. Optionally creates a Stripe webhook endpoint pointing at `${LANDING_URL}/webhook/stripe`.
-11. Syncs Worker secrets (unless `SYNC_SECRETS=0`) via `wrangler secret put`.
+8. Seeds the `projects` table with the default project row (upserts on conflict).
+9. **Reconciles** Stripe products + prices based on `STRIPE_PRODUCTS` (reuses by metadata).
+10. **Reconciles** Stripe webhook endpoint for `${LANDING_URL}/webhook/stripe` (single endpoint per URL).
+11. Syncs Worker secrets (skips already-synced secrets unless `FORCE_SECRET_SYNC=1`).
 12. Uploads a placeholder `welcome.txt` asset into the configured R2 bucket.
 13. Writes `.env.local.generated` containing resolved resource identifiers, Stripe outputs, and
     the `EXPO_PUBLIC_LOGTO_*` values consumed by the Expo client.
@@ -141,3 +182,47 @@ npx wrangler r2 bucket delete $(grep R2_BUCKET_NAME .env.local.generated | cut -
 ```
 
 For auditing purposes, commit `.env.local.generated` to secrets management, not to version control.
+
+## Rerun Behavior and Validation
+
+### Safe Reruns
+
+`bootstrap.sh` is designed to be safely rerun multiple times:
+
+- **First run**: Creates all resources, stamps metadata, writes `.env.local.generated`
+- **Subsequent runs**: Reuses existing resources by reconciliation, skips redundant operations
+- **After config changes**: Updates resources as needed, preserves IDs
+
+### What Gets Reused vs. Recreated
+
+| Resource | Rerun Behavior | Lookup Strategy |
+|----------|----------------|-----------------|
+| **Stripe Products** | Reused by `metadata.project_id` and name | Query Stripe API for matching products |
+| **Stripe Webhook** | Reused by URL | Query Stripe API for matching endpoints |
+| **D1 Database** | Reused by cached ID or name | Check `.env.local.generated` first, verify remotely |
+| **R2 Bucket** | Reused by cached name | Check `.env.local.generated` first, verify remotely |
+| **Worker Secrets** | Skipped if already synced | Check `SYNCED_SECRET_NAMES` in `.env.local.generated` |
+| **Wrangler Config** | Regenerated from template | Always updated |
+| **Migrations** | Rerun (idempotent SQL) | Drizzle tracks applied migrations |
+| **Project Seed** | Upserted | `ON CONFLICT(id) DO UPDATE` |
+
+### Validation
+
+See [BOOTSTRAP_VALIDATION.md](./BOOTSTRAP_VALIDATION.md) for:
+- Detailed idempotency guarantees per resource type
+- Acceptance test checklist
+- Common rerun scenarios and expected outcomes
+- Troubleshooting idempotency issues
+
+**Quick validation:**
+
+```bash
+# First run
+./bootstrap.sh
+
+# Rerun - should see "Found existing" or "Verified" logs for all resources
+./bootstrap.sh
+
+# Dry-run after successful run - should show zero create operations
+DRY_RUN=1 ./bootstrap.sh 2>&1 | grep -c "Would create"  # Should output: 0
+```

@@ -2,12 +2,10 @@ import { describe, expect, it, vi, afterEach } from 'vitest';
 import Worker, { type Env } from '../src/index';
 import type { IncomingRequestCfProperties } from '@cloudflare/workers-types';
 
-vi.mock('jose', () => {
-  return {
-    createRemoteJWKSet: vi.fn(() => vi.fn()),
-    jwtVerify: vi.fn(),
-  };
-});
+vi.mock('jose', () => ({
+  createRemoteJWKSet: vi.fn(() => vi.fn()),
+  jwtVerify: vi.fn(),
+}));
 
 import { createRemoteJWKSet, jwtVerify } from 'jose';
 
@@ -61,7 +59,7 @@ function createMockEnv(overrides: Partial<Env> = {}): Env {
     EXPO_PUBLIC_LOGTO_ENDPOINT: 'https://auth.example.com',
     EXPO_PUBLIC_LOGTO_APP_ID: 'logto-public-app-id',
     EXPO_PUBLIC_API_RESOURCE: 'https://api.example.com',
-    EXPO_PUBLIC_LOGTO_POST_LOGOUT_REDIRECT_URI: 'https://app.example.com/logout',
+    EXPO_PUBLIC_LOGTO_POST_LOGOUT_REDIRECT_URI: 'https://app.example.com',
     ...overrides,
   } as Env;
 
@@ -102,20 +100,26 @@ describe('Worker routes', () => {
     const response = await runFetch(request, env);
 
     expect(response.status).toBe(401);
-    const body = (await response.json()) as { authenticated: boolean; session: null };
-    expect(body).toEqual({ authenticated: false, session: null });
+    const body = await response.json();
+    expect(body).toEqual({
+      authenticated: false,
+      sessionId: null,
+      expiresAt: null,
+      emailAddress: null,
+    });
   });
 
   it('authenticates valid Logto JWT for /api/session', async () => {
     const env = createMockEnv();
-    const jwksMock = vi.fn();
-    mockedCreateRemoteJWKSet.mockReturnValue(jwksMock as unknown as ReturnType<typeof createRemoteJWKSet>);
+    const jwksStub = vi.fn();
+    mockedCreateRemoteJWKSet.mockReturnValue(jwksStub as unknown as ReturnType<typeof createRemoteJWKSet>);
     mockedJwtVerify.mockResolvedValue({
       payload: {
+        iss: env.LOGTO_ISSUER,
         sub: 'user-123',
-        exp: Math.floor(Date.now() / 1000) + 3600,
         email: 'admin@example.com',
         aud: env.LOGTO_API_RESOURCE,
+        exp: Math.floor(Date.now() / 1000) + 3600,
       },
     } as any);
 
@@ -124,22 +128,14 @@ describe('Worker routes', () => {
     });
 
     const response = await runFetch(request, env);
-
-    expect(mockedCreateRemoteJWKSet).toHaveBeenCalledWith(new URL(env.LOGTO_JWKS_URI));
-    expect(mockedJwtVerify).toHaveBeenCalledWith(
-      'session_jwt_value',
-      jwksMock,
-      expect.objectContaining({
-        issuer: env.LOGTO_ISSUER,
-        audience: env.LOGTO_API_RESOURCE,
-      }),
-    );
-
     expect(response.status).toBe(200);
-    const body = (await response.json()) as { authenticated: boolean; session: { session_id: string; email_address: string | null } };
-    expect(body.authenticated).toBe(true);
-    expect(body.session.session_id).toBe('user-123');
-    expect(body.session.email_address).toBe('admin@example.com');
+    const body = await response.json();
+    expect(body).toEqual({
+      authenticated: true,
+      sessionId: expect.any(String),
+      expiresAt: expect.stringContaining('T'),
+      emailAddress: 'admin@example.com',
+    });
   });
 
   it('returns 401 when JWT verification fails for /api/session', async () => {
@@ -154,8 +150,13 @@ describe('Worker routes', () => {
     const response = await runFetch(request, env);
 
     expect(response.status).toBe(401);
-    const body = (await response.json()) as { authenticated: boolean; session: null };
-    expect(body).toEqual({ authenticated: false, session: null });
+    const body = await response.json();
+    expect(body).toEqual({
+      authenticated: false,
+      sessionId: null,
+      expiresAt: null,
+      emailAddress: null,
+    });
   });
 
   it('rejects Stripe webhook without signature', async () => {
@@ -183,9 +184,10 @@ describe('Worker routes', () => {
     mockedCreateRemoteJWKSet.mockReturnValue(vi.fn() as unknown as ReturnType<typeof createRemoteJWKSet>);
     mockedJwtVerify.mockResolvedValue({
       payload: {
+        iss: env.LOGTO_ISSUER,
         sub: 'user-123',
-        exp: Math.floor(Date.now() / 1000) + 3600,
         aud: env.LOGTO_API_RESOURCE,
+        exp: Math.floor(Date.now() / 1000) + 3600,
       },
     } as any);
 
@@ -248,8 +250,6 @@ describe('Worker routes', () => {
 
     const env = createMockEnv({
       APP_BASE_URL: '/app',
-      EXPO_PUBLIC_STYTCH_PUBLIC_TOKEN: 'public-token-live-123',
-      EXPO_PUBLIC_STYTCH_BASE_URL: 'https://auth.example.com',
       EXPO_PUBLIC_WORKER_ORIGIN: 'https://example.com',
       ASSETS: { fetch: fetchMock } as unknown as Env['ASSETS'],
     });

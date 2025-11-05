@@ -71,7 +71,7 @@ export default function LandingScreen() {
           {Platform.OS === 'web' ? (
             WORKER_ORIGIN ? (
               <Image
-                source={{ uri: workerUrl('/api/assets/get?key=marketing/hero.png') }}
+                source={{ uri: workerUrl('/marketing/hero.png') }}
                 resizeMode="cover"
                 style={{
                   width: '100%',

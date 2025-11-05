@@ -15,13 +15,16 @@ dist/
 build/
 
 # Test artifacts
-test-results/
+test-results/*
+!test-results/README.md
 playwright-report/
 blob-report/
 
 # Scratch files
 temp.html
--
+
+# Local env overlays
+workers/api/.dev.vars
 
 # Env files
 .env

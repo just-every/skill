@@ -1,0 +1,198 @@
+openapi: 3.1.0
+info:
+  title: Justevery Worker Auth Endpoints
+  version: 0.2.0
+  description: Session verification and Logto callback endpoints exposed by the worker.
+servers:
+  - url: /
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  headers:
+    WWW-Authenticate:
+      description: >-
+        Bearer challenge issued when authentication fails. Example: `Bearer realm="worker",
+        error="invalid_token", error_description="JWT expired"`.
+      schema:
+        type: string
+  schemas:
+    SessionResponse:
+      type: object
+      required: [authenticated, sessionId, expiresAt, emailAddress]
+      properties:
+        authenticated:
+          type: boolean
+          description: Indicates whether the supplied token validated.
+        sessionId:
+          type: string
+          nullable: true
+          description: Stable identifier sourced from `sid`, `jti`, or `sub`.
+          example: sess_abc123
+        expiresAt:
+          type: string
+          format: date-time
+          nullable: true
+          example: 2025-01-01T12:00:00Z
+        emailAddress:
+          type: string
+          format: email
+          nullable: true
+          example: user@example.com
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: string
+        error_description:
+          type: string
+paths:
+  /api/session:
+    get:
+      summary: Validate the current session
+      description: >-
+        Expects a Logto access token in the Authorization header, validates it against the configured issuer,
+        JWKS, and resource audience, and returns minimal session metadata.
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Token accepted and normalised session returned.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SessionResponse'
+              examples:
+                ok:
+                  value:
+                    authenticated: true
+                    sessionId: "sess_abc123"
+                    expiresAt: "2025-01-01T12:00:00Z"
+                    emailAddress: "user@example.com"
+        '401':
+          description: >-
+            Missing or invalid token. Body retains the stable session schema with null fields and
+            `WWW-Authenticate` describes the failure.
+          headers:
+            WWW-Authenticate:
+              $ref: '#/components/headers/WWW-Authenticate'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SessionResponse'
+              examples:
+                invalid:
+                  value:
+                    authenticated: false
+                    sessionId: null
+                    expiresAt: null
+                    emailAddress: null
+        '403':
+          description: Token validated but lacked the required audience.
+          headers:
+            WWW-Authenticate:
+              $ref: '#/components/headers/WWW-Authenticate'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SessionResponse'
+              examples:
+                insufficient_scope:
+                  value:
+                    authenticated: false
+                    sessionId: null
+                    expiresAt: null
+                    emailAddress: null
+        '502':
+          description: Token verification failed due to upstream identity issues (non-5xx response from token/JWKS endpoints).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                bad_gateway:
+                  value:
+                    error: bad_gateway
+                    error_description: Token endpoint responded 400
+        '503':
+          description: Identity provider unavailable (network or 5xx failure).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                service_unavailable:
+                  value:
+                    error: service_unavailable
+                    error_description: Unable to reach identity provider
+  /callback:
+    get:
+      summary: Logto authorization code callback
+      description: Accepts the provider redirect, exchanges the authorization code, and redirects the browser to the application shell.
+      parameters:
+        - in: query
+          name: code
+          required: true
+          schema:
+            type: string
+          description: Authorization code received from Logto.
+        - in: query
+          name: state
+          required: true
+          schema:
+            type: string
+          description: State parameter used to correlate requests.
+        - in: query
+          name: error
+          required: false
+          schema:
+            type: string
+          description: Error returned by the identity provider.
+        - in: query
+          name: error_description
+          required: false
+          schema:
+            type: string
+      responses:
+        '302':
+          description: Token exchange succeeded; browser redirected to the configured app base.
+          headers:
+            Location:
+              schema:
+                type: string
+              example: /app
+        '400':
+          description: Request missing required parameters or identity provider returned an error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                invalid_request:
+                  value:
+                    error: invalid_request
+                    error_description: Missing required code or state parameter
+        '502':
+          description: Token exchange failed with a handled upstream error (e.g., invalid_grant).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                bad_gateway:
+                  value:
+                    error: bad_gateway
+                    error_description: invalid_grant: Code expired
+        '503':
+          description: Identity provider temporarily unavailable.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                service_unavailable:
+                  value:
+                    error: service_unavailable
+                    error_description: Unable to reach identity provider for token exchange

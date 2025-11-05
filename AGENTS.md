@@ -34,5 +34,6 @@ This repository is the canonical justevery starter stack; future products should
 ## Environment & Configuration Tips
 - Run `./bootstrap.sh` after cloning and when infra config changes; it is idempotent and reuses the `.env` metadata to skip recreating Cloudflare or Stripe resources.
 - Record updates to secrets, Logto, or Stripe setup in `docs/SSO.md` or `docs/DEPLOYMENTS.md`, and mirror changes in `.dev.vars` files.
+- Shared credentials live in `~/.env`; source it (`set -a; source ~/.env; set +a`) before running remote validation or CI-like scripts so required env vars exist.
 - For local auth testing, create `workers/api/.dev.vars` with the same bindings used in production (D1, R2, LOGTO_*). Wrangler loads these automatically during `npm run dev:worker` and keeps state under `.wrangler/state/`.
 - Use `wrangler dev --remote` when you need Cloudflare’s edge runtime (JWT verification with real Logto tenant) while retaining hot reload.

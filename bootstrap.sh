@@ -16,6 +16,7 @@ STRIPE_SECRET_SOURCE="STRIPE_SECRET_KEY"
 APP_BASE_URL_RESOLVED=""
 SYNCED_SECRET_NAMES=()
 SYNC_SECRETS=${SYNC_SECRETS:-1}
+FORCE_SECRET_SYNC=${FORCE_SECRET_SYNC:-0}
 
 log_info() {
   echo "${GREEN}[info]${RESET} $*"
@@ -201,6 +202,17 @@ ensure_worker_secret() {
   if [[ "$SYNC_SECRETS" == "0" ]]; then
     log_info "Secret sync disabled (SYNC_SECRETS=0); skipping $name"
     return
+  fi
+
+  # Check if this secret was already synced in a previous run (unless forced)
+  if [[ "$FORCE_SECRET_SYNC" != "1" && -f "$GENERATED_ENV_FILE" ]]; then
+    local synced_secrets
+    synced_secrets=$(grep -E '^SYNCED_SECRET_NAMES=' "$GENERATED_ENV_FILE" 2>/dev/null | cut -d= -f2)
+    if [[ -n "$synced_secrets" ]] && [[ ",$synced_secrets," == *",$name,"* ]]; then
+      log_info "Worker secret $name already synced in previous run; skipping (set FORCE_SECRET_SYNC=1 to override)"
+      SYNCED_SECRET_NAMES+=("$name")
+      return
+    fi
   fi
 
   log_info "Syncing Worker secret $name"
@@ -650,6 +662,32 @@ ensure_d1() {
     return
   fi
 
+  # Check if .env.local.generated has a D1_DATABASE_ID
+  if [[ -f "$GENERATED_ENV_FILE" ]]; then
+    local cached_id
+    cached_id=$(grep -E '^D1_DATABASE_ID=' "$GENERATED_ENV_FILE" 2>/dev/null | cut -d= -f2)
+    if [[ -n "$cached_id" && "$cached_id" != "null" ]]; then
+      log_info "Found D1 database ID in .env.local.generated: $cached_id"
+      # Verify it still exists remotely
+      local list_json=""
+      if ! list_json=$("${WRANGLER_BASE[@]}" d1 list --json 2>/dev/null); then
+        list_json=""
+      fi
+      if [[ -n "$list_json" ]]; then
+        local remote_exists
+        remote_exists=$(jq -r --arg id "$cached_id" '.[] | select(.uuid==$id) | .uuid' <<<"$list_json")
+        if [[ -n "$remote_exists" && "$remote_exists" != "null" ]]; then
+          log_info "Verified D1 database $cached_id exists remotely"
+          D1_DATABASE_ID="$cached_id"
+          return
+        else
+          log_warn "Cached D1 database ID $cached_id not found remotely; falling back to name search"
+        fi
+      fi
+    fi
+  fi
+
+  # Fallback: search by name
   local list_json=""
   if ! list_json=$("${WRANGLER_BASE[@]}" d1 list --json 2>/dev/null); then
     list_json=""
@@ -658,12 +696,14 @@ ensure_d1() {
     local existing
     existing=$(jq -r --arg name "$name" '.[] | select(.name==$name) | .uuid' <<<"$list_json")
     if [[ -n "$existing" && "$existing" != "null" ]]; then
-      log_info "Found existing D1 database $existing"
+      log_info "Found existing D1 database by name: $existing"
       D1_DATABASE_ID="$existing"
       return
     fi
   fi
 
+  # Create new database
+  log_info "Creating new D1 database '$name'"
   wrangler_cmd d1 create "$name" >/dev/null
 
   list_json=""
@@ -686,15 +726,42 @@ ensure_r2() {
     R2_BUCKET_ID="$bucket"
     return
   fi
+
+  # Check if .env.local.generated has a R2_BUCKET_NAME
+  if [[ -f "$GENERATED_ENV_FILE" ]]; then
+    local cached_bucket
+    cached_bucket=$(grep -E '^R2_BUCKET_NAME=' "$GENERATED_ENV_FILE" 2>/dev/null | cut -d= -f2)
+    if [[ -n "$cached_bucket" && "$cached_bucket" != "null" ]]; then
+      log_info "Found R2 bucket name in .env.local.generated: $cached_bucket"
+      # Verify it still exists remotely
+      local list_output=""
+      if ! list_output=$("${WRANGLER_BASE[@]}" r2 bucket list 2>/dev/null); then
+        list_output=""
+      fi
+      if [[ -n "$list_output" ]] && [[ "$list_output" == *"name:           $cached_bucket"* ]]; then
+        log_info "Verified R2 bucket $cached_bucket exists remotely"
+        R2_BUCKET_ID="$cached_bucket"
+        R2_BUCKET_NAME="$cached_bucket"
+        return
+      else
+        log_warn "Cached R2 bucket $cached_bucket not found remotely; falling back to configured name"
+      fi
+    fi
+  fi
+
+  # Search by configured bucket name
   local list_output=""
   if ! list_output=$("${WRANGLER_BASE[@]}" r2 bucket list 2>/dev/null); then
     list_output=""
   fi
   if [[ -n "$list_output" ]] && [[ "$list_output" == *"name:           $bucket"* ]]; then
-    log_info "Found existing R2 bucket $bucket"
+    log_info "Found existing R2 bucket: $bucket"
     R2_BUCKET_ID="$bucket"
     return
   fi
+
+  # Create new bucket
+  log_info "Creating new R2 bucket '$bucket'"
   wrangler_cmd r2 bucket create "$bucket"
   R2_BUCKET_ID="$bucket"
 }
@@ -773,11 +840,17 @@ provision_stripe_products() {
     return
   fi
   if [[ "$DRY_RUN" == "1" ]]; then
-    log_info "[dry-run] Would create Stripe products: $products_json"
+    log_info "[dry-run] Would reconcile Stripe products: $products_json"
     STRIPE_PRODUCT_IDS="[]"
     return
   fi
-  log_info "Provisioning Stripe products"
+  log_info "Reconciling Stripe products"
+
+  # Fetch existing products with metadata.project_id matching PROJECT_ID
+  local existing_products
+  existing_products=$(run_cmd_capture curl -sS -X GET "https://api.stripe.com/v1/products?limit=100" \
+    -u "$STRIPE_SECRET_KEY:" 2>&1 || echo '{"data":[]}')
+
   local ids="[]"
   local index=0
   local length
@@ -791,19 +864,61 @@ provision_stripe_products() {
     currency=$(jq -r '.currency' <<<"$product_json")
     interval=$(jq -r '.interval' <<<"$product_json")
 
-    local product_response price_response product_id price_id
-    product_response=$(run_cmd_capture curl -sS -X POST https://api.stripe.com/v1/products \
-      -u "$STRIPE_SECRET_KEY:" \
-      -d name="$name" \
-      -d metadata[project_id]="$PROJECT_ID")
-    product_id=$(jq -r '.id // empty' <<<"$product_response")
-    price_response=$(run_cmd_capture curl -sS -X POST https://api.stripe.com/v1/prices \
-      -u "$STRIPE_SECRET_KEY:" \
-      -d unit_amount="$amount" \
-      -d currency="$currency" \
-      -d recurring[interval]="$interval" \
-      -d product="$product_id")
-    price_id=$(jq -r '.id // empty' <<<"$price_response")
+    # Check if a product with this name and metadata.project_id already exists
+    local existing_product_id
+    existing_product_id=$(jq -r --arg project_id "$PROJECT_ID" --arg name "$name" \
+      '.data[] | select(.metadata.project_id == $project_id and .name == $name) | .id // empty' \
+      <<<"$existing_products" | head -1)
+
+    local product_id price_id
+    if [[ -n "$existing_product_id" ]]; then
+      log_info "Found existing Stripe product '$name' (${existing_product_id})"
+      product_id="$existing_product_id"
+
+      # Fetch prices for this product
+      local existing_prices
+      existing_prices=$(run_cmd_capture curl -sS -X GET "https://api.stripe.com/v1/prices?product=${product_id}&limit=100" \
+        -u "$STRIPE_SECRET_KEY:" 2>&1 || echo '{"data":[]}')
+
+      # Look for a matching price (amount, currency, interval)
+      price_id=$(jq -r --argjson amount "$amount" --arg currency "$currency" --arg interval "$interval" \
+        '.data[] | select(.unit_amount == $amount and .currency == $currency and .recurring.interval == $interval and .active == true) | .id // empty' \
+        <<<"$existing_prices" | head -1)
+
+      if [[ -n "$price_id" ]]; then
+        log_info "Found existing matching price for '$name' (${price_id})"
+      else
+        log_info "No matching price found for '$name'; creating new price"
+        local price_response
+        price_response=$(run_cmd_capture curl -sS -X POST https://api.stripe.com/v1/prices \
+          -u "$STRIPE_SECRET_KEY:" \
+          -d unit_amount="$amount" \
+          -d currency="$currency" \
+          -d recurring[interval]="$interval" \
+          -d product="$product_id")
+        price_id=$(jq -r '.id // empty' <<<"$price_response")
+      fi
+    else
+      # Create new product with metadata
+      log_info "Creating new Stripe product '$name'"
+      local product_response
+      product_response=$(run_cmd_capture curl -sS -X POST https://api.stripe.com/v1/products \
+        -u "$STRIPE_SECRET_KEY:" \
+        -d name="$name" \
+        -d metadata[project_id]="$PROJECT_ID")
+      product_id=$(jq -r '.id // empty' <<<"$product_response")
+
+      # Create price for new product
+      local price_response
+      price_response=$(run_cmd_capture curl -sS -X POST https://api.stripe.com/v1/prices \
+        -u "$STRIPE_SECRET_KEY:" \
+        -d unit_amount="$amount" \
+        -d currency="$currency" \
+        -d recurring[interval]="$interval" \
+        -d product="$product_id")
+      price_id=$(jq -r '.id // empty' <<<"$price_response")
+    fi
+
     ids=$(jq --arg product "$product_id" --arg price "$price_id" '. + [{product: $product, price: $price}]' <<<"$ids")
     ((index++))
   done
@@ -882,106 +997,129 @@ ensure_stripe_webhook() {
     log_warn "STRIPE_SECRET_KEY not set; skipping Stripe webhook provisioning"
     return
   fi
-  if [[ -n "${STRIPE_WEBHOOK_ENDPOINT_ID:-}" ]]; then
-    log_info "Stripe webhook endpoint already tracked (${STRIPE_WEBHOOK_ENDPOINT_ID}); skipping"
-    return
-  fi
 
   local target_url
   target_url="${LANDING_URL%/}/webhook/stripe"
+
   if [[ "$DRY_RUN" == "1" ]]; then
     STRIPE_WEBHOOK_ENDPOINT_ID="dry-run-webhook"
     STRIPE_WEBHOOK_SECRET="whsec_dry_run"
-    log_info "[dry-run] Would create Stripe webhook at $target_url"
+    log_info "[dry-run] Would reconcile Stripe webhook at $target_url"
     return
   fi
 
-  log_info "Creating Stripe webhook endpoint"
-  local response
-  response=$(curl -sS -X POST https://api.stripe.com/v1/webhook_endpoints \
-    -u "$STRIPE_SECRET_KEY:" \
-    -d url="$target_url" \
-    -d enabled_events[]="checkout.session.completed" \
-    -d enabled_events[]="customer.subscription.created" \
-    -d enabled_events[]="customer.subscription.updated" \
-    -d enabled_events[]="invoice.payment_succeeded" \
-    -d enabled_events[]="invoice.payment_failed")
-  STRIPE_WEBHOOK_ENDPOINT_ID=$(jq -r '.id // empty' <<<"$response")
-  STRIPE_WEBHOOK_SECRET=$(jq -r '.secret // empty' <<<"$response")
-  if [[ -z "$STRIPE_WEBHOOK_ENDPOINT_ID" ]]; then
-    log_warn "Failed to create Stripe webhook endpoint: $response"
-  else
-    log_info "Stripe webhook endpoint created: $STRIPE_WEBHOOK_ENDPOINT_ID"
-  fi
-}
+  log_info "Reconciling Stripe webhook endpoint for $target_url"
 
-stripe_autoprune_provision() {
-  if [[ "${STRIPE_AUTOPRUNE:-0}" != "1" ]]; then
-    return
-  fi
-
-  if [[ -z "${STRIPE_SECRET_KEY:-}" ]]; then
-    log_warn "STRIPE_AUTOPRUNE=1 but STRIPE_SECRET_KEY is missing; cannot manage webhook."
-    return
-  fi
-
-  if [[ -n "${STRIPE_WEBHOOK_SECRET:-}" ]]; then
-    log_info "STRIPE_AUTOPRUNE=1 but webhook secret already present; skipping autopruner."
-    return
-  fi
-
-  local target_url
-  target_url="${LANDING_URL%/}/webhook/stripe"
-
-  log_info "Stripe autopruner: listing existing webhook endpoints"
+  # List all existing webhook endpoints
   local list_response
-  if ! list_response=$(run_cmd_capture curl -sS -X GET https://api.stripe.com/v1/webhook_endpoints \
+  if ! list_response=$(run_cmd_capture curl -sS -X GET "https://api.stripe.com/v1/webhook_endpoints?limit=100" \
     -u "$STRIPE_SECRET_KEY:" 2>&1); then
-    log_warn "Stripe autopruner: failed to list webhook endpoints: $list_response"
+    log_warn "Failed to list Stripe webhook endpoints: $list_response"
     return
   fi
 
-  local endpoint_ids
-  endpoint_ids=$(jq -r --arg url "$target_url" '.data[] | select(.url == $url) | .id' <<<"$list_response")
+  # Find all endpoints matching the target URL
+  local matching_endpoints
+  matching_endpoints=$(jq -r --arg url "$target_url" '.data[] | select(.url == $url) | .id' <<<"$list_response")
 
-  if [[ -n "$endpoint_ids" ]]; then
-    log_info "Stripe autopruner: deleting existing endpoints for $target_url"
-    while IFS= read -r endpoint_id; do
-      [[ -z "$endpoint_id" ]] && continue
-      log_info "  - Deleting Stripe webhook endpoint $endpoint_id"
-      local delete_response
-      delete_response=$(run_cmd_capture curl -sS -X DELETE "https://api.stripe.com/v1/webhook_endpoints/$endpoint_id" \
-        -u "$STRIPE_SECRET_KEY:" 2>&1)
-      log_info "    Response: $delete_response"
-    done <<<"$endpoint_ids"
+  local endpoint_count
+  endpoint_count=$(echo "$matching_endpoints" | grep -c . || true)
+
+  # Define expected events
+  local expected_events=("checkout.session.completed" "customer.subscription.created" "customer.subscription.updated" "invoice.payment_succeeded" "invoice.payment_failed")
+
+  if [[ "$endpoint_count" -eq 0 ]]; then
+    # No existing endpoint - create new one
+    log_info "No existing webhook endpoint found for $target_url; creating new endpoint"
+    local response
+    response=$(run_cmd_capture curl -sS -X POST https://api.stripe.com/v1/webhook_endpoints \
+      -u "$STRIPE_SECRET_KEY:" \
+      -d url="$target_url" \
+      -d enabled_events[]="checkout.session.completed" \
+      -d enabled_events[]="customer.subscription.created" \
+      -d enabled_events[]="customer.subscription.updated" \
+      -d enabled_events[]="invoice.payment_succeeded" \
+      -d enabled_events[]="invoice.payment_failed")
+    STRIPE_WEBHOOK_ENDPOINT_ID=$(jq -r '.id // empty' <<<"$response")
+    STRIPE_WEBHOOK_SECRET=$(jq -r '.secret // empty' <<<"$response")
+    if [[ -z "$STRIPE_WEBHOOK_ENDPOINT_ID" ]]; then
+      log_warn "Failed to create Stripe webhook endpoint: $response"
+    else
+      log_info "Created Stripe webhook endpoint: $STRIPE_WEBHOOK_ENDPOINT_ID"
+    fi
+  elif [[ "$endpoint_count" -eq 1 ]]; then
+    # Exactly one endpoint exists - reuse it
+    local existing_id
+    existing_id=$(echo "$matching_endpoints" | head -1)
+    log_info "Found existing Stripe webhook endpoint: $existing_id"
+
+    # Fetch the full endpoint details to get the secret
+    local endpoint_response
+    endpoint_response=$(run_cmd_capture curl -sS -X GET "https://api.stripe.com/v1/webhook_endpoints/$existing_id" \
+      -u "$STRIPE_SECRET_KEY:" 2>&1)
+
+    STRIPE_WEBHOOK_ENDPOINT_ID="$existing_id"
+    STRIPE_WEBHOOK_SECRET=$(jq -r '.secret // empty' <<<"$endpoint_response")
+
+    # Verify that enabled_events match expected events
+    local current_events
+    current_events=$(jq -r '.enabled_events[]' <<<"$endpoint_response" | sort | tr '\n' ',' | sed 's/,$//')
+    local expected_events_sorted
+    expected_events_sorted=$(printf '%s\n' "${expected_events[@]}" | sort | tr '\n' ',' | sed 's/,$//')
+
+    if [[ "$current_events" != "$expected_events_sorted" ]]; then
+      log_info "Webhook events mismatch; updating endpoint $existing_id"
+      local update_response
+      update_response=$(run_cmd_capture curl -sS -X POST "https://api.stripe.com/v1/webhook_endpoints/$existing_id" \
+        -u "$STRIPE_SECRET_KEY:" \
+        -d enabled_events[]="checkout.session.completed" \
+        -d enabled_events[]="customer.subscription.created" \
+        -d enabled_events[]="customer.subscription.updated" \
+        -d enabled_events[]="invoice.payment_succeeded" \
+        -d enabled_events[]="invoice.payment_failed")
+      log_info "Updated webhook endpoint events"
+    else
+      log_info "Webhook endpoint events already match; no update needed"
+    fi
   else
-    log_info "Stripe autopruner: no existing endpoints matched $target_url"
+    # Multiple endpoints exist for the same URL
+    if [[ "${STRIPE_PRUNE_DUPLICATE_WEBHOOKS:-0}" == "1" ]]; then
+      log_info "Found $endpoint_count webhook endpoints for $target_url; pruning duplicates (STRIPE_PRUNE_DUPLICATE_WEBHOOKS=1)"
+      local kept_id=""
+      while IFS= read -r endpoint_id; do
+        [[ -z "$endpoint_id" ]] && continue
+        if [[ -z "$kept_id" ]]; then
+          kept_id="$endpoint_id"
+          log_info "Keeping webhook endpoint: $kept_id"
+        else
+          log_info "Deleting duplicate webhook endpoint: $endpoint_id"
+          run_cmd_capture curl -sS -X DELETE "https://api.stripe.com/v1/webhook_endpoints/$endpoint_id" \
+            -u "$STRIPE_SECRET_KEY:" >/dev/null
+        fi
+      done <<<"$matching_endpoints"
+
+      # Fetch the kept endpoint to get the secret
+      local endpoint_response
+      endpoint_response=$(run_cmd_capture curl -sS -X GET "https://api.stripe.com/v1/webhook_endpoints/$kept_id" \
+        -u "$STRIPE_SECRET_KEY:" 2>&1)
+      STRIPE_WEBHOOK_ENDPOINT_ID="$kept_id"
+      STRIPE_WEBHOOK_SECRET=$(jq -r '.secret // empty' <<<"$endpoint_response")
+    else
+      # Just use the first one and warn
+      local first_id
+      first_id=$(echo "$matching_endpoints" | head -1)
+      log_warn "Found $endpoint_count webhook endpoints for $target_url; using first one ($first_id). Set STRIPE_PRUNE_DUPLICATE_WEBHOOKS=1 to clean up duplicates."
+      STRIPE_WEBHOOK_ENDPOINT_ID="$first_id"
+
+      # Fetch the endpoint to get the secret
+      local endpoint_response
+      endpoint_response=$(run_cmd_capture curl -sS -X GET "https://api.stripe.com/v1/webhook_endpoints/$first_id" \
+        -u "$STRIPE_SECRET_KEY:" 2>&1)
+      STRIPE_WEBHOOK_SECRET=$(jq -r '.secret // empty' <<<"$endpoint_response")
+    fi
   fi
-
-  log_info "Stripe autopruner: creating webhook endpoint for $target_url"
-  local create_response
-  create_response=$(run_cmd_capture curl -sS -X POST https://api.stripe.com/v1/webhook_endpoints \
-    -u "$STRIPE_SECRET_KEY:" \
-    -d url="$target_url" \
-    -d enabled_events[]="checkout.session.completed" \
-    -d enabled_events[]="customer.subscription.created" \
-    -d enabled_events[]="customer.subscription.updated" \
-    -d enabled_events[]="invoice.payment_succeeded" \
-    -d enabled_events[]="invoice.payment_failed" 2>&1)
-
-  local new_endpoint_id new_secret
-  new_endpoint_id=$(jq -r '.id // empty' <<<"$create_response")
-  new_secret=$(jq -r '.secret // empty' <<<"$create_response")
-
-  if [[ -z "$new_endpoint_id" || -z "$new_secret" ]]; then
-    log_warn "Stripe autopruner: failed to create webhook endpoint: $create_response"
-    return
-  fi
-
-  STRIPE_WEBHOOK_ENDPOINT_ID="$new_endpoint_id"
-  STRIPE_WEBHOOK_SECRET="$new_secret"
-  log_info "Stripe autopruner: created endpoint $STRIPE_WEBHOOK_ENDPOINT_ID and captured secret"
 }
+
 
 post_deploy_guidance() {
   logto_post_deploy_note
@@ -1198,6 +1336,27 @@ main() {
   set +a
 
   ensure_var PROJECT_ID
+  if [[ -z "${LANDING_URL:-}" ]]; then
+    LANDING_URL="https://${PROJECT_ID}.justevery.com"
+    export LANDING_URL
+    log_info "Defaulting LANDING_URL to ${LANDING_URL} (derived from PROJECT_ID)"
+  fi
+
+  local app_path="${APP_PATH:-${APP_BASE_URL:-/app}}"
+  if [[ -z "$app_path" ]]; then
+    app_path="/app"
+  fi
+  if [[ "${app_path:0:1}" != "/" ]]; then
+    app_path="/${app_path}"
+  fi
+
+  if [[ -z "${APP_URL:-}" && -n "${LANDING_URL:-}" ]]; then
+    local landing_trimmed="${LANDING_URL%/}"
+    APP_URL="${landing_trimmed}${app_path}"
+    export APP_URL
+    log_info "Defaulting APP_URL to ${APP_URL} (derived from LANDING_URL and ${app_path})"
+  fi
+
   ensure_var CLOUDFLARE_ACCOUNT_ID
   ensure_var LANDING_URL
   ensure_var APP_URL
@@ -1222,7 +1381,6 @@ main() {
   seed_project
   provision_stripe_products
   ensure_stripe_webhook
-  stripe_autoprune_provision
   sync_worker_secrets
   upload_r2_placeholder
   build_web_bundle

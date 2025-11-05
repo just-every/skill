@@ -9,7 +9,7 @@ import {
   WORKER_ORIGIN,
   workerUrl,
 } from './_components/RouteRedirect';
-import { useLogtoReady } from './_providers/LogtoProvider';
+import { useLogtoError, useLogtoReady } from './_providers/LogtoProvider';
 
 type AssetObject = {
   key: string;
@@ -17,15 +17,11 @@ type AssetObject = {
   uploaded: string | null;
 };
 
-type SessionPayload = {
-  email_address?: string | null;
-  session_id?: string;
-  expires_at?: string;
-};
-
 type SessionResponse = {
   authenticated: boolean;
-  session: SessionPayload | null;
+  sessionId: string | null;
+  expiresAt: string | null;
+  emailAddress: string | null;
 };
 
 type AsyncState<T> =
@@ -48,8 +44,10 @@ export default function AppScreen(): JSX.Element {
 }
 
 function AppReady(): JSX.Element {
+  const logtoError = useLogtoError();
   const { isAuthenticated, getAccessToken } = useLogto();
   const [accessToken, setAccessToken] = useState<string | null>(null);
+  const [tokenError, setTokenError] = useState<string | null>(null);
 
   const [serverSessionState, setServerSessionState] = useState<AsyncState<SessionResponse>>({ state: 'idle' });
   const [assetsState, setAssetsState] = useState<AsyncState<AssetObject[]>>({ state: 'idle' });
@@ -63,19 +61,33 @@ function AppReady(): JSX.Element {
     async function fetchAccessToken() {
       if (!isAuthenticated) {
         setAccessToken(null);
+        setTokenError(null);
+        return;
+      }
+
+      const resource = LOGTO_API_RESOURCE?.trim() ?? '';
+      if (!resource) {
+        setAccessToken(null);
+        setTokenError('Configure EXPO_PUBLIC_API_RESOURCE so Logto issues a resource-scoped access token.');
         return;
       }
 
       try {
-        const resource = LOGTO_API_RESOURCE || undefined;
+        setTokenError(null);
         const token = await getAccessToken(resource);
         if (!cancelled) {
-          setAccessToken(token ?? null);
+          if (!token) {
+            setAccessToken(null);
+            setTokenError('Logto did not return an access token; verify the app is allowed to request the API resource.');
+          } else {
+            setAccessToken(token);
+          }
         }
       } catch (error) {
         console.error('Failed to resolve Logto access token', error);
         if (!cancelled) {
           setAccessToken(null);
+          setTokenError('Failed to resolve Logto access token. Check tenant configuration and API resource audiences.');
         }
       }
     }
@@ -154,10 +166,26 @@ function AppReady(): JSX.Element {
     }
   }, [authHeaders]);
 
+  const hasSession = isAuthenticated && !!accessToken;
+
   useEffect(() => {
+    if (!hasSession) {
+      setServerSessionState({ state: 'idle' });
+      setAssetsState({ state: 'idle' });
+      return;
+    }
+
     void fetchServerSession();
     void fetchAssets();
-  }, [fetchServerSession, fetchAssets]);
+  }, [fetchAssets, fetchServerSession, hasSession]);
+
+  useEffect(() => {
+    if (!isAuthenticated) {
+      setSelectedFile(null);
+      setUploadStatus({ state: 'idle' });
+      setUploadError(null);
+    }
+  }, [isAuthenticated]);
 
   const handleFileChange = useCallback((event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -200,7 +228,7 @@ function AppReady(): JSX.Element {
     }
   }, [authHeaders, fetchAssets, selectedFile]);
 
-  if (!sessionJwt) {
+  if (!hasSession) {
     return (
       <ScrollView
         contentContainerStyle={{
@@ -230,6 +258,8 @@ function AppReady(): JSX.Element {
             Use the Logto login screen to obtain a session. Once authenticated, your requests will include a bearer token
             that the Worker validates against Logto before returning data.
           </Text>
+          {tokenError ? <Text style={{ color: '#f87171' }}>{tokenError}</Text> : null}
+          {logtoError ? <Text style={{ color: '#f87171' }}>{logtoError.message}</Text> : null}
           <Link
             href="/login"
             style={{
@@ -285,7 +315,7 @@ function AppReady(): JSX.Element {
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 16 }}>
           <PlaceholderCard
             title="Email"
-            description={serverSession?.session?.email_address ?? 'Unknown user'}
+            description={serverSession?.emailAddress ?? 'Unknown user'}
           />
         </View>
 

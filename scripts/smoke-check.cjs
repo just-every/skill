@@ -7,8 +7,30 @@ const { promisify } = require('node:util');
 
 const execFileAsync = promisify(execFile);
 
+const DEFAULT_ROUTES = ['/', '/login', '/callback', '/logout', '/app', '/payments'];
+const DEFAULT_OUTPUT_DIR = path.join('test-results', 'smoke');
+
+function parseArgs(argv) {
+  const args = {};
+  for (let i = 0; i < argv.length; i += 1) {
+    const entry = argv[i];
+    if (!entry.startsWith('--')) continue;
+    const [flag, raw] = entry.split('=');
+    const key = flag.slice(2);
+    if (raw !== undefined) {
+      args[key] = raw;
+    } else if (argv[i + 1] && !argv[i + 1].startsWith('--')) {
+      args[key] = argv[i + 1];
+      i += 1;
+    } else {
+      args[key] = 'true';
+    }
+  }
+  return args;
+}
+
 async function loadEnvFiles() {
-  const envSources = ['.env', '.env.local.generated'];
+  const envSources = ['.env.local.generated', '.env'];
   const values = {};
 
   for (const file of envSources) {
@@ -17,9 +39,10 @@ async function loadEnvFiles() {
       for (const line of content.split(/\r?\n/)) {
         if (!line || line.trim().startsWith('#') || !line.includes('=')) continue;
         const [key, ...rest] = line.split('=');
+        const normalizedKey = key.replace(/^export\s+/i, '').trim();
         const value = rest.join('=').trim().replace(/^"|"$/g, '');
-        if (value && !(key in values)) {
-          values[key.trim()] = value;
+        if (normalizedKey && !(normalizedKey in values) && value) {
+          values[normalizedKey] = value;
         }
       }
     } catch (error) {
@@ -34,7 +57,7 @@ async function ensureDir(dir) {
   await fs.mkdir(dir, { recursive: true });
 }
 
-async function fetchWithRetry(url, options = {}, attempts = 3, delayMs = 500) {
+async function fetchWithRetry(url, options = {}, attempts = 3, delayMs = 500, captureFullBody = false) {
   const result = {
     url,
     method: options.method || 'GET',
@@ -42,14 +65,18 @@ async function fetchWithRetry(url, options = {}, attempts = 3, delayMs = 500) {
   };
 
   let lastError;
-  for (let attempt = 1; attempt <= attempts; attempt++) {
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
     result.attempts = attempt;
     try {
       const response = await fetch(url, options);
       result.status = response.status;
       result.ok = response.ok;
       result.headers = Object.fromEntries(response.headers.entries());
-      result.bodySnippet = await response.text().then((text) => text.slice(0, 256));
+      const text = await response.text();
+      result.bodySnippet = text.slice(0, 256);
+      if (captureFullBody) {
+        result.fullBody = text;
+      }
       return result;
     } catch (error) {
       lastError = error;
@@ -82,155 +109,239 @@ function formatTimestamp(date = new Date()) {
   ].join('');
 }
 
-async function main() {
-  const envValues = await loadEnvFiles();
-  const landingUrl = process.env.LANDING_URL || envValues.LANDING_URL;
-  const projectId = process.env.PROJECT_ID || envValues.PROJECT_ID;
-  const logtoToken = process.env.LOGTO_TOKEN || envValues.LOGTO_TOKEN;
+function passesStatus(status, mode) {
+  if (typeof status !== 'number') return false;
+  if (mode === '2xx') return status >= 200 && status < 300;
+  if (mode === '2xx-3xx') return status >= 200 && status < 400;
+  if (mode === 'optional-hero') return status === 200 || status === 404;
+  if (mode === '400') return status === 400;
+  if (mode === '401') return status === 401;
+  return false;
+}
 
-  if (!landingUrl) {
-    console.error('LANDING_URL is required for smoke checks.');
+function buildEndpoints(base, routes, token) {
+  const items = [];
+  const redirectable = new Set(['/login', '/logout', '/callback']);
+
+  for (const route of routes) {
+    const expectMode = redirectable.has(route) ? '2xx-3xx' : '2xx';
+    const headers = token ? { Authorization: `Bearer ${token}` } : undefined;
+    items.push({
+      name: `page:${route}`,
+      url: `${base}${route}`,
+      expectMode,
+      headers,
+    });
+  }
+
+  items.push({
+    name: 'api:session-unauthenticated',
+    url: `${base}/api/session`,
+    expectMode: '401',
+  });
+
+  items.push({
+    name: 'callback:error-debug',
+    url: `${base}/callback?error=debug`,
+    expectMode: '2xx-3xx',
+  });
+
+  if (token) {
+    items.push({
+      name: 'api:session-authenticated',
+      url: `${base}/api/session`,
+      expectMode: '2xx',
+      headers: { Authorization: `Bearer ${token}` },
+    });
+  }
+
+  items.push({
+    name: 'asset:hero',
+    url: `${base}/marketing/hero.png`,
+    expectMode: 'optional-hero',
+  });
+
+  return items;
+}
+
+function summariseChecks(checks) {
+  return checks.every((check) => check.passed);
+}
+
+async function main() {
+  const argv = parseArgs(process.argv.slice(2));
+  const envValues = await loadEnvFiles();
+
+  const modeArg = (argv.mode || process.env.SMOKE_MODE || '').toLowerCase();
+  const mode = modeArg === 'minimal' ? 'minimal' : 'full';
+  const skipWrangler = mode === 'minimal' || argv['skip-wrangler'] === 'true' || process.env.SMOKE_SKIP_WRANGLER === '1';
+
+  const baseFromArgs = argv.base || process.env.E2E_BASE_URL || process.env.LANDING_URL || envValues.LANDING_URL;
+  if (!baseFromArgs) {
+    console.error('A base URL is required. Provide --base or set LANDING_URL/E2E_BASE_URL.');
     process.exitCode = 1;
     return;
   }
 
-  const base = landingUrl.replace(/\/$/, '');
-  const endpoints = [
-    { name: 'landing', path: '/', expected: 200 },
-    { name: 'session-unauthenticated', path: '/api/session', expected: 401 },
-    { name: 'payments', path: '/payments', expected: 200 },
-  ];
-
-  if (logtoToken) {
-    endpoints.push({
-      name: 'session-authenticated',
-      path: '/api/session',
-      expected: 200,
-      headers: { Authorization: `Bearer ${logtoToken}` },
-    });
+  let base;
+  try {
+    const normalised = new URL(baseFromArgs);
+    base = `${normalised.origin}`;
+  } catch (error) {
+    console.error(`Invalid base URL provided: ${baseFromArgs}`);
+    process.exitCode = 1;
+    return;
   }
 
+  const projectId = argv['project-id'] || process.env.PROJECT_ID || envValues.PROJECT_ID || null;
+  const bearerToken = argv.token || process.env.SMOKE_BEARER_TOKEN || process.env.LOGTO_TOKEN || envValues.LOGTO_TOKEN || null;
+  const routesArg = argv.routes ? argv.routes.split(',').map((route) => route.trim()).filter(Boolean) : null;
+  const routes = (routesArg && routesArg.length > 0 ? routesArg : DEFAULT_ROUTES).map((route) => (route.startsWith('/') ? route : `/${route}`));
+
+  const attempts = Number.parseInt(argv.attempts || process.env.SMOKE_ATTEMPTS || '3', 10);
+  const delayMs = Number.parseInt(argv.delay || process.env.SMOKE_DELAY_MS || '500', 10);
+
+  const endpoints = buildEndpoints(base, routes, bearerToken);
   const checks = [];
   for (const endpoint of endpoints) {
-    const url = `${base}${endpoint.path}`;
-    const result = await fetchWithRetry(url, {
-      headers: endpoint.headers,
-    });
+    const captureFullBody = endpoint.name === 'callback:error-debug';
+    const result = await fetchWithRetry(endpoint.url, { headers: endpoint.headers }, attempts, delayMs, captureFullBody);
     result.name = endpoint.name;
-    result.expected = endpoint.expected;
-    result.passed = typeof result.status === 'number' && result.status === endpoint.expected;
+    result.expected = endpoint.expectMode;
+    if (endpoint.expectMode === '401') {
+      result.passed = result.status === 401;
+    } else if (endpoint.expectMode === '400') {
+      result.passed = result.status === 400;
+    } else if (endpoint.expectMode === 'optional-hero') {
+      result.passed = passesStatus(result.status, endpoint.expectMode);
+      result.note = result.status === 404
+        ? 'Hero asset missing (optional)'
+        : 'Hero asset available';
+    } else {
+      result.passed = passesStatus(result.status, endpoint.expectMode);
+    }
     checks.push(result);
   }
 
-  const dbName = envValues.D1_DATABASE_NAME || (projectId ? `${projectId}-d1` : undefined);
-  let d1Result = {
-    ok: false,
-    message: 'Database name unavailable',
-  };
+  const stamp = argv.stamp || formatTimestamp();
+  const outputBase = path.resolve(argv.out || DEFAULT_OUTPUT_DIR);
+  const runDir = path.join(outputBase, stamp);
+  await ensureDir(runDir);
 
-  if (dbName) {
+  let d1Result = { ok: false, skipped: skipWrangler, message: skipWrangler ? 'Skipped (minimal mode)' : 'Database name unavailable' };
+  let secretsResult = { ok: false, skipped: skipWrangler, message: skipWrangler ? 'Skipped (minimal mode)' : 'Unable to read secrets' };
+
+  if (!skipWrangler) {
+    const dbName = argv['d1-name'] || process.env.D1_DATABASE_NAME || envValues.D1_DATABASE_NAME || (projectId ? `${projectId}-d1` : undefined);
+    if (dbName) {
+      try {
+        const stdout = await runWrangler([
+          'd1',
+          'execute',
+          dbName,
+          '--remote',
+          '--command',
+          'SELECT id, landing_url, app_url FROM projects LIMIT 5;',
+          '--json',
+        ]);
+        const parsed = JSON.parse(stdout);
+        const rows = Array.isArray(parsed) && parsed[0]?.results ? parsed[0].results : [];
+        const demoRow = rows.find((row) => row.id === projectId);
+        d1Result = {
+          ok: Boolean(demoRow),
+          database: dbName,
+          rows,
+          message: demoRow
+            ? `Found project row for ${projectId}`
+            : rows.length > 0
+              ? 'Projects table returned results but missing expected row'
+              : 'Projects table is empty',
+        };
+      } catch (error) {
+        d1Result = { ok: false, database: dbName, message: error.message };
+      }
+    }
+
     try {
-      const stdout = await runWrangler([
-        'd1',
-        'execute',
-        dbName,
-        '--remote',
-        '--command',
-        'SELECT id, landing_url, app_url FROM projects LIMIT 5;',
-        '--json',
-      ]);
-      const parsed = JSON.parse(stdout);
-      const rows = Array.isArray(parsed) && parsed[0]?.results ? parsed[0].results : [];
-      const demoRow = rows.find((row) => row.id === projectId);
-      d1Result = {
-        ok: Boolean(demoRow),
-        rows,
-        database: dbName,
-        message: demoRow
-          ? `Found project row for ${projectId}`
-          : 'Projects table returned results but missing expected row',
+      const stdout = await runWrangler(['secret', 'list']);
+      const secrets = JSON.parse(stdout);
+      const names = secrets.map((secret) => secret.name).sort();
+      const hasStripeSecret = names.includes('STRIPE_WEBHOOK_SECRET');
+      secretsResult = {
+        ok: hasStripeSecret,
+        names,
+        message: hasStripeSecret ? 'STRIPE_WEBHOOK_SECRET present' : 'Missing STRIPE_WEBHOOK_SECRET',
       };
     } catch (error) {
-      d1Result = { ok: false, database: dbName, message: error.message };
+      secretsResult = { ok: false, message: error.message };
     }
   }
 
-  let secretsResult = { ok: false, message: 'Unable to read secrets' };
-  try {
-    const stdout = await runWrangler(['secret', 'list']);
-    const secrets = JSON.parse(stdout);
-    const hasWebhookSecret = secrets.some((secret) => secret.name === 'STRIPE_WEBHOOK_SECRET');
-    secretsResult = {
-      ok: hasWebhookSecret,
-      names: secrets.map((secret) => secret.name).sort(),
-      message: hasWebhookSecret ? 'STRIPE_WEBHOOK_SECRET present' : 'Missing STRIPE_WEBHOOK_SECRET',
-    };
-  } catch (error) {
-    secretsResult = { ok: false, message: error.message };
-  }
-
-  const timestamp = formatTimestamp();
-  const outputDir = path.join('test-results', 'smoke');
-  await ensureDir(outputDir);
-
   const report = {
     generatedAt: new Date().toISOString(),
-    landingUrl,
+    baseUrl: base,
     projectId,
+    mode,
     checks,
     d1: d1Result,
     workerSecrets: secretsResult,
   };
 
-  const jsonPath = path.join(outputDir, `report-${timestamp}.json`);
-  await fs.writeFile(jsonPath, JSON.stringify(report, null, 2));
+  const reportPath = path.join(runDir, 'report.json');
+  await fs.writeFile(reportPath, JSON.stringify(report, null, 2));
 
-  const markdownLines = [
+  const checksPath = path.join(runDir, 'checks.json');
+  await fs.writeFile(checksPath, JSON.stringify(checks, null, 2));
+
+  // Save individual check artefacts for endpoints that captured full body
+  for (const check of checks) {
+    if (check.fullBody) {
+      const safeName = check.name.replace(/[:/]/g, '-');
+      const artefactDir = path.join(runDir, 'artefacts');
+      await ensureDir(artefactDir);
+
+      const responseData = {
+        url: check.url,
+        status: check.status,
+        headers: check.headers,
+        body: check.fullBody,
+      };
+
+      await fs.writeFile(
+        path.join(artefactDir, `${safeName}-response.json`),
+        JSON.stringify(responseData, null, 2)
+      );
+    }
+  }
+
+  const markdown = [
     `# Smoke Report (${report.generatedAt})`,
     '',
-    `- Base URL: ${landingUrl}`,
+    `- Base URL: ${report.baseUrl}`,
+    `- Mode: ${mode}`,
     `- Project ID: ${projectId || 'unknown'}`,
     '',
     '## HTTP Checks',
     '',
-  ];
+    ...checks.map((check) => `- ${check.name}: expected ${check.expected}, got ${check.status ?? 'error'} — ${check.passed ? '✅' : '❌'}`),
+    '',
+    '## D1 Remote Projects Table',
+    '',
+    `- ${d1Result.database || 'unknown DB'}: ${d1Result.ok ? '✅' : skipWrangler ? 'skipped' : '❌'} ${d1Result.message || ''}`,
+    '',
+    '## Worker Secrets',
+    '',
+    `- STRIPE_WEBHOOK_SECRET present: ${secretsResult.ok ? '✅' : skipWrangler ? 'skipped' : '❌'} (${secretsResult.message || ''})`,
+  ].join('\n');
 
-  for (const check of checks) {
-    const statusText = check.status ? `${check.status}` : 'error';
-    markdownLines.push(
-      `- ${check.name}: expected ${check.expected}, got ${statusText} — ${check.passed ? '✅' : '❌'}`
-    );
-  }
+  await fs.writeFile(path.join(runDir, 'report.md'), markdown);
 
-  markdownLines.push('', '## D1 Remote Projects Table', '');
-  markdownLines.push(
-    `- ${d1Result.database || 'unknown DB'}: ${d1Result.ok ? '✅' : '❌'} ${d1Result.message}`
-  );
+  const overallOk = summariseChecks(checks) && (skipWrangler || (d1Result.ok && secretsResult.ok));
 
-  markdownLines.push('', '## Worker Secrets', '');
-  markdownLines.push(
-    `- STRIPE_WEBHOOK_SECRET present: ${secretsResult.ok ? '✅' : '❌'} (${secretsResult.message})`
-  );
-
-  const markdownPath = path.join(outputDir, `report-${timestamp}.md`);
-  await fs.writeFile(markdownPath, markdownLines.join('\n'));
-
-  await fs.writeFile(
-    path.join('test-results', 'verification-report.md'),
-    markdownLines.join('\n')
-  );
-
-  await fs.writeFile(
-    path.join('test-results', 'verification-report.json'),
-    JSON.stringify(report, null, 2)
-  );
-
-  const overallOk =
-    checks.every((check) => check.passed) && d1Result.ok && secretsResult.ok;
-
-  console.log(`Smoke report saved to ${markdownPath}`);
+  console.log(`Smoke report saved to ${reportPath}`);
+  console.log(`HTTP checks saved to ${checksPath}`);
   if (!overallOk) {
-    console.error('One or more checks failed. See report for details.');
+    console.error('One or more smoke checks failed. See report for details.');
     process.exitCode = 1;
   }
 }
