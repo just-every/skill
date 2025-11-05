@@ -976,19 +976,19 @@ get_d1_database_name() {
 
 seed_project() {
   local project_slug="$PROJECT_ID"
-  local PROJECT_DOMAIN="${PROJECT_DOMAIN:-}"
+  local domain="${PROJECT_DOMAIN:-}"
   local app_url="${APP_URL:-}"
   local escaped_landing
   local escaped_app
-  escaped_landing=$(printf "%s" "$PROJECT_DOMAIN" | sed "s/'/''/g")
+  escaped_landing=$(printf "%s" "$domain" | sed "s/'/''/g")
   escaped_app=$(printf "%s" "$app_url" | sed "s/'/''/g")
   local db_name
   db_name=$(get_d1_database_name)
   local sql
   read -r -d '' sql <<SQL || true
-INSERT INTO projects (id, slug, PROJECT_DOMAIN, app_url, created_at)
+INSERT INTO projects (id, slug, domain, app_url, created_at)
 VALUES ('${PROJECT_ID}', '${project_slug}', '${escaped_landing}', '${escaped_app}', CURRENT_TIMESTAMP)
-ON CONFLICT(id) DO UPDATE SET slug=excluded.slug, PROJECT_DOMAIN=excluded.PROJECT_DOMAIN, app_url=excluded.app_url;
+ON CONFLICT(id) DO UPDATE SET slug=excluded.slug, domain=excluded.domain, app_url=excluded.app_url;
 SQL
   if [[ "$DRY_RUN" == "1" ]]; then
     log_info "[dry-run] ${WRANGLER_LABEL} d1 execute ${db_name} --command \"$sql\""
