@@ -251,7 +251,7 @@ ensure_stripe_webhook() {
 
   STRIPE_WEBHOOK_ENDPOINT_ID="$selected_id"
   local fetched_secret
-  fetched_secret=$(jq -r '.secret // empty' <<<"$endpoint_response")
+  fetched_secret=$(jq -r '.secret // empty' <<<"$endpoint_response" 2>/dev/null || true)
 
   if [[ -n "$cached_endpoint" && "$cached_endpoint" == "$selected_id" && -n "$cached_secret" ]]; then
     STRIPE_WEBHOOK_SECRET="$cached_secret"
@@ -262,22 +262,44 @@ ensure_stripe_webhook() {
   if [[ -n "$fetched_secret" && "$fetched_secret" != "null" ]]; then
     STRIPE_WEBHOOK_SECRET="$fetched_secret"
   else
-    log_warn "Stripe webhook endpoint $selected_id missing secret; recreating"
-    run_cmd_capture curl -sS -X DELETE "https://api.stripe.com/v1/webhook_endpoints/$selected_id" \
-      -u "$STRIPE_SECRET_KEY:" >/dev/null || true
+    log_info "Stripe webhook endpoint $selected_id missing secret; rotating via Stripe API"
+    local rotate_response=""
+    if ! rotate_response=$(run_cmd_capture curl -sS -X POST "https://api.stripe.com/v1/webhook_endpoints/$selected_id/secret" \
+      -u "$STRIPE_SECRET_KEY:" 2>&1); then
+      rotate_response=""
+    fi
+    local rotated_secret
+    rotated_secret=$(jq -r '.secret // empty' <<<"$rotate_response" 2>/dev/null || true)
+
+    if [[ -n "$rotated_secret" && "$rotated_secret" != "null" ]]; then
+      STRIPE_WEBHOOK_SECRET="$rotated_secret"
+      log_info "Rotated Stripe webhook secret for $selected_id"
+    else
+      log_warn "Stripe webhook endpoint $selected_id failed to return secret after rotation; recreating"
+      run_cmd_capture curl -sS -X DELETE "https://api.stripe.com/v1/webhook_endpoints/$selected_id" \
+        -u "$STRIPE_SECRET_KEY:" >/dev/null || true
     local response
     response=$(run_cmd_capture curl -sS -X POST https://api.stripe.com/v1/webhook_endpoints \
       -u "$STRIPE_SECRET_KEY:" \
       -d "url=$target_url" \
-      "${event_args[@]}") || return
-    STRIPE_WEBHOOK_ENDPOINT_ID=$(jq -r '.id // empty' <<<"$response")
-    STRIPE_WEBHOOK_SECRET=$(jq -r '.secret // empty' <<<"$response")
+      "${event_args[@]}") || {
+        log_warn "Stripe webhook recreation request failed"
+        return 0
+      }
+    STRIPE_WEBHOOK_ENDPOINT_ID=$(jq -r '.id // empty' <<<"$response" 2>/dev/null || true)
+    STRIPE_WEBHOOK_SECRET=$(jq -r '.secret // empty' <<<"$response" 2>/dev/null || true)
     if [[ -z "${STRIPE_WEBHOOK_ENDPOINT_ID:-}" ]]; then
       log_warn "Stripe webhook recreation failed"
-      return
+      return 0
     fi
-    [[ -z "${STRIPE_WEBHOOK_SECRET:-}" || "${STRIPE_WEBHOOK_SECRET}" == "null" ]] && STRIPE_WEBHOOK_SECRET=""
-    return
+    log_info "Recreated Stripe webhook endpoint: ${STRIPE_WEBHOOK_ENDPOINT_ID}"
+    if [[ -z "${STRIPE_WEBHOOK_SECRET:-}" || "${STRIPE_WEBHOOK_SECRET}" == "null" ]]; then
+      log_warn "Stripe webhook recreation response missing secret; manual follow-up required"
+      STRIPE_WEBHOOK_SECRET=""
+      return 0
+    fi
+    return 0
+    fi
   fi
 
   local current_events
