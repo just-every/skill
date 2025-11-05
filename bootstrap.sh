@@ -314,10 +314,6 @@ build_logto_application_payload() {
       customClientMetadata: {
         alwaysIssueRefreshToken: true,
         rotateRefreshToken: true
-      },
-      protectedAppMetadata: {
-        subDomain: $subdomain,
-        origin: "justevery.com"
       }
     }
     | if $include_type == "1" then . + {type: "SPA"} else . end'
@@ -361,11 +357,6 @@ reconcile_logto_application_metadata() {
 
   has_logout=$(jq --arg logout "$logout_uri" '.oidcClientMetadata.postLogoutRedirectUris // [] | index($logout)' <<<"$existing_response" 2>/dev/null || echo "null")
   if [[ "$has_logout" == "null" ]]; then
-    patch_required=1
-  fi
-
-  current_subdomain=$(jq -r '.protectedAppMetadata.subDomain // empty' <<<"$existing_response" 2>/dev/null || true)
-  if [[ "$current_subdomain" != "$subdomain" ]]; then
     patch_required=1
   fi
 
@@ -1379,7 +1370,7 @@ write_generated_env() {
     printf 'R2_BUCKET_NAME=%s\n' "${R2_BUCKET_NAME:-}"
     printf 'CLOUDFLARE_ZONE_ID=%s\n' "${CLOUDFLARE_ZONE_ID:-}"
     printf 'SYNCED_SECRET_NAMES=%s\n' "${secret_names:-}"
-    printf 'STRIPE_PRODUCT_IDS=%s\n' "${STRIPE_PRODUCT_IDS:-[]}"
+    printf 'STRIPE_PRODUCT_IDS=\"%s\"\n' "${STRIPE_PRODUCT_IDS:-[]}"
     printf 'STRIPE_WEBHOOK_ENDPOINT_ID=%s\n' "${STRIPE_WEBHOOK_ENDPOINT_ID:-}"
     printf 'STRIPE_WEBHOOK_SECRET=%s\n' "${STRIPE_WEBHOOK_SECRET:-}"
     printf 'STRIPE_MODE=%s\n' "${STRIPE_MODE:-}"
