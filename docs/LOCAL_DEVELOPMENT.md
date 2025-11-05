@@ -8,14 +8,14 @@ This guide explains how to work on `workers/api` with Wrangler and how to pair i
 | --- | --- | --- | --- |
 | **Local (Miniflare)** | `npm run dev:worker` | Day-to-day feature work, fast feedback | Reads `workers/api/.dev.vars`; state kept in `.wrangler/state/`; HTTPS disabled by default. |
 | **Remote (Edge runtime)** | `wrangler dev --remote --config workers/api/wrangler.toml` | Validate against real Cloudflare bindings/secrets | Ignores `.dev.vars`; ensure secrets are set with `wrangler secret put`. |
-| **Hybrid (Expo + Worker)** | Run the worker via one of the above and set `EXPO_PUBLIC_WORKER_ORIGIN` before `npm run dev:web` | UI/Worker integration and login flows | Use `http://127.0.0.1:8787` for local worker; use deployed URL for remote. |
+| **Hybrid (Expo + Worker)** | Run the worker via one of the above, `source .env.local.generated`, then export/override `EXPO_PUBLIC_WORKER_ORIGIN` before starting Expo | UI/Worker integration and login flows | Use `http://127.0.0.1:8787` for local worker; use deployed URL for remote. |
 
 ## Quick Start
 
 1. **Install deps** – `pnpm install --frozen-lockfile`
 2. **Copy vars** – `cp workers/api/.dev.vars.example workers/api/.dev.vars` and fill values
 3. **Run worker locally** – `npm run dev:worker`
-4. **Run Expo web** – `EXPO_PUBLIC_WORKER_ORIGIN=http://127.0.0.1:8787 npm run dev:web`
+4. **Run Expo web** – `set -a; source ./.env.local.generated; set +a; EXPO_PUBLIC_WORKER_ORIGIN=http://127.0.0.1:8787 pnpm --filter apps/web dev`
 5. **Remote spot-check** – `wrangler dev --remote --config workers/api/wrangler.toml`
 
 ## Frequently Used Commands
@@ -63,4 +63,3 @@ The file is ignored by Git—use `.dev.vars.example` as the template when onboar
 - Never commit `.dev.vars`; keep secrets in 1Password or similar.
 - Use `scripts/sync-dev-vars.sh` to merge updates safely; it only touches whitelisted keys.
 - For remote mode, use `wrangler secret put` to sync any updated secret before testing.
-

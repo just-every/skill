@@ -1,21 +1,7 @@
 # shellcheck shell=bash
 
 write_expo_env_file() {
-  if is_dry_run; then
-    log_info "[dry-run] Would write apps/web/.env.local"
-    return
-  fi
-
-  local target="$ROOT_DIR/apps/web/.env.local"
-  mkdir -p "$(dirname "$target")"
-  log_info "Writing Expo env file to ${target#$ROOT_DIR/}"
-  {
-    printf 'EXPO_PUBLIC_LOGTO_ENDPOINT=%s\n' "${EXPO_PUBLIC_LOGTO_ENDPOINT:-}"
-    printf 'EXPO_PUBLIC_LOGTO_APP_ID=%s\n' "${EXPO_PUBLIC_LOGTO_APP_ID:-}"
-    printf 'EXPO_PUBLIC_API_RESOURCE=%s\n' "${EXPO_PUBLIC_API_RESOURCE:-}"
-    printf 'EXPO_PUBLIC_LOGTO_POST_LOGOUT_REDIRECT_URI=%s\n' "${EXPO_PUBLIC_LOGTO_POST_LOGOUT_REDIRECT_URI:-}"
-    printf 'EXPO_PUBLIC_WORKER_ORIGIN=%s\n' "${EXPO_PUBLIC_WORKER_ORIGIN:-}"
-  } >"$target"
+  log_info "Expo env vars are read from the current shell/.env.local.generated; skipping apps/web/.env.local"
 }
 
 export_expo_runtime_vars() {
@@ -36,6 +22,24 @@ export_expo_runtime_vars() {
     log_info "Using LOGTO_API_RESOURCE for EXPO_PUBLIC_API_RESOURCE"
   fi
   [[ -n "${EXPO_PUBLIC_API_RESOURCE:-}" ]] && export EXPO_PUBLIC_API_RESOURCE
+
+  if [[ -z "${EXPO_PUBLIC_LOGTO_REDIRECT_URI:-}" ]]; then
+    EXPO_PUBLIC_LOGTO_REDIRECT_URI="justevery://callback"
+    log_info "Defaulting EXPO_PUBLIC_LOGTO_REDIRECT_URI to ${EXPO_PUBLIC_LOGTO_REDIRECT_URI}"
+  fi
+  export EXPO_PUBLIC_LOGTO_REDIRECT_URI
+
+  if [[ -z "${EXPO_PUBLIC_LOGTO_SCOPES:-}" ]]; then
+    EXPO_PUBLIC_LOGTO_SCOPES="openid profile email"
+    log_info "Defaulting EXPO_PUBLIC_LOGTO_SCOPES to '${EXPO_PUBLIC_LOGTO_SCOPES}'"
+  fi
+  export EXPO_PUBLIC_LOGTO_SCOPES
+
+  if [[ -z "${EXPO_PUBLIC_LOGTO_RESOURCES:-}" && -n "${EXPO_PUBLIC_API_RESOURCE:-}" ]]; then
+    EXPO_PUBLIC_LOGTO_RESOURCES="$EXPO_PUBLIC_API_RESOURCE"
+    log_info "Defaulting EXPO_PUBLIC_LOGTO_RESOURCES to ${EXPO_PUBLIC_LOGTO_RESOURCES}"
+  fi
+  [[ -n "${EXPO_PUBLIC_LOGTO_RESOURCES:-}" ]] && export EXPO_PUBLIC_LOGTO_RESOURCES
 
   if [[ -z "${EXPO_PUBLIC_LOGTO_POST_LOGOUT_REDIRECT_URI:-}" ]]; then
     EXPO_PUBLIC_LOGTO_POST_LOGOUT_REDIRECT_URI="https://${PROJECT_ID}.justevery.com"

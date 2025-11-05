@@ -4,10 +4,10 @@
     "jsx": "react-jsx",
     "types": [
       "expo",
-      "expo-router/types"
+      "node"
     ],
     "baseUrl": "."
   },
-  "include": ["app"],
+  "include": ["App.tsx", "src"],
   "exclude": ["node_modules"]
 }

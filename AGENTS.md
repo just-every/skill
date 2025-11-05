@@ -3,14 +3,14 @@
 This repository is the canonical justevery starter stack; future products should branch from it and preserve shared automation, docs, and infra conventions.
 
 ## Project Structure & Module Organization
-- `apps/web/` hosts the Expo Router web shell; share UI via `packages/ui` and config via `packages/config`.
+- `apps/web/` hosts the Expo placeholder shell; share config via `packages/config`.
 - `workers/api/` runs the Cloudflare Worker with Wrangler config, D1 access, and Vitest suites; keep bindings in `Env` and migrations under `scripts/`.
 - `docs/` keeps operational playbooks (`bootstrap`, deployments, SSO) cited in `PLAN.md`; refresh when flows or providers change.
 - `tests/e2e/` holds Playwright journeys against the deployed worker; keep fixtures aligned with seeded data.
 - Root helpers: `bootstrap.sh` provisions Cloudflare + Stripe resources; `scripts/deploy-worker.cjs` standardises deploys.
 
 ## Build, Test, and Development Commands
-- `npm run dev:web` – Expo web dev server with hot reload. When pairing with the local Worker, set `EXPO_PUBLIC_WORKER_ORIGIN=http://127.0.0.1:8787` in `apps/web/.env`.
+- `npm run dev:web` – Expo web dev server with hot reload. Source `.env.local.generated` (or export `EXPO_PUBLIC_*`) first so the shell can reach the Worker (`EXPO_PUBLIC_WORKER_ORIGIN=http://127.0.0.1:8787` for local Miniflare).
 - `npm run dev:worker` – Wrangler dev server (`wrangler dev --config workers/api/wrangler.toml`) backed by Miniflare; honours `.dev.vars` for env/bindings. Add D1/R2 bindings there so tests mirror production.
 - `npm run build` – Runs workspace builds (`expo export`, Worker bundle).
 - `npm test --workspace workers/api` – Vitest unit suites.

@@ -170,6 +170,7 @@ ensure_stripe_webhook() {
   fi
 
   local target_url="${PROJECT_DOMAIN%/}/webhook/stripe"
+  local cached_endpoint="${STRIPE_WEBHOOK_ENDPOINT_ID:-}"
   local -a events=(
     "checkout.session.completed"
     "customer.subscription.created"
@@ -186,6 +187,8 @@ ensure_stripe_webhook() {
   fi
 
   log_info "Reconciling Stripe webhook endpoint for $target_url"
+
+  local cached_secret="${STRIPE_WEBHOOK_SECRET:-}"
 
   local list_response
   list_response=$(run_cmd_capture curl -sS -X GET "https://api.stripe.com/v1/webhook_endpoints?limit=100" \
@@ -247,10 +250,19 @@ ensure_stripe_webhook() {
     -u "$STRIPE_SECRET_KEY:" 2>&1)
 
   STRIPE_WEBHOOK_ENDPOINT_ID="$selected_id"
-  STRIPE_WEBHOOK_SECRET=$(jq -r '.secret // empty' <<<"$endpoint_response")
+  local fetched_secret
+  fetched_secret=$(jq -r '.secret // empty' <<<"$endpoint_response")
 
-  if [[ -z "${STRIPE_WEBHOOK_SECRET:-}" || "${STRIPE_WEBHOOK_SECRET}" == "null" ]]; then
-    log_warn "Existing Stripe webhook endpoint $selected_id does not expose a secret; replacing it"
+  if [[ -n "$cached_endpoint" && "$cached_endpoint" == "$selected_id" && -n "$cached_secret" ]]; then
+    STRIPE_WEBHOOK_SECRET="$cached_secret"
+    log_info "Cached Stripe webhook secret found for $selected_id; skipping reconciliation"
+    return
+  fi
+
+  if [[ -n "$fetched_secret" && "$fetched_secret" != "null" ]]; then
+    STRIPE_WEBHOOK_SECRET="$fetched_secret"
+  else
+    log_warn "Stripe webhook endpoint $selected_id missing secret; recreating"
     run_cmd_capture curl -sS -X DELETE "https://api.stripe.com/v1/webhook_endpoints/$selected_id" \
       -u "$STRIPE_SECRET_KEY:" >/dev/null || true
     local response

@@ -3,13 +3,16 @@
     "name": "justevery-web",
     "slug": "justevery-web",
     "scheme": "justevery",
-    "platforms": ["web"],
-    "plugins": ["expo-router"],
+    "platforms": [
+      "android",
+      "ios",
+      "web"
+    ],
     "web": {
       "bundler": "metro"
     },
-    "experiments": {
-      "typedRoutes": true
-    }
+    "plugins": [
+      "expo-secure-store"
+    ]
   }
 }

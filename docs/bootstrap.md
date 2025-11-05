@@ -83,7 +83,7 @@ On every run, `bootstrap.sh` reconciles resources to ensure they exist and match
 ### Task Flow
 
 1. Ensures the `wrangler`, `jq`, `curl`, `sed`, and `node` commands are available.
-2. Loads environment variables from `/home/azureuser/.env` followed by `./.env`.
+2. Loads environment variables from `/home/azureuser/.env`, then `./.env`, and finally `./.env.local.generated` (if present).
 3. Verifies mandatory configuration values (including `PROJECT_DOMAIN` and `APP_URL`).
 4. **Reconciles** Cloudflare D1 and R2 resources (reuses existing or creates new).
 5. Updates `workers/api/wrangler.toml` from the template, storing a backup copy.
@@ -95,11 +95,9 @@ On every run, `bootstrap.sh` reconciles resources to ensure they exist and match
 11. Syncs Worker secrets (skips already-synced secrets unless `FORCE_SECRET_SYNC=1`).
 12. Uploads a placeholder `welcome.txt` asset into the configured R2 bucket.
 13. Writes `.env.local.generated` containing resolved resource identifiers, Stripe outputs, and
-    the `EXPO_PUBLIC_LOGTO_*` values consumed by the Expo client.
+    the `EXPO_PUBLIC_*` values consumed by the Expo placeholder.
 
-After bootstrap completes, copy `.env.local.generated` into `apps/web/.env.local` (or export the
-keys in your shell) so the Expo runtime can read `EXPO_PUBLIC_LOGTO_*` when rendering the Logto
-login at `/login`.
+After bootstrap completes, source `.env.local.generated` (for example `set -a; source ./.env.local.generated; set +a`) before running Expo so the public runtime vars are available to `apps/web`.
 
 ## Stripe Product Notation
 
