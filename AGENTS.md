@@ -4,10 +4,10 @@ This repository is the canonical justevery starter stack; future products should
 
 ## Project Structure & Module Organization
 - `apps/web/` hosts the Expo placeholder shell; share config via `packages/config`.
-- `workers/api/` runs the Cloudflare Worker with Wrangler config, D1 access, and Vitest suites; keep bindings in `Env` and migrations under `scripts/`.
+- `workers/api/` runs the Cloudflare Worker with Wrangler config, D1 access, and Vitest suites; keep bindings in `Env`.
 - `docs/archive/` keeps operational playbooks (`bootstrap`, deployments, SSO) cited in `PLAN.md`; refresh when flows or providers change.
 - `tests/e2e/` holds Playwright journeys against the deployed worker; keep fixtures aligned with seeded data.
-- Root helpers: `bootstrap.sh` provisions Cloudflare + Stripe resources; `scripts/deploy-worker.cjs` standardises deploys.
+- Root helpers: `pnpm bootstrap:*` commands provision Cloudflare + Stripe resources via the typed CLI.
 
 ## Build, Test, and Development Commands
 - `npm run dev:web` – Expo web dev server with hot reload. Source `.env.local.generated` (or export `EXPO_PUBLIC_*`) first so the shell can reach the Worker (`EXPO_PUBLIC_WORKER_ORIGIN=http://127.0.0.1:8787` for local Miniflare).
@@ -15,7 +15,8 @@ This repository is the canonical justevery starter stack; future products should
 - `npm run build` – Runs workspace builds (`expo export`, Worker bundle).
 - `npm test --workspace workers/api` – Vitest unit suites.
 - `npm run test:e2e` – Playwright against `E2E_BASE_URL` or `PROJECT_DOMAIN`.
-- `npm run deploy:worker` – Scripted Wrangler deploy; ensure environment is bootstrapped first.
+- `pnpm bootstrap:deploy` – Render + deploy via the bootstrap CLI (actual deploy).
+- `pnpm bootstrap:deploy:dry-run` – Render without deploying; useful for validation in CI.
 
 ## Coding Style & Naming Conventions
 - TypeScript is strict via `tsconfig.base.json`; add explicit return types on exported helpers and update `Env` when bindings change.
@@ -23,7 +24,7 @@ This repository is the canonical justevery starter stack; future products should
 
 ## Testing Guidelines
 - Place unit tests under `workers/api/test` with `*.test.ts` names; focus on behaviour (auth, asset serving, migrations).
-- Keep Playwright specs idempotent and rely on data seeded by `bootstrap.sh`; add fixtures under `tests/e2e/__fixtures__` when needed.
+- Keep Playwright specs idempotent and rely on data seeded by the bootstrap CLI; add fixtures under `tests/e2e/__fixtures__` when needed.
 - New endpoints need Vitest coverage plus an end-to-end check proving auth and the happy path.
 
 ## Commit & Pull Request Guidelines
@@ -32,7 +33,7 @@ This repository is the canonical justevery starter stack; future products should
 - Link relevant roadmap items (`PLAN.md`), update docs, and supply screenshots or curl transcripts for user-visible changes.
 
 ## Environment & Configuration Tips
-- Run `./bootstrap.sh` after cloning and when infra config changes; it is idempotent and reuses the `.env` metadata to skip recreating Cloudflare or Stripe resources.
+- Run the CLI (`pnpm bootstrap:preflight`, `pnpm bootstrap:env`, `pnpm bootstrap:deploy`) after cloning and when infra config changes; it is idempotent and reuses the `.env` metadata to skip recreating Cloudflare or Stripe resources.
 - Record updates to secrets, Logto, or Stripe setup in `docs/archive/SSO.md` or `docs/archive/DEPLOYMENTS.md`, and mirror changes in `.dev.vars` files.
 - Shared credentials live in `~/.env`; source it (`set -a; source ~/.env; set +a`) before running remote validation or CI-like scripts so required env vars exist.
 - For local auth testing, create `workers/api/.dev.vars` with the same bindings used in production (D1, R2, LOGTO_*). Wrangler loads these automatically during `npm run dev:worker` and keeps state under `.wrangler/state/`.

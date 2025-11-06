@@ -10,8 +10,8 @@ workers_dev = true
 binding = "ASSETS"
 directory = "../../apps/web/dist"
 
-# This file is rendered by bootstrap.sh. Values wrapped in {{ }} are replaced with either
-# explicit .env inputs or generated identifiers recorded in .env.local.generated.
+# This file is rendered by the bootstrap CLI. Placeholders like {{PROJECT_ID}} are replaced
+# with explicit .env inputs or generated identifiers recorded in .env.local.generated.
 [vars]
 # --- Authentication ---
 LOGTO_ISSUER = "{{LOGTO_ISSUER}}"

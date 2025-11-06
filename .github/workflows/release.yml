@@ -62,30 +62,29 @@ jobs:
           else
             echo "Changeset status failed, falling back to parsing markdown"
             cat /tmp/changeset-status.log
-            PACKAGES_JSON=$(node <<'NODE'
-const fs = require('fs');
-const path = require('path');
-const dir = '.changeset';
-const packages = new Set();
-if (fs.existsSync(dir)) {
-  for (const entry of fs.readdirSync(dir)) {
-    if (!entry.endsWith('.md')) continue;
-    const content = fs.readFileSync(path.join(dir, entry), 'utf8');
-    const match = content.match(/^---\n([\s\S]*?)\n---/);
-    if (!match) continue;
-    for (const line of match[1].split('\n')) {
-      const trimmed = line.trim();
-      if (!trimmed) continue;
-      const parts = trimmed.split(':');
-      if (parts.length < 2) continue;
-      const name = parts[0].trim().replace(/^"|"$/g, '');
-      if (name) packages.add(name);
-    }
-  }
-}
-process.stdout.write(JSON.stringify([...packages]));
-NODE
-            )
+            PACKAGES_JSON=$(node -e "
+              const fs = require('fs');
+              const path = require('path');
+              const dir = '.changeset';
+              const packages = new Set();
+              if (fs.existsSync(dir)) {
+                for (const entry of fs.readdirSync(dir)) {
+                  if (!entry.endsWith('.md')) continue;
+                  const content = fs.readFileSync(path.join(dir, entry), 'utf8');
+                  const match = content.match(/^---\n([\s\S]*?)\n---/);
+                  if (!match) continue;
+                  for (const line of match[1].split('\n')) {
+                    const trimmed = line.trim();
+                    if (!trimmed) continue;
+                    const parts = trimmed.split(':');
+                    if (parts.length < 2) continue;
+                    const name = parts[0].trim().replace(/^[\"']|[\"']$/g, '');
+                    if (name) packages.add(name);
+                  }
+                }
+              }
+              process.stdout.write(JSON.stringify([...packages]));
+            ")
           fi
 
           if [ "$PACKAGES_JSON" != "[]" ]; then
@@ -105,7 +104,7 @@ NODE
             echo "No package-level tests to run"
             exit 0
           fi
-          echo "$packages" | jq -r '.[]' | while read pkg; do
+          echo "$packages" | jq -r '.[]' | while read -r pkg; do
             if [ -z "$pkg" ]; then
               continue
             fi

@@ -5,79 +5,84 @@ on:
     branches:
       - main
   workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Run bootstrap deploy in dry-run mode'
+        required: false
+        default: 'true'
+      run_smoke:
+        description: 'Run smoke suite after deploy'
+        required: false
+        default: 'false'
+
+permissions:
+  contents: read
+  deployments: write
 
 jobs:
-  build-and-deploy:
+  deploy:
     runs-on: ubuntu-latest
     env:
-      NODE_VERSION: '18'
-      PROJECT_ID: ci-dry-run
-      PROJECT_DOMAIN: https://ci-dry-run.justevery.com
-      APP_URL: https://ci-dry-run.justevery.com/app
-      APP_BASE_URL: ${{ secrets.APP_BASE_URL }}
-      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-      CLOUDFLARE_ZONE_ID: ${{ secrets.CLOUDFLARE_ZONE_ID }}
-      CLOUDFLARE_R2_BUCKET: ci-dry-run-assets
-      STRIPE_PRODUCTS: Demo:1200,usd,month
-      STYTCH_PROJECT_ID: ${{ secrets.STYTCH_PROJECT_ID }}
-      STYTCH_SECRET: ${{ secrets.STYTCH_SECRET }}
-      STYTCH_LOGIN_URL: ${{ secrets.STYTCH_LOGIN_URL }}
-      STYTCH_REDIRECT_URL: ${{ secrets.STYTCH_REDIRECT_URL }}
-      STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID || '' }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN || '' }}
+      CLOUDFLARE_ZONE_ID: ${{ secrets.CLOUDFLARE_ZONE_ID || '' }}
+      LOGTO_APPLICATION_ID: ${{ secrets.LOGTO_APPLICATION_ID || '' }}
+      LOGTO_TOKEN: ${{ secrets.LOGTO_TOKEN || '' }}
+      STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY || secrets.STRIPE_TEST_SECRET_KEY || '' }}
+      STRIPE_WEBHOOK_SECRET: ${{ secrets.STRIPE_WEBHOOK_SECRET || '' }}
+      D1_DATABASE_NAME: ${{ secrets.D1_DATABASE_NAME || '' }}
+      R2_BUCKET: ${{ secrets.R2_BUCKET || '' }}
+      PROJECT_ID: ${{ secrets.PROJECT_ID || 'ci-dry-run' }}
+      PROJECT_DOMAIN: ${{ secrets.PROJECT_DOMAIN || secrets.BOOTSTRAP_BASE_URL || '' }}
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Enable corepack
+        run: corepack enable
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: ${{ env.NODE_VERSION }}
+          node-version: '20'
           cache: 'pnpm'
-
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v2
-        with:
-          version: 9
+          cache-dependency-path: pnpm-lock.yaml
 
       - name: Install dependencies
-        run: pnpm -w i
+        run: pnpm install --frozen-lockfile
 
-      - name: Show Wrangler version
-        run: npx --yes wrangler@4 --version
+      - name: Bootstrap preflight (check)
+        run: pnpm bootstrap:preflight
 
-      - name: Typecheck worker
-        run: pnpm --filter @justevery/worker typecheck
+      - name: Bootstrap env (check)
+        run: pnpm bootstrap:env -- --check
 
-      - name: Run worker tests
-        run: pnpm --filter @justevery/worker test
+      - name: Deploy worker (dry-run)
+        if: github.event_name == 'workflow_dispatch' && github.event.inputs.dry_run != 'false'
+        run: pnpm bootstrap:deploy:dry-run
 
-      - name: Dry-run bootstrap
-        run: |
-          set -euo pipefail
-          DRY_RUN=1 ./bootstrap.sh
-
-      - name: Build Expo web bundle
-        working-directory: apps/web
-        run: npx expo export --platform web --output-dir dist
-
-      - name: Deploy Worker
-        if: ${{ github.ref == 'refs/heads/main' && secrets.CLOUDFLARE_API_TOKEN != '' }}
-        run: npx --yes wrangler@4 deploy --config workers/api/wrangler.toml
-
-      - name: Post-deploy smoke tests
-        if: ${{ github.ref == 'refs/heads/main' && secrets.CLOUDFLARE_API_TOKEN != '' }}
-        run: |
-          set -euo pipefail
-          curl -f -I "$PROJECT_DOMAIN"
-          curl -f -I "$PROJECT_DOMAIN/login"
-          curl -f -I "$APP_URL"
+      - name: Deploy worker
+        if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && github.event.inputs.dry_run == 'false')
+        run: pnpm bootstrap:deploy
 
       - name: Install Playwright browsers
-        if: ${{ github.ref == 'refs/heads/main' && secrets.CLOUDFLARE_API_TOKEN != '' }}
-        run: npx playwright install --with-deps
+        if: ((github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'workflow_dispatch' && github.event.inputs.run_smoke == 'true')) && env.CLOUDFLARE_API_TOKEN != ''
+        run: pnpm exec playwright install --with-deps
 
-      - name: Run Playwright E2E tests
-        if: ${{ github.ref == 'refs/heads/main' && secrets.CLOUDFLARE_API_TOKEN != '' }}
-        env:
-          E2E_BASE_URL: ${{ env.PROJECT_DOMAIN }}
-        run: npm run test:e2e
+      - name: Bootstrap smoke
+        if: ((github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'workflow_dispatch' && github.event.inputs.run_smoke == 'true')) && env.CLOUDFLARE_API_TOKEN != ''
+        run: pnpm bootstrap:smoke
+
+      - name: Upload deployment artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bootstrap-deploy-${{ github.run_id }}
+          path: |
+            .env.local.generated
+            workers/api/wrangler.toml
+            test-results/
+            reports/**
+            screens/**
+          if-no-files-found: warn
+        # Rollback: rerun this workflow for the target commit with dry_run=false to redeploy that revision.

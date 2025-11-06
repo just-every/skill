@@ -48,12 +48,6 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Assert required secrets
-        run: npm run assert:secrets
-
-      - name: Assert Cloudflare token scopes
-        run: npm run assert:r2
-
       - name: Install Playwright browsers
         run: pnpm exec playwright install --with-deps
 
@@ -76,7 +70,7 @@ jobs:
             fi
           fi
 
-          CMD=(node scripts/run-smoke-suite.cjs --base "$BASE" --mode "$MODE")
+          CMD=(pnpm bootstrap:smoke -- --base "$BASE" --mode "$MODE")
           if [ -n "$PROJECT_ID" ]; then
             CMD+=(--project-id "$PROJECT_ID")
           fi
@@ -85,6 +79,12 @@ jobs:
           fi
           if [ -n "$LOGTO_TOKEN" ]; then
             CMD+=(--token "$LOGTO_TOKEN")
+          fi
+          if [ -n "$R2_BUCKET" ]; then
+            CMD+=(--r2-bucket "$R2_BUCKET")
+          fi
+          if [ "$MODE" = "minimal" ]; then
+            CMD+=(--skip-wrangler)
           fi
 
           "${CMD[@]}"

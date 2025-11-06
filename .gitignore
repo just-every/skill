@@ -17,6 +17,7 @@ build/
 # Test artifacts
 test-results/*
 !test-results/README.md
+packages/bootstrap-cli/test-results/
 playwright-report/
 blob-report/
 

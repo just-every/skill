@@ -6,7 +6,7 @@ Minimal flow to go from clone → deploy in 10–15 minutes.
 - Cloudflare Worker: `workers/api`
 - Expo web app: `apps/web`
 - Secrets live in `~/.env`
-- `bootstrap.sh` renders config from `workers/api/wrangler.toml.template` (no `wrangler.toml` committed)
+- `pnpm bootstrap:*` commands handle provisioning (`bootstrap.sh` is now a shim)
 
 ## Prerequisites
 - Node.js ≥ 18, npm or pnpm
@@ -16,7 +16,7 @@ Minimal flow to go from clone → deploy in 10–15 minutes.
 ## Steps
 1. Install
    ```bash
-   npm install --workspaces
+   pnpm install
    ```
 
 2. Secrets (`~/.env`, then export)
@@ -33,13 +33,15 @@ Minimal flow to go from clone → deploy in 10–15 minutes.
    ```bash
    set -a; source ~/.env; set +a
    ```
-   _Bootstrap calculates `PROJECT_HOST` from `PROJECT_DOMAIN` automatically and uses it when claiming Worker routes (wrangler template routes default to `{{PROJECT_ID}}.justevery.com`)._
+   _See `docs/SECRETS_CLOUDFLARE.md` for instructions on obtaining your Cloudflare Account ID and API Token. Bootstrap calculates `PROJECT_HOST` from `PROJECT_DOMAIN` automatically and uses it when claiming Worker routes (wrangler template routes default to `{{PROJECT_ID}}.justevery.com`)._
 
-3. Bootstrap (provisions Cloudflare + renders config)
+3. Bootstrap (preflight → env → deploy)
    ```bash
-   ./bootstrap.sh
+   pnpm bootstrap:preflight
+   pnpm bootstrap:env
+   pnpm bootstrap:deploy:dry-run   # optional validation
    ```
-   - Generates `.env.local.generated` and a runtime `wrangler.toml` from the template.
+   - Generates `.env.local.generated` and renders `workers/api/wrangler.toml` on demand.
 
 4. Run the Worker (local)
    ```bash
@@ -55,8 +57,10 @@ Minimal flow to go from clone → deploy in 10–15 minutes.
 
 6. Deploy the Worker
    ```bash
-   npm run deploy:worker
+   pnpm bootstrap:deploy:dry-run   # validation
+   pnpm bootstrap:deploy           # real deploy
    ```
+   For GitHub Actions deployments, set up repository secrets as described in `docs/SECRETS_CLOUDFLARE.md`.
 
 7. Verify
    ```bash
@@ -65,4 +69,4 @@ Minimal flow to go from clone → deploy in 10–15 minutes.
    ```
    - Expect 401 from `/api/session` without a bearer token; rerun with a valid token to confirm auth.
 
-Re-run `./bootstrap.sh` whenever secrets or resources change. Archived legacy docs live under `docs/archive/`.
+Re-run the CLI when secrets or infrastructure change. `bootstrap.sh` remains as a shim but is deprecated.

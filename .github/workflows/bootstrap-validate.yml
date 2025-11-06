@@ -44,62 +44,66 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Assert required secrets
-        run: npm run assert:secrets
+      - name: Bootstrap preflight (check)
+        run: pnpm bootstrap:preflight -- --check
 
-      - name: Assert Cloudflare token scopes
-        run: npm run assert:r2
+      - name: Bootstrap env (write)
+        run: pnpm bootstrap:env
 
-      - name: Run bootstrap validation
-        id: run-validation
+      - name: Bootstrap env (check)
+        run: pnpm bootstrap:env -- --check
+
+      - name: Bootstrap deploy (dry-run)
+        run: pnpm bootstrap:deploy:dry-run
+
+      - name: Bootstrap smoke (minimal)
         run: |
           set -euo pipefail
 
-          MODE="${{ inputs.mode || '' }}"
-          if [ -z "$MODE" ]; then
-            if [ -n "$CLOUDFLARE_ACCOUNT_ID" ] && [ -n "$CLOUDFLARE_API_TOKEN" ] \
-               && [ -n "$LOGTO_APPLICATION_ID" ] \
-               && [ -n "$STRIPE_SECRET_KEY" ]; then
-              MODE="remote"
-            else
-              MODE="local"
-            fi
-          fi
-
           BASE="${{ inputs.base || '' }}"
-          if [ -z "$BASE" ] && [ -n "$PROJECT_DOMAIN" ]; then
-            BASE="$PROJECT_DOMAIN"
+          if [ -z "$BASE" ]; then
+            BASE="${PROJECT_DOMAIN:-}"
           fi
 
-          CMD=(node scripts/bootstrap-validate.cjs --mode "$MODE")
           if [ -n "$BASE" ]; then
-            CMD+=(--base "$BASE")
-          fi
-          if [ -n "$LOGTO_TOKEN" ]; then
-            CMD+=(--token "$LOGTO_TOKEN")
-          fi
-          if [ -n "$D1_DATABASE_NAME" ]; then
-            CMD+=(--d1-name "$D1_DATABASE_NAME")
-          fi
-          if [ -n "$R2_BUCKET" ]; then
-            CMD+=(--r2-bucket "$R2_BUCKET")
-          fi
+            MODE="${{ inputs.mode || '' }}"
+            if [ -z "$MODE" ]; then
+              if [ -n "$CLOUDFLARE_ACCOUNT_ID" ] && [ -n "$CLOUDFLARE_API_TOKEN" ] && [ -n "$STRIPE_SECRET_KEY" ]; then
+                MODE="full"
+              else
+                MODE="minimal"
+              fi
+            fi
 
-          set +e
-          "${CMD[@]}"
-          STATUS=$?
-          set -e
-          echo "status=$STATUS" >> "$GITHUB_OUTPUT"
-          exit 0
+            CMD=(pnpm bootstrap:smoke -- --base "$BASE" --mode "$MODE")
+            if [ -n "$LOGTO_TOKEN" ]; then
+              CMD+=(--token "$LOGTO_TOKEN")
+            fi
+            if [ -n "$PROJECT_ID" ]; then
+              CMD+=(--project-id "$PROJECT_ID")
+            fi
+            if [ -n "$D1_DATABASE_NAME" ]; then
+              CMD+=(--d1-name "$D1_DATABASE_NAME")
+            fi
+            if [ -n "$R2_BUCKET" ]; then
+              CMD+=(--r2-bucket "$R2_BUCKET")
+            fi
+            if [ "$MODE" = "minimal" ]; then
+              CMD+=(--skip-wrangler)
+            fi
+
+            "${CMD[@]}"
+          else
+            echo "Skipping smoke suite: no base URL provided" >&2
+          fi
 
       - name: Upload validation artifacts
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: bootstrap-validation
-          path: test-results/bootstrap-*
+          path: |
+            .env.local.generated
+            workers/api/wrangler.toml
+            test-results/
           if-no-files-found: ignore
-
-      - name: Fail if validation failed
-        if: steps.run-validation.outputs.status != '0'
-        run: exit 1

@@ -1,8 +1,8 @@
 # Starter Stack (Cloudflare Worker + Expo)
 
 Ultra-minimal starter: Cloudflare Worker (`workers/api`) plus Expo web (`apps/web`).
-Secrets live in `~/.env`. `bootstrap.sh` renders config from `workers/api/wrangler.toml.template`
-(no `wrangler.toml` committed).
+Secrets live in `~/.env`. The Node-based bootstrap CLI renders config from
+`workers/api/wrangler.toml.template` (no `wrangler.toml` committed).
 
 ## Prerequisites
 - Node.js ≥ 18 and npm or pnpm
@@ -10,46 +10,51 @@ Secrets live in `~/.env`. `bootstrap.sh` renders config from `workers/api/wrangl
 - Optional: Stripe account
 - Secrets in `~/.env` (see quick start)
 
-## Quick Start (10–15 min)
-1. Install
+## Quick Start (CLI)
+1. Install dependencies
    ```bash
-   npm install --workspaces
+   pnpm install
    ```
-2. Prepare secrets (`~/.env`, then export) – use full URLs (include `https://`)
-   ```
-   PROJECT_ID=starter
-   PROJECT_DOMAIN=https://starter.justevery.com
-   APP_URL=https://starter.justevery.com/app
-   CLOUDFLARE_ACCOUNT_ID=<id>
-   CLOUDFLARE_API_TOKEN=<token>
-   # Optional Stripe
-   STRIPE_SECRET_KEY=sk_test_...
-   STRIPE_WEBHOOK_SECRET=whsec_...
-   ```
+2. Copy the env template and export secrets
    ```bash
+   cp .env.example ~/.env
+   $EDITOR ~/.env
    set -a; source ~/.env; set +a
    ```
-   > Bootstrap derives `PROJECT_HOST` from `PROJECT_DOMAIN` and uses it for Worker routes (wrangler template routes default to `{{PROJECT_ID}}.justevery.com`).
-3. Bootstrap (provisions + generates config from the template)
+   Annotated keys live in `docs/ENVIRONMENT_VARIABLE_MAPPING.md`. See `docs/SECRETS_CLOUDFLARE.md` for instructions on obtaining Cloudflare API credentials.
+3. Bootstrap infrastructure
    ```bash
-   ./bootstrap.sh
+   pnpm bootstrap:preflight
+   pnpm bootstrap:env
+   pnpm bootstrap:deploy:dry-run   # optional validation
    ```
-4. Dev Worker (Miniflare on 127.0.0.1:8787)
+4. Develop locally
    ```bash
-   npm run dev:worker
+   pnpm run dev:worker
+   EXPO_PUBLIC_WORKER_ORIGIN=http://127.0.0.1:8787 pnpm run dev:web
    ```
-5. Dev Web (point Expo at the worker)
+5. Deploy & verify
    ```bash
-   EXPO_PUBLIC_WORKER_ORIGIN=http://127.0.0.1:8787 npm run dev:web
-   ```
-6. Deploy Worker
-   ```bash
-   npm run deploy:worker
-   ```
-7. Verify
-   ```bash
+   pnpm bootstrap:deploy:dry-run
+   pnpm bootstrap:deploy
+   pnpm bootstrap:env -- --check           # confirm generated files are current
    curl -I https://starter.justevery.com/
    curl -s https://starter.justevery.com/api/session
    ```
 
-More detail: `docs/QUICKSTART.md`. Legacy guides live under `docs/archive/`.
+More detail: `docs/QUICKSTART.md`. For GitHub Actions deployments, see `docs/SECRETS_CLOUDFLARE.md` to set up repository secrets. Prefer the `pnpm bootstrap:*` commands—the legacy
+shell scripts have been archived for reference only.
+
+## Bootstrap CLI
+- `pnpm bootstrap:preflight` – validations (Cloudflare token, required envs)
+- `pnpm bootstrap:env` – writes `.env.local.generated` and `workers/api/.dev.vars`
+- `pnpm bootstrap:deploy` – render `wrangler.toml`, sync secrets, and deploy the Worker
+- `pnpm bootstrap:deploy:dry-run` – render and validate without deploying
+- `pnpm bootstrap:smoke` – HTTP + screenshot smoke checks against a base URL
+- `pnpm bootstrap:env -- --check` – diff generated files without writing
+
+Rollback: rerunning the previous release of the CLI is safe—`pnpm bootstrap:deploy:dry-run`
+shows exactly what would change and `pnpm bootstrap:env -- --check` confirms generated files
+before writing.
+
+See `docs/BOOTSTRAP-CLI-MIGRATION.md` for the full migration guide.
