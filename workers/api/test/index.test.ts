@@ -17,7 +17,7 @@ afterEach(() => {
 });
 
 function createMockEnv(overrides: Partial<Env> = {}): Env {
-  const r2: R2Bucket = {
+  const defaultStorage: R2Bucket = {
     list: vi.fn().mockResolvedValue({ objects: [], truncated: false, delimitedPrefixes: [] }),
     get: vi.fn(),
     getWithMetadata: vi.fn(),
@@ -33,7 +33,7 @@ function createMockEnv(overrides: Partial<Env> = {}): Env {
     all: vi.fn().mockResolvedValue({ success: true, results: [] }),
     raw: vi.fn(),
   });
-  const db: D1Database = {
+  const defaultDb: D1Database = {
     prepare,
     dump: vi.fn(),
     batch: vi.fn(),
@@ -43,9 +43,10 @@ function createMockEnv(overrides: Partial<Env> = {}): Env {
     fetch: vi.fn().mockResolvedValue(new Response('Not Found', { status: 404 })),
   };
 
-  const env = {
-    DB: db,
-    STORAGE: r2,
+  const hasStorageOverride = Object.prototype.hasOwnProperty.call(overrides, 'STORAGE');
+  const hasDbOverride = Object.prototype.hasOwnProperty.call(overrides, 'DB');
+
+  const env: Partial<Env> = {
     LOGTO_ISSUER: 'https://auth.example.com/oidc',
     LOGTO_JWKS_URI: 'https://auth.example.com/oidc/jwks',
     LOGTO_API_RESOURCE: 'https://api.example.com',
@@ -60,10 +61,22 @@ function createMockEnv(overrides: Partial<Env> = {}): Env {
     EXPO_PUBLIC_LOGTO_APP_ID: 'logto-public-app-id',
     EXPO_PUBLIC_API_RESOURCE: 'https://api.example.com',
     EXPO_PUBLIC_LOGTO_POST_LOGOUT_REDIRECT_URI: 'https://app.example.com',
+  };
+
+  const storage = hasStorageOverride ? overrides.STORAGE : defaultStorage;
+  const db = hasDbOverride ? overrides.DB : defaultDb;
+
+  if (storage) {
+    env.STORAGE = storage;
+  }
+  if (db) {
+    env.DB = db;
+  }
+
+  return {
+    ...env,
     ...overrides,
   } as Env;
-
-  return env;
 }
 
 const ctx = {} as ExecutionContext;
@@ -211,6 +224,39 @@ describe('Worker routes', () => {
     expect(response.status).toBe(200);
     const body = (await response.json()) as { objects: unknown[] };
     expect(body.objects).toHaveLength(1);
+  });
+
+  it('returns 503 for asset listing when storage binding is missing', async () => {
+    const env = createMockEnv({ STORAGE: undefined });
+    mockedCreateRemoteJWKSet.mockReturnValue(vi.fn() as unknown as ReturnType<typeof createRemoteJWKSet>);
+    mockedJwtVerify.mockResolvedValue({
+      payload: {
+        iss: env.LOGTO_ISSUER,
+        sub: 'user-123',
+        aud: env.LOGTO_API_RESOURCE,
+        exp: Math.floor(Date.now() / 1000) + 3600,
+      },
+    } as any);
+
+    const request = new Request('https://example.com/api/assets/list', {
+      headers: { Authorization: 'Bearer session_jwt_value' },
+    });
+
+    const response = await runFetch(request, env);
+    expect(response.status).toBe(503);
+    expect(await response.json()).toEqual({ error: 'Storage binding not configured' });
+  });
+
+  it('handles Stripe webhook without D1 binding', async () => {
+    const env = createMockEnv({ DB: undefined });
+    const request = new Request('https://example.com/webhook/stripe', {
+      method: 'POST',
+      body: JSON.stringify({ type: 'test.event' }),
+      headers: { 'content-type': 'application/json' },
+    });
+
+    const response = await runFetch(request, env);
+    expect(response.status).toBe(400);
   });
 
   it('proxies static asset requests to the ASSETS binding', async () => {

@@ -1,0 +1,23 @@
+2025-11-06 Bootstrap verification (starter .env)
+=============================================
+
+pnpm bootstrap:env
+------------------
+• Logto resources marked existing; no updates written
+• Stripe products and webhook detected as existing
+• `.env.local.generated` unchanged (D1/R2 entries remain blank)
+
+pnpm bootstrap:deploy
+---------------------
+• Cloudflare capability detection: authenticated ✓ / D1 ✗ / R2 ✗
+• Wrangler config rendered with D1/R2 bindings removed
+• `wrangler deploy` succeeded for starter-worker (version 57df7a22-449b-4418-8268-e9692d2b2edf)
+
+pnpm bootstrap:apply (run twice)
+--------------------------------
+Run 1:
+  • Cloudflare: worker ensured, D1/R2 skipped → env IDs cleared
+  • Logto & Stripe reported existing resources
+  • `.env.local.generated` updated in-place (blank D1/R2 slots)
+Run 2:
+  • Identical output; no changes detected in generated files

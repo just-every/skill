@@ -1,0 +1,34 @@
+{
+  "name": "@justevery/bootstrap-cli",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "bootstrap": "dist/cli.js"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "dev": "tsx src/cli.ts",
+    "preflight": "tsx src/cli.ts preflight",
+    "apply": "tsx src/cli.ts apply",
+    "env:generate": "tsx src/cli.ts env generate",
+    "deploy": "tsx src/cli.ts deploy",
+    "smoke": "tsx src/cli.ts smoke",
+    "test": "vitest"
+  },
+  "dependencies": {
+    "@playwright/test": "^1.56.1",
+    "chalk": "^5.3.0",
+    "commander": "^12.1.0",
+    "dotenv": "^16.4.5",
+    "execa": "^9.6.0",
+    "listr2": "^8.2.1",
+    "stripe": "^16.1.0",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "tsx": "^4.7.2",
+    "typescript": "^5.4.5",
+    "vitest": "^1.6.1"
+  }
+}

@@ -5,8 +5,8 @@ type AssetFetcher = {
 };
 
 export interface Env {
-  DB: D1Database;
-  STORAGE: R2Bucket;
+  DB?: D1Database;
+  STORAGE?: R2Bucket;
   LOGTO_ISSUER: string;
   LOGTO_JWKS_URI: string;
   LOGTO_API_RESOURCE: string;
@@ -609,7 +609,7 @@ async function handleSessionApi(request: Request, env: Env): Promise<Response> {
 
 async function handleMarketingAsset(request: Request, env: Env, pathname: string): Promise<Response> {
   if (!env.STORAGE) {
-    return jsonResponse({ error: "Storage binding not configured" }, 500);
+    return jsonResponse({ error: "Storage binding not configured" }, 503);
   }
 
   if (request.method !== "GET" && request.method !== "HEAD") {
@@ -710,6 +710,10 @@ async function handleAssetsList(request: Request, env: Env): Promise<Response> {
     return jsonResponse({ error: "Method Not Allowed" }, 405);
   }
 
+  if (!env.STORAGE) {
+    return jsonResponse({ error: "Storage binding not configured" }, 503);
+  }
+
   const auth = await requireAuthenticatedSession(request, env);
   if (!auth.ok) {
     return authFailureResponse(auth);
@@ -753,6 +757,10 @@ async function handleAssetsList(request: Request, env: Env): Promise<Response> {
 async function handleAssetsGet(request: Request, env: Env): Promise<Response> {
   if (request.method !== "GET") {
     return jsonResponse({ error: "Method Not Allowed" }, 405);
+  }
+
+  if (!env.STORAGE) {
+    return jsonResponse({ error: "Storage binding not configured" }, 503);
   }
 
   const auth = await requireAuthenticatedSession(request, env);
@@ -812,6 +820,10 @@ async function handleAssetsPut(request: Request, env: Env): Promise<Response> {
     return jsonResponse({ error: "Method Not Allowed" }, 405);
   }
 
+  if (!env.STORAGE) {
+    return jsonResponse({ error: "Storage binding not configured" }, 503);
+  }
+
   const auth = await requireAuthenticatedSession(request, env);
   if (!auth.ok) {
     return authFailureResponse(auth);
@@ -836,6 +848,10 @@ async function handleAssetsPut(request: Request, env: Env): Promise<Response> {
 async function handleAssetsDelete(request: Request, env: Env): Promise<Response> {
   if (request.method !== "DELETE") {
     return jsonResponse({ error: "Method Not Allowed" }, 405);
+  }
+
+  if (!env.STORAGE) {
+    return jsonResponse({ error: "Storage binding not configured" }, 503);
   }
 
   const auth = await requireAuthenticatedSession(request, env);
@@ -911,11 +927,13 @@ async function handleStripeWebhook(request: Request, env: Env): Promise<Response
         : "stripe.unknown";
 
     try {
+    if (env.DB) {
       await env.DB.prepare(
         `INSERT INTO audit_log (id, user_id, action, metadata) VALUES (?1, ?2, ?3, ?4)`,
       )
         .bind(auditId, null, auditAction, rawBody)
         .run();
+    }
     } catch (dbError) {
       console.error("Failed to persist Stripe webhook event", dbError);
     }

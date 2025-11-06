@@ -15,6 +15,7 @@
     "format": "echo 'No formatter configured yet.'",
     "bootstrap:preflight": "pnpm --filter @justevery/bootstrap-cli preflight",
     "bootstrap:env": "pnpm --filter @justevery/bootstrap-cli env:generate",
+    "bootstrap:apply": "pnpm --filter @justevery/bootstrap-cli apply",
     "bootstrap:deploy": "pnpm --filter @justevery/bootstrap-cli run deploy",
     "bootstrap:deploy:dry-run": "pnpm --filter @justevery/bootstrap-cli run deploy -- --dry-run",
     "bootstrap:smoke": "pnpm --filter @justevery/bootstrap-cli run smoke",
