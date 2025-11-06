@@ -92,6 +92,23 @@ extract_origin() {
   printf '%s' "$url"
 }
 
+extract_host_from_url() {
+  local url=${1:-}
+  [[ -z "$url" ]] && return
+
+  local without_scheme
+  if [[ "$url" == *://* ]]; then
+    without_scheme=${url#*://}
+  else
+    without_scheme=$url
+  fi
+
+  without_scheme=${without_scheme%%/*}
+  without_scheme=${without_scheme%%:*}
+
+  printf '%s' "$without_scheme"
+}
+
 prepare_cloudflare_env() {
   if [[ -n "${CLOUDFLARE_ZONE_ID:-}" ]]; then
     export CLOUDFLARE_ZONE_ID

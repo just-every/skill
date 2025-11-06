@@ -7,7 +7,7 @@ This guide explains how to work on `workers/api` with Wrangler and how to pair i
 | Mode | Command | When to use | Notes |
 | --- | --- | --- | --- |
 | **Local (Miniflare)** | `npm run dev:worker` | Day-to-day feature work, fast feedback | Reads `workers/api/.dev.vars`; state kept in `.wrangler/state/`; HTTPS disabled by default. |
-| **Remote (Edge runtime)** | `wrangler dev --remote --config workers/api/wrangler.toml` | Validate against real Cloudflare bindings/secrets | Ignores `.dev.vars`; ensure secrets are set with `wrangler secret put`. |
+| **Remote (Edge runtime)** | `wrangler dev --remote --config workers/api/wrangler.toml` | Validate against real Cloudflare bindings/secrets | Ignores `.dev.vars`; ensure secrets are set with `wrangler secret put`. (Config comes from `workers/api/wrangler.toml.template` via `bootstrap.sh`.) |
 | **Hybrid (Expo + Worker)** | Run the worker via one of the above, `source .env.local.generated`, then export/override `EXPO_PUBLIC_WORKER_ORIGIN` before starting Expo | UI/Worker integration and login flows | Use `http://127.0.0.1:8787` for local worker; use deployed URL for remote. |
 
 ## Quick Start
@@ -16,13 +16,13 @@ This guide explains how to work on `workers/api` with Wrangler and how to pair i
 2. **Copy vars** – `cp workers/api/.dev.vars.example workers/api/.dev.vars` and fill values
 3. **Run worker locally** – `npm run dev:worker`
 4. **Run Expo web** – `set -a; source ./.env.local.generated; set +a; EXPO_PUBLIC_WORKER_ORIGIN=http://127.0.0.1:8787 pnpm --filter apps/web dev`
-5. **Remote spot-check** – `wrangler dev --remote --config workers/api/wrangler.toml`
+5. **Remote spot-check** – `wrangler dev --remote --config workers/api/wrangler.toml` (rendered from `workers/api/wrangler.toml.template`)
 
 ## Frequently Used Commands
 
-- Tail logs (local): `wrangler tail --config workers/api/wrangler.toml`
+- Tail logs (local): `wrangler tail --config workers/api/wrangler.toml` (rendered from `workers/api/wrangler.toml.template`)
 - Run migrations: `pnpm --dir workers/api run d1:migrate`
-- Seed storage locally: `wrangler r2 object put --file ./path workers/api-assets@local/uploads/demo.txt`
+- Seed storage locally: `wrangler r2 object put --file ./path workers/api-assets@local/uploads/sample.txt`
 - Unit tests: `npm test --workspace workers/api`
 
 ## `.dev.vars` Expectations
@@ -33,7 +33,7 @@ This guide explains how to work on `workers/api` with Wrangler and how to pair i
 DB=app-db            # D1 binding name used in wrangler.toml
 ASSETS=local-assets  # R2 binding name used in wrangler.toml
 LOGTO_ISSUER=https://tenant.logto.app/oidc
-LOGTO_AUDIENCE=https://demo.justevery.com/api
+LOGTO_AUDIENCE=https://<your-domain>/api
 LOGTO_JWKS_URI=https://tenant.logto.app/oidc/jwks
 STRIPE_WEBHOOK_SECRET=whsec_xxx            # optional
 STRIPE_SECRET_KEY=sk_test_xxx              # optional

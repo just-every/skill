@@ -38,4 +38,4 @@
 - JWT verification uses `LOGTO_ISSUER`, `LOGTO_JWKS_URI`, and enforces `LOGTO_API_RESOURCE` as an audience.
 - Failure responses always include `WWW-Authenticate` for 401/403 and a stable JSON shape so frontends can branch on `authenticated`.
 - The callback handler falls back to 502/503 while preserving provider error payloads for easier debugging.
-- Endpoints are documented in `docs/api-session.yaml` (OpenAPI 3.1).
+- Endpoints are documented in `docs/archive/api-session.yaml` (OpenAPI 3.1).

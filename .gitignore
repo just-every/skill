@@ -25,6 +25,7 @@ temp.html
 
 # Local env overlays
 workers/api/.dev.vars
+workers/api/wrangler.toml
 
 # Env files
 .env

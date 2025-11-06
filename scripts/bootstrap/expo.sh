@@ -5,6 +5,8 @@ write_expo_env_file() {
 }
 
 export_expo_runtime_vars() {
+  local project_base="${PROJECT_DOMAIN%/}"
+
   if [[ -z "${EXPO_PUBLIC_LOGTO_ENDPOINT:-}" && -n "${LOGTO_ENDPOINT:-}" ]]; then
     EXPO_PUBLIC_LOGTO_ENDPOINT="$LOGTO_ENDPOINT"
     log_info "Using LOGTO_ENDPOINT for EXPO_PUBLIC_LOGTO_ENDPOINT"
@@ -29,8 +31,8 @@ export_expo_runtime_vars() {
   fi
   export EXPO_PUBLIC_LOGTO_REDIRECT_URI_LOCAL
 
-  if [[ -z "${EXPO_PUBLIC_LOGTO_REDIRECT_URI_PROD:-}" ]]; then
-    EXPO_PUBLIC_LOGTO_REDIRECT_URI_PROD="https://${PROJECT_ID}.justevery.com/callback"
+  if [[ -z "${EXPO_PUBLIC_LOGTO_REDIRECT_URI_PROD:-}" && -n "$project_base" ]]; then
+    EXPO_PUBLIC_LOGTO_REDIRECT_URI_PROD="${project_base}/callback"
     log_info "Defaulting EXPO_PUBLIC_LOGTO_REDIRECT_URI_PROD to ${EXPO_PUBLIC_LOGTO_REDIRECT_URI_PROD}"
   fi
   export EXPO_PUBLIC_LOGTO_REDIRECT_URI_PROD
@@ -53,8 +55,8 @@ export_expo_runtime_vars() {
   fi
   [[ -n "${EXPO_PUBLIC_LOGTO_RESOURCES:-}" ]] && export EXPO_PUBLIC_LOGTO_RESOURCES
 
-  if [[ -z "${EXPO_PUBLIC_LOGTO_POST_LOGOUT_REDIRECT_URI:-}" ]]; then
-    EXPO_PUBLIC_LOGTO_POST_LOGOUT_REDIRECT_URI="https://${PROJECT_ID}.justevery.com"
+  if [[ -z "${EXPO_PUBLIC_LOGTO_POST_LOGOUT_REDIRECT_URI:-}" && -n "$project_base" ]]; then
+    EXPO_PUBLIC_LOGTO_POST_LOGOUT_REDIRECT_URI="$project_base"
     log_info "Defaulting EXPO_PUBLIC_LOGTO_POST_LOGOUT_REDIRECT_URI to ${EXPO_PUBLIC_LOGTO_POST_LOGOUT_REDIRECT_URI}"
   fi
   export EXPO_PUBLIC_LOGTO_POST_LOGOUT_REDIRECT_URI

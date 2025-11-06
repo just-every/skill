@@ -969,7 +969,7 @@ function generateSessionId(): string {
 function landingPageHtml(env: Env): string {
   const appUrl = env.APP_BASE_URL ?? "/app";
   const loginUrl = appUrl;
-  const landingUrl = env.PROJECT_DOMAIN ?? "https://justevery.com";
+  const landingUrl = env.PROJECT_DOMAIN ?? "https://example.com";
   return `<!DOCTYPE html>
 <html lang="en">
 <head>

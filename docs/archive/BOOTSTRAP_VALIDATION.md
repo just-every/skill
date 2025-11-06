@@ -182,7 +182,7 @@ The validator writes `validation.json` and `validation.txt` alongside the refere
 - Confirms the bootstrap log contains **no create operations** (reruns must show only reconcile/skip messaging)
 - Queries Stripe for products tagged with `metadata.project_id=${PROJECT_ID}` and ensures one webhook endpoint exists per target URL
 - Uses `wrangler d1 list --json` and `wrangler r2 bucket list` to verify resources by name and detect duplicates
-- Fetches Cloudflare Worker routes for `CLOUDFLARE_ZONE_ID` and matches them against `workers/api/wrangler.toml`
+- Fetches Cloudflare Worker routes for `CLOUDFLARE_ZONE_ID` and matches them against `workers/api/wrangler.toml` (rendered from `workers/api/wrangler.toml.template`)
 
 Exit codes:
 

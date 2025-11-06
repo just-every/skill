@@ -23,7 +23,7 @@ This project ships a Cloudflare Worker that fronts authentication (Logto), billi
 ### Local mode (`./bootstrap.sh`)
 
 - Loads env vars, derives defaults, and updates Logto application metadata (redirect URIs include both local and production entries).
-- Templates `workers/api/wrangler.toml` and builds the Expo bundle.
+- Templates `workers/api/wrangler.toml` from `workers/api/wrangler.toml.template` and builds the Expo bundle.
 - Runs D1 migrations against the **local preview** database and seeds the default project row locally.
 - Writes `.env.local.generated` with resolved identifiers and Stripe metadata.
 - Launches `npm run dev:worker` on `http://127.0.0.1:8787` (unless the port is already in use).
@@ -37,7 +37,7 @@ In addition to the local steps above, deploy mode:
 2. Ensures Cloudflare D1 and R2 resources exist (creates them if missing).
 3. Runs D1 migrations and seeds the `projects` table **remotely**.
 4. Reconciles Stripe products and webhook endpoints (requires `STRIPE_SECRET_KEY`).
-5. Pushes Worker secrets (`LOGTO_APPLICATION_ID`, `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`) via `wrangler secret put`.
+5. Pushes Worker secrets (`LOGTO_APPLICATION_ID`, `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`) via `wrangler secret put` (using the config rendered from `workers/api/wrangler.toml.template`).
 6. Uploads a placeholder asset to R2.
 7. Runs `wrangler deploy` to publish the Worker and claim routes.
 
@@ -48,9 +48,9 @@ After a deploy, source `.env.local.generated` (or commit relevant identifiers un
 Bootstrap automatically syncs the key Worker secrets. For manual rotations or additional environments, use Wrangler (add `--env production` if you maintain multiple environments):
 
 ```bash
-wrangler secret put LOGTO_APPLICATION_ID --config workers/api/wrangler.toml
-wrangler secret put STRIPE_SECRET_KEY --config workers/api/wrangler.toml
-wrangler secret put STRIPE_WEBHOOK_SECRET --config workers/api/wrangler.toml
+wrangler secret put LOGTO_APPLICATION_ID --config workers/api/wrangler.toml  # generated from workers/api/wrangler.toml.template
+wrangler secret put STRIPE_SECRET_KEY --config workers/api/wrangler.toml  # generated from workers/api/wrangler.toml.template
+wrangler secret put STRIPE_WEBHOOK_SECRET --config workers/api/wrangler.toml  # generated from workers/api/wrangler.toml.template
 ```
 
 ## Deploying the Worker
@@ -58,10 +58,10 @@ wrangler secret put STRIPE_WEBHOOK_SECRET --config workers/api/wrangler.toml
 ```bash
 pnpm install
 pnpm --filter @justevery/worker build   # if you add a build step later
-wrangler deploy --config workers/api/wrangler.toml
+wrangler deploy --config workers/api/wrangler.toml  # generated from workers/api/wrangler.toml.template
 ```
 
-After deployment Cloudflare claims the routes recorded in `.env.local.generated` (typically `${PROJECT_ID}.justevery.com/*` and `${PROJECT_ID}.justevery.com/app*`).
+After deployment Cloudflare claims the routes recorded in `.env.local.generated` (typically `${PROJECT_DOMAIN}/*` and `${PROJECT_DOMAIN}/app*`).
 
 ## Post-deploy verification
 
@@ -69,7 +69,7 @@ After deployment Cloudflare claims the routes recorded in `.env.local.generated`
 2. Navigate to `/login` – ensure the redirect URL points to `${APP_URL}/auth/callback`.
 3. Complete an SSO flow to confirm the Worker sets the `je_session` cookie and the app shell loads.
 4. Trigger the Stripe webhook (or use the dashboard's "send test" feature) to verify signature validation.
-5. When credentials are available, run the full checklist in `docs/BOOTSTRAP_VALIDATION.md` and archive the artefacts under `test-results/bootstrap-<ISO>/`.
+5. When credentials are available, run the full checklist in `docs/archive/BOOTSTRAP_VALIDATION.md` and archive the artefacts under `test-results/bootstrap-<ISO>/`.
 
 ## Smoke Suite and Artefact Capture
 
@@ -77,14 +77,14 @@ After any deployment or configuration change, run the smoke suite to verify crit
 
 ```bash
 # Full smoke suite (requires Wrangler access for D1 and secrets checks)
-node scripts/run-smoke-suite.cjs --base https://demo.justevery.com --mode full
+node scripts/run-smoke-suite.cjs --base https://<your-domain> --mode full
 
 # Minimal smoke suite (HTTP checks only, no Wrangler calls)
-node scripts/run-smoke-suite.cjs --base https://demo.justevery.com --mode minimal
+node scripts/run-smoke-suite.cjs --base https://<your-domain> --mode minimal
 
 # With authenticated token for /api/session checks
 export LOGTO_TOKEN="<access_token>"
-node scripts/run-smoke-suite.cjs --base https://demo.justevery.com --token "$LOGTO_TOKEN"
+node scripts/run-smoke-suite.cjs --base https://<your-domain> --token "$LOGTO_TOKEN"
 ```
 
 ### Artefacts Generated
@@ -104,7 +104,7 @@ After each significant deployment or bootstrap validation, update the final veri
 
 1. **Run the smoke suite** and note the timestamp:
    ```bash
-   node scripts/run-smoke-suite.cjs --base https://demo.justevery.com
+node scripts/run-smoke-suite.cjs --base https://<your-domain>
    # Outputs: "Smoke suite completed. Artifacts in test-results/smoke/20251104-211353"
    ```
 
@@ -117,7 +117,7 @@ After each significant deployment or bootstrap validation, update the final veri
    ```markdown
    ## Smoke Check – <YYYY-MM-DD>
 
-   **Base URL**: https://demo.justevery.com
+   **Base URL**: https://<your-domain>
    **Mode**: full
    **Artefacts**: `test-results/smoke/<timestamp>/`
 
@@ -157,4 +157,4 @@ Keep cloud credentials fresh and update GitHub Secrets after each rotation:
 ## Deployment History
 
 - **2025-11-04 – Local Validation (Miniflare)** – Generated via `npm run validate:bootstrap`. HTTP endpoints responded as expected (/, /payments 200; `/api/session` 401 unauthenticated; `/callback` 400). Local D1 query succeeded; R2 listing skipped (no local bucket). Artefacts: `test-results/bootstrap-20251104-113635/` (`SUMMARY.md`, `report.json`).
-- **Pending Remote Validation (2025-11-04)** – Attempted `npm run validate:bootstrap:remote -- --base https://demo.justevery.com`; blocked by missing credentials (`CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ZONE_ID`, `LOGTO_MANAGEMENT_ENDPOINT`, `LOGTO_MANAGEMENT_AUTH_BASIC`, `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`). See `test-results/bootstrap-20251104-114629/` (`secrets-audit.txt`) and follow `docs/SECRETS_SETUP.md` before re-running.
+- **Pending Remote Validation (2025-11-04)** – Attempted `npm run validate:bootstrap:remote -- --base https://<your-domain>`; blocked by missing credentials (`CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ZONE_ID`, `LOGTO_MANAGEMENT_ENDPOINT`, `LOGTO_MANAGEMENT_AUTH_BASIC`, `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`). See `test-results/bootstrap-20251104-114629/` (`secrets-audit.txt`) and follow `docs/archive/SECRETS_SETUP.md` before re-running.

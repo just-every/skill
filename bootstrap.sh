@@ -54,12 +54,19 @@ bootstrap_requirements() {
 
 bootstrap_defaults() {
   ensure_var PROJECT_ID
+  ensure_var PROJECT_DOMAIN
 
-  if [[ -z "${PROJECT_DOMAIN:-}" ]]; then
-    PROJECT_DOMAIN="https://${PROJECT_ID}.justevery.com"
-    export PROJECT_DOMAIN
-    log_info "Defaulting PROJECT_DOMAIN to ${PROJECT_DOMAIN}"
+  local derived_host
+  derived_host=$(extract_host_from_url "$PROJECT_DOMAIN")
+  if [[ -z "$derived_host" ]]; then
+    log_error "Unable to derive PROJECT_HOST from PROJECT_DOMAIN (${PROJECT_DOMAIN})."
+    exit 1
   fi
+
+  PROJECT_HOST="$derived_host"
+  export PROJECT_HOST
+  log_info "Using PROJECT_HOST=${PROJECT_HOST}"
+  ensure_var PROJECT_HOST
 
   if [[ -z "${APP_BASE_URL:-}" ]]; then
     APP_BASE_URL="/app"
@@ -74,7 +81,6 @@ bootstrap_defaults() {
     log_info "Defaulting APP_URL to ${APP_URL}"
   fi
 
-  ensure_var PROJECT_DOMAIN
   ensure_var APP_URL
   ensure_var CLOUDFLARE_ACCOUNT_ID
   ensure_var LOGTO_MANAGEMENT_ENDPOINT

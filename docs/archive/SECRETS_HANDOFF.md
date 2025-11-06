@@ -13,7 +13,7 @@ Minimum Logto scopes: the management client must be able to call the Management 
 
 ## Where to Place Secrets
 - **Local development**: add the variables above to your root `.env` (or export in shell) so helper scripts can run. Never commit the file.
-- **Worker secret**: ensure `LOGTO_APPLICATION_ID`, `STRIPE_SECRET_KEY`, and `STRIPE_WEBHOOK_SECRET` exist via `wrangler secret put ...` (see `docs/DEPLOYMENTS.md`).
+- **Worker secret**: ensure `LOGTO_APPLICATION_ID`, `STRIPE_SECRET_KEY`, and `STRIPE_WEBHOOK_SECRET` exist via `wrangler secret put ...` (see `docs/archive/DEPLOYMENTS.md`).
 - **CI**: store the same values in repository secrets (`LOGTO_MANAGEMENT_ENDPOINT`, `LOGTO_MANAGEMENT_AUTH_BASIC` or `LOGTO_CLIENT_ID` / `LOGTO_CLIENT_SECRET`, plus Stripe secrets).
 
 ## Verify & Sync (copy/paste)
@@ -32,9 +32,9 @@ npm run assert:r2
 npm run assert:secrets
 
 # 4. Put / rotate Worker secrets when missing
-wrangler secret put LOGTO_APPLICATION_ID --config workers/api/wrangler.toml
-wrangler secret put STRIPE_SECRET_KEY --config workers/api/wrangler.toml
-wrangler secret put STRIPE_WEBHOOK_SECRET --config workers/api/wrangler.toml
+wrangler secret put LOGTO_APPLICATION_ID --config workers/api/wrangler.toml  # generated from workers/api/wrangler.toml.template
+wrangler secret put STRIPE_SECRET_KEY --config workers/api/wrangler.toml  # generated from workers/api/wrangler.toml.template
+wrangler secret put STRIPE_WEBHOOK_SECRET --config workers/api/wrangler.toml  # generated from workers/api/wrangler.toml.template
 
 # 5. Mint a short-lived Logto access token (stdout only; nothing saved)
 export LOGTO_TOKEN="$(npm run --silent token:logto)"
@@ -66,7 +66,7 @@ PY
 ```
 
 ## Related Docs
-- `docs/SSO.md` – additional Logto token instructions
-- `docs/bootstrap.md` – bootstrap script behaviour (secret sync)
-- `docs/DEPLOYMENTS.md` – deployment & smoke guidance
-- `docs/VERIFICATION.md` – recording verification artefacts
+- `docs/archive/SSO.md` – additional Logto token instructions
+- `docs/archive/bootstrap.md` – bootstrap script behaviour (secret sync)
+- `docs/archive/DEPLOYMENTS.md` – deployment & smoke guidance
+- `docs/archive/VERIFICATION.md` – recording verification artefacts

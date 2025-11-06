@@ -5,7 +5,7 @@ This repository is the canonical justevery starter stack; future products should
 ## Project Structure & Module Organization
 - `apps/web/` hosts the Expo placeholder shell; share config via `packages/config`.
 - `workers/api/` runs the Cloudflare Worker with Wrangler config, D1 access, and Vitest suites; keep bindings in `Env` and migrations under `scripts/`.
-- `docs/` keeps operational playbooks (`bootstrap`, deployments, SSO) cited in `PLAN.md`; refresh when flows or providers change.
+- `docs/archive/` keeps operational playbooks (`bootstrap`, deployments, SSO) cited in `PLAN.md`; refresh when flows or providers change.
 - `tests/e2e/` holds Playwright journeys against the deployed worker; keep fixtures aligned with seeded data.
 - Root helpers: `bootstrap.sh` provisions Cloudflare + Stripe resources; `scripts/deploy-worker.cjs` standardises deploys.
 
@@ -33,7 +33,7 @@ This repository is the canonical justevery starter stack; future products should
 
 ## Environment & Configuration Tips
 - Run `./bootstrap.sh` after cloning and when infra config changes; it is idempotent and reuses the `.env` metadata to skip recreating Cloudflare or Stripe resources.
-- Record updates to secrets, Logto, or Stripe setup in `docs/SSO.md` or `docs/DEPLOYMENTS.md`, and mirror changes in `.dev.vars` files.
+- Record updates to secrets, Logto, or Stripe setup in `docs/archive/SSO.md` or `docs/archive/DEPLOYMENTS.md`, and mirror changes in `.dev.vars` files.
 - Shared credentials live in `~/.env`; source it (`set -a; source ~/.env; set +a`) before running remote validation or CI-like scripts so required env vars exist.
 - For local auth testing, create `workers/api/.dev.vars` with the same bindings used in production (D1, R2, LOGTO_*). Wrangler loads these automatically during `npm run dev:worker` and keeps state under `.wrangler/state/`.
 - Use `wrangler dev --remote` when you need Cloudflare’s edge runtime (JWT verification with real Logto tenant) while retaining hot reload.

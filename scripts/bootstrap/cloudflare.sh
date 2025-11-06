@@ -104,6 +104,7 @@ update_wrangler_config() {
     -e "s/{{D1_DATABASE_NAME}}/$(escape_sed "${D1_DATABASE_NAME:-}")/g" \
     -e "s/{{R2_BUCKET_NAME}}/$(escape_sed "${R2_BUCKET_NAME:-}")/g" \
     -e "s#{{PROJECT_DOMAIN}}#$(escape_sed "${PROJECT_DOMAIN:-}")#g" \
+    -e "s#{{PROJECT_HOST}}#$(escape_sed "${PROJECT_HOST:-}")#g" \
     -e "s#{{APP_URL}}#$(escape_sed "${APP_URL:-}")#g" \
     -e "s#{{APP_BASE_URL}}#$(escape_sed "${APP_BASE_URL:-}")#g" \
     -e "s#{{LOGTO_ISSUER}}#$(escape_sed "${LOGTO_ISSUER:-}")#g" \

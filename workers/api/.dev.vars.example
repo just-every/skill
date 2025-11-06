@@ -9,7 +9,7 @@ ASSETS=local-assets
 
 # Logto / Auth configuration
 LOGTO_ISSUER=https://tenant.logto.app/oidc
-LOGTO_AUDIENCE=https://demo.justevery.com/api
+LOGTO_AUDIENCE=https://your-domain.example/api
 LOGTO_JWKS_URI=https://tenant.logto.app/oidc/jwks
 LOGTO_APPLICATION_ID=app_xxxxx
 

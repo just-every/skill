@@ -36,7 +36,7 @@ Populate `.env` using `.env.example` as a template. At minimum you must define:
 ./bootstrap.sh --deploy
 
 # Deploy the Worker separately (after bootstrap ran)
-npx wrangler deploy --config workers/api/wrangler.toml
+npx wrangler deploy --config workers/api/wrangler.toml  # generated via workers/api/wrangler.toml.template
 ```
 
 ## How Bootstrap Works
@@ -107,7 +107,7 @@ events. The generated endpoint ID and secret are written to
 After bootstrap, store the webhook signing secret in the Worker environment:
 
 ```bash
-echo "$STRIPE_WEBHOOK_SECRET" | wrangler secret put STRIPE_WEBHOOK_SECRET --config workers/api/wrangler.toml
+echo "$STRIPE_WEBHOOK_SECRET" | wrangler secret put STRIPE_WEBHOOK_SECRET --config workers/api/wrangler.toml  # generated from workers/api/wrangler.toml.template
 ```
 
 ## R2 Placeholder Upload
@@ -121,9 +121,9 @@ place.
 ```
 npx wrangler deploy --config workers/api/wrangler.toml
 
-curl -I https://demo.justevery.com/
-curl -s https://demo.justevery.com/api/session
-curl -s https://demo.justevery.com/api/stripe/products
+curl -i https://<your-domain>/
+curl -s https://<your-domain>/api/session
+curl -s https://<your-domain>/api/stripe/products
 ```
 
 ## Expo web export note

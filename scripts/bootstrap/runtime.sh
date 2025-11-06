@@ -46,6 +46,7 @@ write_generated_env() {
     printf '# Do not edit manually – rerun bootstrap.sh instead.\n\n'
     print_env_line 'PROJECT_ID' "${PROJECT_ID:-}"
     print_env_line 'PROJECT_DOMAIN' "${PROJECT_DOMAIN:-}"
+    print_env_line 'PROJECT_HOST' "${PROJECT_HOST:-}"
     print_env_line 'APP_URL' "${APP_URL:-}"
     print_env_line 'APP_BASE_URL' "${APP_BASE_URL:-}"
     print_env_line 'LOGTO_ENDPOINT' "${LOGTO_ENDPOINT:-}"

@@ -3,24 +3,24 @@
 ## Hero Image (`marketing/hero.png`)
 - **Recommended dimensions:** 1600 × 900 px (16:9).
 - **Format:** PNG or WEBP with transparent or dark background.
-- **Alt text:** “justevery product hero” or product-specific wording.
+- **Alt text:** project-specific (for example, “starter product hero”).
 - **Caching:** Upload with `Cache-Control: public, max-age=31536000, immutable`.
 
 ## Upload Snippet
 ```bash
-wrangler r2 object put demo-assets/marketing/hero.png \
+wrangler r2 object put <your-bucket>/marketing/hero.png \
   --file hero.png \
   --cache-control "public, max-age=31536000, immutable" \
-  --config workers/api/wrangler.toml --remote
+  --config workers/api/wrangler.toml --remote  # config rendered from workers/api/wrangler.toml.template
 ```
 
 ## Listing Objects
 To verify assets are present:
 ```bash
-wrangler r2 bucket list --config workers/api/wrangler.toml
+wrangler r2 bucket list --config workers/api/wrangler.toml  # config rendered from workers/api/wrangler.toml.template
 ```
 
-Look for `demo-assets` in the console output. This requires the token to include R2 Storage Read scope.
+Look for your bucket name (for example `starter-assets`) in the console output. This requires the token to include R2 Storage Read scope.
 
 ## Required Cloudflare Token Scopes
 - **R2 Storage: Read** (minimum, for listing objects)
@@ -28,7 +28,7 @@ Look for `demo-assets` in the console output. This requires the token to include
 
 To verify your Cloudflare API token has the required scopes:
 ```bash
-node scripts/assert-cloudflare-scopes.cjs --bucket demo-assets
+node scripts/assert-cloudflare-scopes.cjs --bucket <your-bucket>
 ```
 
 This runs a fast validation check (via `wrangler r2 bucket list`) and provides clear error messages if scopes are missing. Create or update tokens at: https://dash.cloudflare.com/profile/api-tokens

@@ -46,8 +46,8 @@ derive_logto_defaults() {
   fi
 
   if [[ -z "${LOGTO_ENDPOINT:-}" ]]; then
-    LOGTO_ENDPOINT="https://login.justevery.com"
-    log_info "Defaulting LOGTO_ENDPOINT to ${LOGTO_ENDPOINT}"
+    log_error "LOGTO_ENDPOINT must be set (or provide LOGTO_MANAGEMENT_ENDPOINT)."
+    exit 1
   fi
   export LOGTO_ENDPOINT
 
@@ -63,8 +63,9 @@ derive_logto_defaults() {
   fi
   export LOGTO_JWKS_URI
 
-  if [[ -z "${LOGTO_API_RESOURCE:-}" ]]; then
-    LOGTO_API_RESOURCE="https://${PROJECT_ID}.justevery.com/api"
+  if [[ -z "${LOGTO_API_RESOURCE:-}" && -n "${PROJECT_DOMAIN:-}" ]]; then
+    local trimmed_domain="${PROJECT_DOMAIN%/}"
+    LOGTO_API_RESOURCE="${trimmed_domain}/api"
     log_info "Defaulting LOGTO_API_RESOURCE to ${LOGTO_API_RESOURCE}"
   fi
   export LOGTO_API_RESOURCE
@@ -202,8 +203,14 @@ ensure_logto_application() {
     description="Managed for ${PROJECT_NAME} (${PROJECT_ID}) project"
   fi
 
-  local redirect_uri_prod="https://${PROJECT_ID}.justevery.com/callback"
-  local logout_uri_prod="https://${PROJECT_ID}.justevery.com/logout"
+  local project_base="${PROJECT_DOMAIN%/}"
+  if [[ -z "$project_base" ]]; then
+    log_error "PROJECT_DOMAIN must be set before configuring Logto redirect URIs."
+    exit 1
+  fi
+
+  local redirect_uri_prod="${project_base}/callback"
+  local logout_uri_prod="${project_base}/logout"
   local default_redirect_local="http://localhost:8787/callback"
   local default_redirect_local_alt="http://127.0.0.1:8787/callback"
   local default_redirect_metro="http://localhost:19006/callback"
@@ -424,12 +431,17 @@ ensure_logto_m2m_application() {
 
 logto_post_deploy_note() {
   local endpoint="${LOGTO_MANAGEMENT_ENDPOINT%/}"
-  local callback="https://${PROJECT_ID}.justevery.com/callback"
-  local logout="https://${PROJECT_ID}.justevery.com/logout"
+  local project_base="${PROJECT_DOMAIN%/}"
+  local callback="${project_base:+${project_base}/callback}"
+  local logout="${project_base:+${project_base}/logout}"
 
   log_info "Logto follow-up: confirm the SPA application allows the following redirect URIs:"
-  log_info "  - ${callback}"
-  log_info "  - ${logout}"
+  if [[ -n "$callback" ]]; then
+    log_info "  - ${callback}"
+  fi
+  if [[ -n "$logout" ]]; then
+    log_info "  - ${logout}"
+  fi
 
   if [[ -n "${LOGTO_APPLICATION_ID:-}" ]]; then
     log_info "Application ID: ${LOGTO_APPLICATION_ID}"

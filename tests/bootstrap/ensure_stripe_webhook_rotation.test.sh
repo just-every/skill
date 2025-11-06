@@ -21,7 +21,7 @@ run_cmd_capture() {
   if [[ "$joined" == *" GET https://api.stripe.com/v1/webhook_endpoints?limit=100 "* ]]; then
     printf 'list\n' >>"$CALL_LOG_FILE"
     cat <<'JSON'
-{"data":[{"id":"we_123","url":"https://demo.justevery.com/webhook/stripe"}]}
+{"data":[{"id":"we_123","url":"https://starter.example/webhook/stripe"}]}
 JSON
     return 0
   fi
@@ -74,8 +74,8 @@ log_error() {
   printf '[test-error] %s\n' "$*" >&2
 }
 
-PROJECT_ID=demo
-PROJECT_DOMAIN=https://demo.justevery.com
+PROJECT_ID=starter
+PROJECT_DOMAIN=https://starter.example
 STRIPE_SECRET_KEY=sk_test_dummy
 STRIPE_WEBHOOK_ENDPOINT_ID=we_123
 STRIPE_WEBHOOK_SECRET=""

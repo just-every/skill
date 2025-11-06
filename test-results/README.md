@@ -1,8 +1,11 @@
 # Test Artefacts
 
-- `smoke/<timestamp>/` – outputs from the smoke harness (`report.json`, `checks.json`, `screens/`).
-- `bootstrap-<ISO>/` – artefacts captured during the bootstrap validation checklist (`docs/BOOTSTRAP_VALIDATION.md`).
-- Additional directories may be added by CI runs; keep directories timestamped for easy diffing.
+This repository ships without recorded runs so new projects start from a clean slate. If you need to capture evidence (bootstrap validation, smoke checks, Playwright runs), create a timestamped subdirectory locally and keep it out of version control.
 
-This folder is ignored except for this note so results can be archived ad hoc without polluting commits.
+Example regeneration flow:
 
+1. Run the desired check (for example `npm run validate:bootstrap` or `npm run test:e2e`).
+2. Gather the artefacts into `test-results/<ISO8601-timestamp>/`.
+3. Inspect or share them as needed, but do not commit the generated folders.
+
+CI pipelines may attach artefacts to workflow runs instead of checking them in. This README remains tracked to document the convention.

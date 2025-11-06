@@ -1,0 +1,129 @@
+name: release
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  packages: write
+  id-token: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    env:
+      CI: true
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v3
+        with:
+          version: 9
+          run_install: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          registry-url: https://registry.npmjs.org
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Install dependencies
+        run: pnpm install --recursive
+
+      - name: Build workspaces
+        run: pnpm -r --if-present run build
+
+      - name: Check pending changesets
+        id: pending
+        run: |
+          STATUS_FILE="$(mktemp)"
+          PACKAGES_JSON="[]"
+          if pnpm changeset status --json > "$STATUS_FILE" 2>/tmp/changeset-status.log; then
+            if jq -e '.releases | length > 0' "$STATUS_FILE" >/dev/null 2>&1; then
+              PACKAGES_JSON=$(jq -c '[.releases[].name]' "$STATUS_FILE")
+              echo "has_changesets=true" >> "$GITHUB_OUTPUT"
+              echo "packages=$PACKAGES_JSON" >> "$GITHUB_OUTPUT"
+              echo "Release candidates:" && cat "$STATUS_FILE"
+              exit 0
+            fi
+          else
+            echo "Changeset status failed, falling back to parsing markdown"
+            cat /tmp/changeset-status.log
+            PACKAGES_JSON=$(node <<'NODE'
+const fs = require('fs');
+const path = require('path');
+const dir = '.changeset';
+const packages = new Set();
+if (fs.existsSync(dir)) {
+  for (const entry of fs.readdirSync(dir)) {
+    if (!entry.endsWith('.md')) continue;
+    const content = fs.readFileSync(path.join(dir, entry), 'utf8');
+    const match = content.match(/^---\n([\s\S]*?)\n---/);
+    if (!match) continue;
+    for (const line of match[1].split('\n')) {
+      const trimmed = line.trim();
+      if (!trimmed) continue;
+      const parts = trimmed.split(':');
+      if (parts.length < 2) continue;
+      const name = parts[0].trim().replace(/^"|"$/g, '');
+      if (name) packages.add(name);
+    }
+  }
+}
+process.stdout.write(JSON.stringify([...packages]));
+NODE
+            )
+          fi
+
+          if [ "$PACKAGES_JSON" != "[]" ]; then
+            echo "has_changesets=true" >> "$GITHUB_OUTPUT"
+            echo "packages=$PACKAGES_JSON" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_changesets=false" >> "$GITHUB_OUTPUT"
+            echo "packages=[]" >> "$GITHUB_OUTPUT"
+            echo "No unpublished changesets found. Skipping."
+          fi
+
+      - name: Run workspace tests for changed packages
+        if: steps.pending.outputs.has_changesets == 'true'
+        run: |
+          packages='${{ steps.pending.outputs.packages }}'
+          if [ -z "$packages" ] || [ "$packages" = "[]" ]; then
+            echo "No package-level tests to run"
+            exit 0
+          fi
+          echo "$packages" | jq -r '.[]' | while read pkg; do
+            if [ -z "$pkg" ]; then
+              continue
+            fi
+            echo "Running tests for $pkg"
+            pnpm --filter "$pkg" run test --if-present
+          done
+
+      - name: Version packages
+        if: steps.pending.outputs.has_changesets == 'true'
+        run: pnpm run version:packages
+
+      - name: Dry-run publish with provenance
+        if: steps.pending.outputs.has_changesets == 'true'
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          NPM_CONFIG_PROVENANCE: true
+        run: pnpm run release:dry-run
+
+      - name: Summarise release files
+        if: steps.pending.outputs.has_changesets == 'true'
+        run: git status --short

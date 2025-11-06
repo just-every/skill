@@ -23,7 +23,7 @@ Choose one of the flows below:
 1. Export credentials locally (do not commit them). `bootstrap.sh` records the latest client in `.env.local.generated` as `LOGTO_M2M_CLIENT_ID` / `LOGTO_M2M_CLIENT_SECRET`.
    ```bash
     export LOGTO_ENDPOINT='https://login.justevery.com'
-    export LOGTO_API_RESOURCE='https://demo.justevery.com/api'
+    export LOGTO_API_RESOURCE='https://<your-domain>/api'
     export LOGTO_CLIENT_ID="$LOGTO_M2M_CLIENT_ID"
     export LOGTO_CLIENT_SECRET="$LOGTO_M2M_CLIENT_SECRET"
    ```
@@ -50,19 +50,19 @@ Once exported, the smoke suite automatically uses `LOGTO_TOKEN` for authenticate
 ## 3. Sync Worker Secrets
 1. Ensure the Worker has the SPA application id and Stripe secrets:
    ```bash
-   wrangler secret put LOGTO_APPLICATION_ID --config workers/api/wrangler.toml
-   wrangler secret put STRIPE_SECRET_KEY --config workers/api/wrangler.toml
-   wrangler secret put STRIPE_WEBHOOK_SECRET --config workers/api/wrangler.toml
+   wrangler secret put LOGTO_APPLICATION_ID --config workers/api/wrangler.toml  # generated from workers/api/wrangler.toml.template
+   wrangler secret put STRIPE_SECRET_KEY --config workers/api/wrangler.toml  # generated from workers/api/wrangler.toml.template
+   wrangler secret put STRIPE_WEBHOOK_SECRET --config workers/api/wrangler.toml  # generated from workers/api/wrangler.toml.template
    ```
 2. Verify the secrets are present:
    ```bash
-   wrangler secret list --config workers/api/wrangler.toml
+   wrangler secret list --config workers/api/wrangler.toml  # generated from workers/api/wrangler.toml.template
    ```
 3. (Optional) Record the values in `.env` so `bootstrap.sh` can sync them automatically.
 
 ## 4. Run Local Smoke Checks
 ```bash
-export PROJECT_DOMAIN='https://demo.justevery.com'
+export PROJECT_DOMAIN='https://<your-domain>'
 npm run smoke -- --mode full
 ```
 Artefacts are written to `test-results/smoke/run-<timestamp>/`, including `checks/<endpoint>/headers.json` and a JSON or text capture for `/callback?error=debug`.
