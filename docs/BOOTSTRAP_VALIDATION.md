@@ -137,30 +137,7 @@ grep R2_BUCKET_NAME .env.local.generated
 **Reconciliation Strategy:**
 - By default, skips secrets that were synced in previous runs (tracked in `SYNCED_SECRET_NAMES`)
 - Checks `.env.local.generated` for list of previously synced secrets
-- Only syncs if secret not in cached list
-
-**Force Sync Flag:**
-- Set `FORCE_SECRET_SYNC=1` to force re-sync all secrets regardless of cache
-- Use when secret values have changed
-
-**Rerun Guarantees:**
-- No redundant `wrangler secret put` calls by default
-- Secrets are synced only once unless forced
-- `SYNCED_SECRET_NAMES` in `.env.local.generated` tracks synced secrets
-
-**Validation:**
-```bash
-# First run
-./bootstrap.sh
-
-# Rerun should skip secret sync
-./bootstrap.sh
-
-# Check logs for "already synced in previous run; skipping" messages
-
-# Force sync when values change
-FORCE_SECRET_SYNC=1 ./bootstrap.sh
-```
+- Secrets are synced to Cloudflare on every run.
 
 ## Flags and Environment Variables
 
@@ -168,45 +145,9 @@ FORCE_SECRET_SYNC=1 ./bootstrap.sh
 
 | Flag | Default | Purpose |
 |------|---------|---------|
-| `DRY_RUN` | `0` | Set to `1` to preview actions without creating/updating resources |
-| `SYNC_SECRETS` | `1` | Set to `0` to skip all secret synchronization |
-| `FORCE_SECRET_SYNC` | `0` | Set to `1` to force re-sync all secrets, ignoring cache |
 | `STRIPE_PRUNE_DUPLICATE_WEBHOOKS` | `0` | Set to `1` to automatically delete duplicate webhook endpoints |
 
-### Example Usage
-
-```bash
-# Preview rerun without side effects
-DRY_RUN=1 ./bootstrap.sh
-
-# Rerun but skip secret sync
-SYNC_SECRETS=0 ./bootstrap.sh
-
-# Force secret re-sync (when values changed)
-FORCE_SECRET_SYNC=1 ./bootstrap.sh
-
-# Clean up duplicate Stripe webhooks
-STRIPE_PRUNE_DUPLICATE_WEBHOOKS=1 ./bootstrap.sh
-```
-
-## Dry-Run Validation
-
-A dry-run (`DRY_RUN=1`) should:
-- Log all intended actions with `[dry-run]` prefix
-- Perform **zero** create operations
-- Use placeholder values for missing credentials
-- Show skip/update actions for existing resources
-
-**Validation:**
-```bash
-# After first successful run, dry-run should show only skip/update
-DRY_RUN=1 ./bootstrap.sh 2>&1 | grep -E "\[dry-run\]|Would"
-
-# Should see:
-# - "Would reconcile Stripe products"
-# - "Would reconcile Stripe webhook"
-# - No "Would create" messages if resources exist
-```
+- Clean up duplicate Stripe webhooks: `STRIPE_PRUNE_DUPLICATE_WEBHOOKS=1 ./bootstrap.sh --deploy`
 
 ## Acceptance Test Checklist
 
@@ -216,9 +157,9 @@ DRY_RUN=1 ./bootstrap.sh 2>&1 | grep -E "\[dry-run\]|Would"
 - [ ] Stripe webhook reconciled by URL, single endpoint maintained
 - [ ] D1 database reused via cached ID verification
 - [ ] R2 bucket reused via cached name verification
-- [ ] Worker secrets skipped on rerun (unless `FORCE_SECRET_SYNC=1`)
-- [ ] Dry-run shows zero create operations after first successful run
+- [ ] Worker secrets successfully synced on rerun
 - [ ] `.env.local.generated` accurately tracks resource IDs and synced secrets
+- [ ] Local mode skips remote Cloudflare/Stripe mutations
 - [ ] Duplicate webhook cleanup works with `STRIPE_PRUNE_DUPLICATE_WEBHOOKS=1`
 
 ## Automated Validation Script
@@ -265,18 +206,19 @@ The script also reads `.env.local.generated` to reuse cached identifiers and wil
 
 ```bash
 ./bootstrap.sh  # First run
-./bootstrap.sh  # Rerun - should see all "Found existing" logs
+./bootstrap.sh  # Rerun - should see "Found existing" logs and secret sync output
 ```
 
 ### Scenario 2: Secret Values Changed
-**Expected:** Force secret sync required
+**Expected:** Rerun updates Cloudflare Worker secrets with new values
 
 ```bash
 # Update secret in .env
 echo "STRIPE_SECRET_KEY=sk_test_new_value" >> .env
 
-# Rerun with force sync
-FORCE_SECRET_SYNC=1 ./bootstrap.sh
+# Rerun to push updated secrets (add --deploy to publish remotely)
+./bootstrap.sh
+./bootstrap.sh --deploy
 ```
 
 ### Scenario 3: New Product Added
@@ -321,4 +263,4 @@ wrangler d1 delete <db-name>
 
 ### Secret Sync Skipped When Value Changed
 **Symptom:** Updated secret in `.env` but Worker still has old value
-**Fix:** Use `FORCE_SECRET_SYNC=1` to override cache
+**Fix:** Rerun `./bootstrap.sh` (and `./bootstrap.sh --deploy` if publishing) to push the new secret values

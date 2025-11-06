@@ -29,14 +29,6 @@ resolve_stripe_secret() {
   esac
 
   if [[ -z "$candidate" ]]; then
-    if is_dry_run; then
-      STRIPE_SECRET_KEY="sk_${mode}_dry_run_placeholder"
-      STRIPE_SECRET_SOURCE="dry-run placeholder"
-      STRIPE_MODE="$mode"
-      export STRIPE_SECRET_KEY STRIPE_MODE
-      log_warn "Stripe secret key missing for mode '$mode'; using placeholder (dry-run)."
-      return
-    fi
     log_error "Stripe secret key not configured. Set STRIPE_SECRET_KEY or ${source}."
     exit 1
   fi
@@ -74,16 +66,15 @@ provision_stripe_products() {
     return
   fi
 
+  if [[ "${BOOTSTRAP_DEPLOY:-0}" != "1" ]]; then
+    log_info "Local mode: skipping Stripe product reconciliation"
+    return
+  fi
+
   local products_json
   products_json=$(parse_stripe_products)
   if [[ -z "$products_json" || "$products_json" == "[]" ]]; then
     log_warn "No STRIPE_PRODUCTS configured; skipping Stripe provisioning"
-    return
-  fi
-
-  if is_dry_run; then
-    log_info "[dry-run] Would reconcile Stripe products: $products_json"
-    STRIPE_PRODUCT_IDS="[]"
     return
   fi
 
@@ -179,10 +170,8 @@ ensure_stripe_webhook() {
     "invoice.payment_failed"
   )
 
-  if is_dry_run; then
-    STRIPE_WEBHOOK_ENDPOINT_ID="dry-run-webhook"
-    STRIPE_WEBHOOK_SECRET="whsec_dry_run"
-    log_info "[dry-run] Would reconcile Stripe webhook at $target_url"
+  if [[ "${BOOTSTRAP_DEPLOY:-0}" != "1" ]]; then
+    log_info "Local mode: skipping Stripe webhook reconciliation"
     return
   fi
 

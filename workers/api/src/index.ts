@@ -20,6 +20,9 @@ export interface Env {
   EXPO_PUBLIC_LOGTO_APP_ID?: string;
   EXPO_PUBLIC_API_RESOURCE?: string;
   EXPO_PUBLIC_LOGTO_POST_LOGOUT_REDIRECT_URI?: string;
+  EXPO_PUBLIC_LOGTO_REDIRECT_URI?: string;
+  EXPO_PUBLIC_LOGTO_REDIRECT_URI_LOCAL?: string;
+  EXPO_PUBLIC_LOGTO_REDIRECT_URI_PROD?: string;
   EXPO_PUBLIC_WORKER_ORIGIN?: string;
   ASSETS?: AssetFetcher;
 }
@@ -45,7 +48,7 @@ const textEncoder = new TextEncoder();
 
 const STATIC_ASSET_PREFIXES = ["/_expo/", "/assets/"];
 const STATIC_ASSET_PATHS = new Set(["/favicon.ico", "/index.html", "/manifest.json"]);
-const SPA_EXTRA_ROUTES = ["/login", "/payments", "/callback", "/logout"];
+const SPA_EXTRA_ROUTES = ["/", "/pricing", "/contact", "/callback", "/app"];
 const MARKETING_ROUTE_PREFIX = "/marketing/";
 
 type RuntimeEnvPayload = {
@@ -54,6 +57,10 @@ type RuntimeEnvPayload = {
   apiResource: string | null;
   postLogoutRedirectUri: string | null;
   workerOrigin: string | null;
+  workerOriginLocal: string | null;
+  logtoRedirectUri: string | null;
+  logtoRedirectUriLocal: string | null;
+  logtoRedirectUriProd: string | null;
 };
 
 function isStaticAssetPath(pathname: string): boolean {
@@ -162,38 +169,32 @@ async function serveAppShell(request: Request, env: Env): Promise<Response | nul
       headers.set("Cache-Control", "no-store, max-age=0");
     }
 
-    let body: BodyInit | null = response.body;
-
     try {
-      const payload = resolveRuntimeEnvPayload(env);
-      if (
-        payload.logtoEndpoint ||
-        payload.logtoAppId ||
-        payload.apiResource ||
-        payload.postLogoutRedirectUri ||
-        payload.workerOrigin
-      ) {
-        const html = await response.clone().text();
-        const injected = injectRuntimeEnv(html, payload);
-        body = injected;
-      }
+      const html = await response.text();
+      const payload = resolveRuntimeEnvPayload(env, request);
+      const injected = injectRuntimeEnv(html, payload);
+
+      return new Response(injected, {
+        status: response.status,
+        statusText: response.statusText,
+        headers,
+      });
     } catch (error) {
       console.warn("Failed to inject runtime env", error);
-      body = response.body;
+      return new Response(response.body, {
+        status: response.status,
+        statusText: response.statusText,
+        headers,
+      });
     }
-
-    return new Response(body, {
-      status: response.status,
-      statusText: response.statusText,
-      headers,
-    });
   } catch (error) {
     console.warn("Failed to serve app shell", error);
     return null;
   }
 }
 
-function resolveRuntimeEnvPayload(env: Env): RuntimeEnvPayload {
+function resolveRuntimeEnvPayload(env: Env, request: Request): RuntimeEnvPayload {
+  const { origin: requestOrigin } = new URL(request.url);
   return {
     logtoEndpoint:
       env.EXPO_PUBLIC_LOGTO_ENDPOINT ?? env.LOGTO_ENDPOINT ?? null,
@@ -202,13 +203,29 @@ function resolveRuntimeEnvPayload(env: Env): RuntimeEnvPayload {
     apiResource:
       env.EXPO_PUBLIC_API_RESOURCE ?? env.LOGTO_API_RESOURCE ?? null,
     postLogoutRedirectUri: env.EXPO_PUBLIC_LOGTO_POST_LOGOUT_REDIRECT_URI ?? null,
-    workerOrigin: resolveWorkerOrigin(env),
+    workerOrigin: resolveWorkerOrigin(env, requestOrigin),
+    workerOriginLocal: env.EXPO_PUBLIC_WORKER_ORIGIN_LOCAL ?? null,
+    logtoRedirectUri: env.EXPO_PUBLIC_LOGTO_REDIRECT_URI ?? null,
+    logtoRedirectUriLocal: env.EXPO_PUBLIC_LOGTO_REDIRECT_URI_LOCAL ?? null,
+    logtoRedirectUriProd: env.EXPO_PUBLIC_LOGTO_REDIRECT_URI_PROD ?? null,
   };
 }
 
-function resolveWorkerOrigin(env: Env): string | null {
-  if (env.EXPO_PUBLIC_WORKER_ORIGIN) {
-    return env.EXPO_PUBLIC_WORKER_ORIGIN;
+function resolveWorkerOrigin(env: Env, requestOrigin?: string): string | null {
+  const configured = env.EXPO_PUBLIC_WORKER_ORIGIN;
+  if (requestOrigin) {
+    const host = new URL(requestOrigin).hostname;
+    if (host === 'localhost' || host === '127.0.0.1') {
+      return requestOrigin;
+    }
+  }
+
+  if (configured) {
+    return configured;
+  }
+
+  if (requestOrigin) {
+    return requestOrigin;
   }
 
   const landing = env.PROJECT_DOMAIN ? extractOriginFromUrl(env.PROJECT_DOMAIN) : null;
@@ -235,7 +252,11 @@ function injectRuntimeEnv(html: string, payload: RuntimeEnvPayload): string {
           logtoAppId: env.logtoAppId,
           apiResource: env.apiResource,
           logtoPostLogoutRedirectUri: env.postLogoutRedirectUri,
-          workerOrigin: env.workerOrigin
+          workerOrigin: env.workerOrigin,
+          workerOriginLocal: env.workerOriginLocal,
+          logtoRedirectUri: env.logtoRedirectUri,
+          logtoRedirectUriLocal: env.logtoRedirectUriLocal,
+          logtoRedirectUriProd: env.logtoRedirectUriProd,
         };
         const event = typeof CustomEvent === 'function'
           ? new CustomEvent('justevery:env-ready', { detail })
@@ -282,14 +303,14 @@ const Worker: ExportedHandler<Env> = {
     }
 
     switch (pathname) {
-      case "/":
-        return htmlResponse(landingPageHtml(env));
       case "/checkout":
         return jsonResponse({
           ok: true,
           message: 'Checkout placeholder',
           hint: 'Configure Stripe Checkout and redirect here',
         });
+      case "/app/shell":
+        return htmlResponse(workerShellHtml(env));
       case "/api/session":
         return handleSessionApi(request, env);
       case "/api/me":
@@ -304,6 +325,12 @@ const Worker: ExportedHandler<Env> = {
         return handleAssetsDelete(request, env);
       case "/api/stripe/products":
         return handleStripeProducts(env);
+      case "/api/status":
+        return handleStatus(request, env);
+      case "/api/subscription":
+        return handleSubscription(request, env);
+      case "/api/runtime-env":
+        return jsonResponse(resolveRuntimeEnvPayload(env, request));
       case "/webhook/stripe":
         return handleStripeWebhook(request, env);
       default:
@@ -836,6 +863,31 @@ async function handleStripeProducts(env: Env): Promise<Response> {
   }
 }
 
+async function handleStatus(request: Request, env: Env): Promise<Response> {
+  const timestamp = new Date().toISOString();
+  const region = (request as Request & { cf?: { colo?: string } }).cf?.colo ?? null;
+  return jsonResponse({ status: 'ok', timestamp, region, workerOrigin: env.EXPO_PUBLIC_WORKER_ORIGIN ?? env.PROJECT_DOMAIN ?? null });
+}
+
+async function handleSubscription(request: Request, env: Env): Promise<Response> {
+  const auth = await requireAuthenticatedSession(request, env);
+  if (!auth.ok) {
+    return authFailureResponse(auth);
+  }
+
+  const payload = {
+    subscription: {
+      active: false,
+      plan: null,
+      expiresAt: null,
+    },
+    userId: auth.session.userId,
+    message: 'Subscription API stub — replace with Stripe Billing integration.',
+  };
+
+  return jsonResponse(payload);
+}
+
 async function handleStripeWebhook(request: Request, env: Env): Promise<Response> {
   if (request.method !== "POST") {
     return jsonResponse({ error: "Method Not Allowed" }, 405);
@@ -943,6 +995,41 @@ function landingPageHtml(env: Env): string {
   <footer>Need the dashboard? Jump to <a href="${appUrl}">${appUrl}</a> or visit <a href="${landingUrl}">${landingUrl}</a>.</footer>
 </main>
 </body>
+</html>`;
+}
+
+function workerShellHtml(env: Env): string {
+  const origin = env.EXPO_PUBLIC_WORKER_ORIGIN ?? env.PROJECT_DOMAIN ?? '';
+  const appUrl = env.APP_BASE_URL ?? '/app';
+  return `<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Worker Shell</title>
+    <style>
+      body { margin: 0; font-family: system-ui, sans-serif; background: #0f172a; color: #f8fafc; }
+      main { max-width: 640px; margin: 0 auto; padding: 48px 24px; display: grid; gap: 16px; }
+      pre { background: rgba(15, 23, 42, 0.6); padding: 16px; border-radius: 12px; overflow: auto; }
+      a { color: #38bdf8; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Cloudflare Worker Shell</h1>
+      <p>This helper lives inside the deployed Worker so you can verify runtime configuration and open the dashboard from the same origin.</p>
+      <ul>
+        <li>Worker origin: <code>${origin || 'not configured'}</code></li>
+        <li>App URL: <code>${appUrl}</code></li>
+      </ul>
+      <p><a href="${origin.replace(/\/+$/, '')}${appUrl}" target="_blank" rel="noopener">Open /app in new tab</a></p>
+      <pre>${JSON.stringify({
+        logtoEndpoint: env.LOGTO_ENDPOINT ?? env.EXPO_PUBLIC_LOGTO_ENDPOINT ?? null,
+        apiResource: env.LOGTO_API_RESOURCE ?? env.EXPO_PUBLIC_API_RESOURCE ?? null,
+        workerOrigin: origin || null,
+      }, null, 2)}</pre>
+    </main>
+  </body>
 </html>`;
 }
 

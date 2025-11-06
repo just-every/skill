@@ -26,76 +26,51 @@ Populate `.env` using `.env.example` as a template. At minimum you must define:
 - Optional overrides: `LOGTO_ENDPOINT`, `LOGTO_APPLICATION_ID`, `LOGTO_APPLICATION_SECRET`
 - `STRIPE_PRODUCTS` (shorthand or JSON array) and optionally `STRIPE_SECRET_KEY`
 
-Set `DRY_RUN=1` to exercise the script without creating resources.
-
 ## Running the Script
 
 ```bash
-# Preview without side effects
-DRY_RUN=1 ./bootstrap.sh
-
-# Execute against Cloudflare and Stripe (first run)
+# Provision cloud resources and start a local worker dev server
 ./bootstrap.sh
 
-# Rerun safely - will reuse all existing resources
-./bootstrap.sh
+# Provision resources and deploy the Worker to Cloudflare
+./bootstrap.sh --deploy
 
-# Deploy the Worker once resources exist
+# Deploy the Worker separately (after bootstrap ran)
 npx wrangler deploy --config workers/api/wrangler.toml
-```
-
-### Idempotency Flags
-
-The following flags control rerun behavior:
-
-| Flag | Default | Purpose |
-|------|---------|---------|
-| `DRY_RUN` | `0` | Preview actions without creating/updating resources |
-| `SYNC_SECRETS` | `1` | Set to `0` to skip all secret synchronization |
-| `FORCE_SECRET_SYNC` | `0` | Set to `1` to force re-sync all secrets (use when values changed) |
-| `STRIPE_PRUNE_DUPLICATE_WEBHOOKS` | `0` | Set to `1` to automatically delete duplicate webhook endpoints |
-
-**Examples:**
-
-```bash
-# Force secret re-sync after updating values in .env
-FORCE_SECRET_SYNC=1 ./bootstrap.sh
-
-# Clean up duplicate Stripe webhook endpoints
-STRIPE_PRUNE_DUPLICATE_WEBHOOKS=1 ./bootstrap.sh
-
-# Skip secret sync entirely (for faster reruns)
-SYNC_SECRETS=0 ./bootstrap.sh
 ```
 
 ## How Bootstrap Works
 
-### Idempotent Resource Provisioning
+### Local vs Deploy Modes
 
-On every run, `bootstrap.sh` reconciles resources to ensure they exist and match configuration:
+- `./bootstrap.sh` (local mode) updates Logto metadata, templates Wrangler config, runs **local** D1 migrations, writes `.env.local.generated`, and starts the Worker on `http://127.0.0.1:8787`.
+- `./bootstrap.sh --deploy` includes everything above **plus** Cloudflare/Stripe synchronization and a `wrangler deploy`.
+
+### Idempotent Resource Provisioning (deploy mode)
+
+When `--deploy` is used, the script reconciles remote resources to ensure they exist and match configuration:
 
 1. **Stripe Products**: Queries by `metadata.project_id`, reuses matching products and prices
 2. **Stripe Webhook**: Reconciles single endpoint by URL, updates events if needed
 3. **D1 Database**: Verifies cached ID from `.env.local.generated`, falls back to name search
 4. **R2 Bucket**: Verifies cached name from `.env.local.generated`, falls back to name search
-5. **Worker Secrets**: Skips sync for already-synced secrets (unless `FORCE_SECRET_SYNC=1`)
+5. **Worker Secrets**: Re-synced on every deploy
 
 ### Task Flow
 
 1. Ensures the `wrangler`, `jq`, `curl`, `sed`, and `node` commands are available.
 2. Loads environment variables from `/home/azureuser/.env`, then `./.env`, and finally `./.env.local.generated` (if present).
 3. Verifies mandatory configuration values (including `PROJECT_DOMAIN` and `APP_URL`).
-4. **Reconciles** Cloudflare D1 and R2 resources (reuses existing or creates new).
+4. **Reconciles** Cloudflare D1 and R2 resources (deploy mode only).
 5. Updates `workers/api/wrangler.toml` from the template, storing a backup copy.
-6. Confirms the Worker configuration (`wrangler.toml`) is up to date; `wrangler deploy` later applies the `[[routes]]` block and manages the custom domain automatically (requires DNS scope on your Wrangler login or API token).
-7. Runs database migrations via `node workers/api/scripts/migrate.js`.
-8. Seeds the `projects` table with the default project row (upserts on conflict).
-9. **Reconciles** Stripe products + prices based on `STRIPE_PRODUCTS` (reuses by metadata).
-10. **Reconciles** Stripe webhook endpoint for `${PROJECT_DOMAIN}/webhook/stripe` (single endpoint per URL).
-11. Syncs Worker secrets (skips already-synced secrets unless `FORCE_SECRET_SYNC=1`).
-12. Uploads a placeholder `welcome.txt` asset into the configured R2 bucket.
-13. Writes `.env.local.generated` containing resolved resource identifiers, Stripe outputs, and
-    the `EXPO_PUBLIC_*` values consumed by the Expo placeholder.
+6. Confirms the Worker configuration (`wrangler.toml`) is up to date; in local mode this supports `npm run dev:worker`, while deploy mode later claims routes via `wrangler deploy`.
+7. Runs database migrations via `node workers/api/scripts/migrate.js` (remote migrations only when `--deploy` is set).
+8. Seeds the `projects` table (remote upsert in deploy mode, local preview upsert in both modes).
+9. **Reconciles** Stripe products + prices based on `STRIPE_PRODUCTS` (deploy mode only; reuses by metadata).
+10. **Reconciles** Stripe webhook endpoint for `${PROJECT_DOMAIN}/webhook/stripe` (deploy mode only).
+11. Syncs Worker secrets (deploy mode only).
+12. Uploads a placeholder `welcome.txt` asset into the configured R2 bucket (deploy mode only).
+13. Writes `.env.local.generated` containing resolved resource identifiers, Stripe outputs, and the `EXPO_PUBLIC_*` values consumed by the Expo placeholder.
 
 After bootstrap completes, source `.env.local.generated` (for example `set -a; source ./.env.local.generated; set +a`) before running Expo so the public runtime vars are available to `apps/web`.
 
@@ -199,7 +174,7 @@ For auditing purposes, commit `.env.local.generated` to secrets management, not 
 | **Stripe Webhook** | Reused by URL | Query Stripe API for matching endpoints |
 | **D1 Database** | Reused by cached ID or name | Check `.env.local.generated` first, verify remotely |
 | **R2 Bucket** | Reused by cached name | Check `.env.local.generated` first, verify remotely |
-| **Worker Secrets** | Skipped if already synced | Check `SYNCED_SECRET_NAMES` in `.env.local.generated` |
+| **Worker Secrets** | Re-synced each run | `wrangler secret put` writes the latest values |
 | **Wrangler Config** | Regenerated from template | Always updated |
 | **Migrations** | Rerun (idempotent SQL) | Drizzle tracks applied migrations |
 | **Project Seed** | Upserted | `ON CONFLICT(id) DO UPDATE` |
@@ -222,5 +197,4 @@ See [BOOTSTRAP_VALIDATION.md](./BOOTSTRAP_VALIDATION.md) for:
 ./bootstrap.sh
 
 # Dry-run after successful run - should show zero create operations
-DRY_RUN=1 ./bootstrap.sh 2>&1 | grep -c "Would create"  # Should output: 0
 ```

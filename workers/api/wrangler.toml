@@ -23,6 +23,10 @@ EXPO_PUBLIC_LOGTO_ENDPOINT = "https://login.justevery.com"
 EXPO_PUBLIC_LOGTO_APP_ID = "2f8oaugvvlmg64p7vqyqw"
 EXPO_PUBLIC_API_RESOURCE = "https://demo.justevery.com/api"
 EXPO_PUBLIC_LOGTO_POST_LOGOUT_REDIRECT_URI = "https://demo.justevery.com"
+EXPO_PUBLIC_LOGTO_REDIRECT_URI = "justevery://callback"
+EXPO_PUBLIC_LOGTO_REDIRECT_URI_LOCAL = "http://localhost:19006/callback"
+EXPO_PUBLIC_LOGTO_REDIRECT_URI_PROD = "https://demo.justevery.com/callback"
+EXPO_PUBLIC_WORKER_ORIGIN_LOCAL = "http://127.0.0.1:8787"
 
 # --- Application URLs ---
 PROJECT_DOMAIN = "https://demo.justevery.com"

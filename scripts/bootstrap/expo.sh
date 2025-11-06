@@ -23,8 +23,20 @@ export_expo_runtime_vars() {
   fi
   [[ -n "${EXPO_PUBLIC_API_RESOURCE:-}" ]] && export EXPO_PUBLIC_API_RESOURCE
 
+  if [[ -z "${EXPO_PUBLIC_LOGTO_REDIRECT_URI_LOCAL:-}" ]]; then
+    EXPO_PUBLIC_LOGTO_REDIRECT_URI_LOCAL="http://127.0.0.1:8787/callback"
+    log_info "Defaulting EXPO_PUBLIC_LOGTO_REDIRECT_URI_LOCAL to ${EXPO_PUBLIC_LOGTO_REDIRECT_URI_LOCAL}"
+  fi
+  export EXPO_PUBLIC_LOGTO_REDIRECT_URI_LOCAL
+
+  if [[ -z "${EXPO_PUBLIC_LOGTO_REDIRECT_URI_PROD:-}" ]]; then
+    EXPO_PUBLIC_LOGTO_REDIRECT_URI_PROD="https://${PROJECT_ID}.justevery.com/callback"
+    log_info "Defaulting EXPO_PUBLIC_LOGTO_REDIRECT_URI_PROD to ${EXPO_PUBLIC_LOGTO_REDIRECT_URI_PROD}"
+  fi
+  export EXPO_PUBLIC_LOGTO_REDIRECT_URI_PROD
+
   if [[ -z "${EXPO_PUBLIC_LOGTO_REDIRECT_URI:-}" ]]; then
-    EXPO_PUBLIC_LOGTO_REDIRECT_URI="justevery://callback"
+    EXPO_PUBLIC_LOGTO_REDIRECT_URI="${EXPO_PUBLIC_LOGTO_REDIRECT_URI_PROD}"
     log_info "Defaulting EXPO_PUBLIC_LOGTO_REDIRECT_URI to ${EXPO_PUBLIC_LOGTO_REDIRECT_URI}"
   fi
   export EXPO_PUBLIC_LOGTO_REDIRECT_URI
@@ -67,16 +79,17 @@ export_expo_runtime_vars() {
   else
     export EXPO_PUBLIC_WORKER_ORIGIN
   fi
+
+  if [[ -z "${EXPO_PUBLIC_WORKER_ORIGIN_LOCAL:-}" ]]; then
+    EXPO_PUBLIC_WORKER_ORIGIN_LOCAL="http://127.0.0.1:8787"
+    log_info "Defaulting EXPO_PUBLIC_WORKER_ORIGIN_LOCAL to ${EXPO_PUBLIC_WORKER_ORIGIN_LOCAL}"
+  fi
+  export EXPO_PUBLIC_WORKER_ORIGIN_LOCAL
 }
 
 build_web_bundle() {
   if [[ "${BUILD_WEB_BUNDLE:-1}" != "1" ]]; then
     log_info "Skipping Expo web bundle build (BUILD_WEB_BUNDLE=${BUILD_WEB_BUNDLE:-0})"
-    return
-  fi
-
-  if is_dry_run; then
-    log_info "[dry-run] pnpm --filter @justevery/web build"
     return
   fi
 

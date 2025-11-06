@@ -11,7 +11,7 @@
 
 ### Summary of Executed Steps
 - **Environment prep:** Populated `.env` with `PROJECT_ID=demo`, `PROJECT_DOMAIN=https://demo.justevery.com`, `APP_URL=https://demo.justevery.com/app`, `LOGTO_MANAGEMENT_ENDPOINT=https://demo.logto.app`, `LOGTO_MANAGEMENT_AUTH_BASIC=<base64>`, and `LOGTO_API_RESOURCE=https://demo.justevery.com/api`.
-- **Bootstrap (optional):** `DRY_RUN=1 ./bootstrap.sh` confirmed Cloudflare resources without mutating remote state. KV provisioning is no longer required.
+- **Bootstrap (optional):** `./bootstrap.sh --deploy` provisions Cloudflare resources and publishes the Worker. KV provisioning is no longer required.
 - **Unit tests:** `npm run test --workspace workers/api` — all vitest suites pass using mocked Logto JWT verification.
 - **Expo web:** `npm run dev:web` renders the Logto sign-in screen. After authenticating, `/app` shows server-verified session details.
 - **Worker smoke tests:**

@@ -4,8 +4,7 @@ set -euo pipefail
 ROOT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 PATH="$ROOT_DIR/node_modules/.bin:$PATH"
 
-DRY_RUN="${DRY_RUN:-0}"
-SYNC_SECRETS="${SYNC_SECRETS:-1}"
+BOOTSTRAP_DEPLOY=0
 GENERATED_ENV_FILE="$ROOT_DIR/.env.local.generated"
 
 source "$ROOT_DIR/scripts/bootstrap/common.sh"
@@ -14,6 +13,31 @@ source "$ROOT_DIR/scripts/bootstrap/logto.sh"
 source "$ROOT_DIR/scripts/bootstrap/stripe.sh"
 source "$ROOT_DIR/scripts/bootstrap/expo.sh"
 source "$ROOT_DIR/scripts/bootstrap/runtime.sh"
+
+parse_args() {
+  local arg
+  while [[ $# -gt 0 ]]; do
+    arg="$1"
+    case "$arg" in
+      --deploy)
+        BOOTSTRAP_DEPLOY=1
+        shift
+        ;;
+      --help|-h)
+        cat <<'USAGE'
+Usage: ./bootstrap.sh [--deploy]
+
+  --deploy   Build and deploy the worker to Cloudflare after local setup
+USAGE
+        exit 0
+        ;;
+      *)
+        log_error "Unknown option: $arg"
+        exit 1
+        ;;
+    esac
+  done
+}
 
 bootstrap_load_env() {
   load_env_file "$HOME/.env"
@@ -63,7 +87,7 @@ bootstrap_generate_env() {
 }
 
 run_bootstrap() {
-  log_info "Bootstrapping justevery stack (dry-run=$DRY_RUN)"
+  log_info "Bootstrapping justevery stack (deploy=$BOOTSTRAP_DEPLOY)"
 
   bootstrap_requirements
   bootstrap_load_env
@@ -81,19 +105,41 @@ run_bootstrap() {
   ensure_logto_api_resource
   ensure_logto_m2m_application
 
-  ensure_cloudflare_auth
-  ensure_d1
-  ensure_r2
+  if [[ "${BOOTSTRAP_DEPLOY}" == "1" ]]; then
+    ensure_cloudflare_auth
+    ensure_d1
+    ensure_r2
+  else
+    log_info "Local mode: skipping Cloudflare resource reconciliation (D1/R2)."
+  fi
+
   update_wrangler_config
   run_migrations
   seed_project
-  provision_stripe_products
-  ensure_stripe_webhook
-  sync_worker_secrets
-  upload_r2_placeholder
+
+  if [[ "${BOOTSTRAP_DEPLOY}" == "1" ]]; then
+    provision_stripe_products
+    ensure_stripe_webhook
+    sync_worker_secrets
+    upload_r2_placeholder
+  else
+    log_info "Local mode: skipping Stripe provisioning and Worker secret sync."
+  fi
   build_web_bundle
   bootstrap_generate_env
-  deploy_worker
+
+  if [[ "${BOOTSTRAP_DEPLOY}" == "1" ]]; then
+    deploy_worker
+  else
+    log_info "Skipping remote deploy; local worker only."
+    if lsof -ti tcp:8787 >/dev/null 2>&1; then
+      log_warn "Port 8787 is already in use; not starting an additional dev server."
+      log_warn "If you want the worker to serve the app locally, stop the existing process or run 'npm run dev:worker' yourself."
+    else
+      log_info "Launching local worker dev server on http://127.0.0.1:8787. Press Ctrl+C to stop it."
+      (cd "$ROOT_DIR" && npm run dev:worker)
+    fi
+  fi
 
   post_deploy_guidance
 
@@ -101,4 +147,5 @@ run_bootstrap() {
   log_info "Review ${GENERATED_ENV_FILE#$ROOT_DIR/} for generated identifiers."
 }
 
-run_bootstrap "$@"
+parse_args "$@"
+run_bootstrap

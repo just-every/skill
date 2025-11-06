@@ -17,10 +17,6 @@ log_error() {
   echo "${RED}[error]${RESET} $*" >&2
 }
 
-is_dry_run() {
-  [[ "${DRY_RUN:-0}" == "1" ]]
-}
-
 to_lower() {
   printf '%s' "$1" | tr '[:upper:]' '[:lower:]'
 }
@@ -63,12 +59,6 @@ print_env_line() {
 ensure_var() {
   local name=$1
   if [[ -z "${!name:-}" ]]; then
-    if is_dry_run; then
-      local placeholder="dry-run-$(to_lower "$name")"
-      log_warn "Environment variable '$name' missing; using placeholder '$placeholder' (dry-run)."
-      export "$name"="$placeholder"
-      return
-    fi
     log_error "Environment variable '$name' must be set before running bootstrap."
     exit 1
   fi
@@ -79,19 +69,10 @@ escape_sed() {
 }
 
 run_cmd() {
-  if is_dry_run; then
-    log_info "[dry-run] $*"
-    return 0
-  fi
   "$@"
 }
 
 run_cmd_capture() {
-  if is_dry_run; then
-    log_info "[dry-run] $*"
-    echo "{}"
-    return 0
-  fi
   "$@"
 }
 

@@ -13,30 +13,39 @@ This project ships a Cloudflare Worker that fronts authentication (Logto), billi
 ## Bootstrap workflow
 
 ```bash
-# Dry run (no API mutations, helpful for verification)
-DRY_RUN=1 ./bootstrap.sh
-
-# Full provisioning
+# Local setup (reconcile config and start the Worker on http://127.0.0.1:8787)
 ./bootstrap.sh
+
+# Full provisioning + remote deploy
+./bootstrap.sh --deploy
 ```
 
-Key steps performed (non dry-run):
+### Local mode (`./bootstrap.sh`)
 
-1. Authenticates Wrangler (`wrangler whoami`) — requires a prior `wrangler login` or API token with appropriate scopes.
-2. Ensures Cloudflare D1 database and R2 bucket exist (creates them if missing).
-3. Templates `workers/api/wrangler.toml` with project identifiers, bindings, and service variables (including `[[routes]]` for custom domains).
-4. Runs D1 migrations and seeds the `projects` table with the landing/app URLs.
-5. Seeds Stripe products (if Stripe credentials and `STRIPE_PRODUCTS` are supplied).
-6. Creates a Stripe webhook at `${PROJECT_DOMAIN}/webhook/stripe` and stores `STRIPE_WEBHOOK_SECRET`.
-7. Pushes Worker secrets (`LOGTO_APPLICATION_ID`, `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`) via `wrangler secret put` unless `SYNC_SECRETS=0`.
-8. Uploads a placeholder asset to R2.
-9. Writes `.env.local.generated` with resolved identifiers, secrets, and Stripe outputs.
+- Loads env vars, derives defaults, and updates Logto application metadata (redirect URIs include both local and production entries).
+- Templates `workers/api/wrangler.toml` and builds the Expo bundle.
+- Runs D1 migrations against the **local preview** database and seeds the default project row locally.
+- Writes `.env.local.generated` with resolved identifiers and Stripe metadata.
+- Launches `npm run dev:worker` on `http://127.0.0.1:8787` (unless the port is already in use).
+- Skips Cloudflare D1/R2 reconciliation, Stripe provisioning, and Worker secret sync — no remote mutations occur.
 
-Dry runs skip remote mutations, print `[dry-run] ...` log lines for each action, and still generate `.env.local.generated` using placeholder identifiers so you can inspect templating.
+### Deploy mode (`./bootstrap.sh --deploy`)
+
+In addition to the local steps above, deploy mode:
+
+1. Authenticates Wrangler (`wrangler whoami`).
+2. Ensures Cloudflare D1 and R2 resources exist (creates them if missing).
+3. Runs D1 migrations and seeds the `projects` table **remotely**.
+4. Reconciles Stripe products and webhook endpoints (requires `STRIPE_SECRET_KEY`).
+5. Pushes Worker secrets (`LOGTO_APPLICATION_ID`, `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`) via `wrangler secret put`.
+6. Uploads a placeholder asset to R2.
+7. Runs `wrangler deploy` to publish the Worker and claim routes.
+
+After a deploy, source `.env.local.generated` (or commit relevant identifiers under secrets management) so subsequent local runs reuse cached resource IDs.
 
 ## Managing secrets
 
-Bootstrap automatically syncs the key Worker secrets unless you export `SYNC_SECRETS=0`. For manual rotations or additional environments, use Wrangler (add `--env production` if you maintain multiple environments):
+Bootstrap automatically syncs the key Worker secrets. For manual rotations or additional environments, use Wrangler (add `--env production` if you maintain multiple environments):
 
 ```bash
 wrangler secret put LOGTO_APPLICATION_ID --config workers/api/wrangler.toml
@@ -140,7 +149,7 @@ Keep cloud credentials fresh and update GitHub Secrets after each rotation:
 
 ## Troubleshooting
 
-- **Missing routes** – Rerun bootstrap (non dry-run) to recreate the Worker routes. Confirm `CLOUDFLARE_ZONE_ID` and API token scopes.
+- **Missing routes** – Rerun `./bootstrap.sh --deploy` to recreate the Worker routes. Confirm `CLOUDFLARE_ZONE_ID` and API token scopes.
 - **403s when calling Cloudflare API** – Use an API token with the “Workers Routes: Edit” permission or fall back to email/API key pairs.
 - **Logto token rejected** – Confirm the frontend is sending a current access token (via the Logto React SDK) and that the Worker bindings (`LOGTO_ISSUER`, `LOGTO_JWKS_URI`, `LOGTO_API_RESOURCE`) match the tenant configuration.
 - **Stripe webhook failures** – Confirm `STRIPE_SECRET_KEY` matches the environment (test vs live) and redeploy after bootstrap refreshes `STRIPE_WEBHOOK_SECRET`.

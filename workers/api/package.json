@@ -4,7 +4,7 @@
   "private": true,
   "main": "src/index.ts",
   "scripts": {
-    "dev": "wrangler dev --config wrangler.toml",
+    "dev": "wrangler dev --config wrangler.toml --port 8787",
     "deploy": "wrangler deploy --config wrangler.toml",
     "typecheck": "tsc --project tsconfig.json --noEmit",
     "migrate": "node scripts/migrate.js",

@@ -14,13 +14,6 @@ mint_logto_management_token() {
   local token_url="${endpoint}/oidc/token"
   local resource="${endpoint}/api"
 
-  if is_dry_run; then
-    LOGTO_MANAGEMENT_TOKEN="dry-run-logto-token"
-    export LOGTO_MANAGEMENT_TOKEN
-    log_info "[dry-run] Would mint Logto management token via ${token_url}"
-    return
-  fi
-
   log_info "Minting Logto management token"
 
   local response
@@ -81,21 +74,24 @@ build_logto_application_payload() {
   local display_name=$1
   local include_type=${2:-0}
   local description=$3
-  local redirect_uri=$4
-  local logout_uri=$5
+  local redirect_uris_json=$4
+  local logout_uris_json=$5
+
+  [[ -z "$redirect_uris_json" ]] && redirect_uris_json='[]'
+  [[ -z "$logout_uris_json" ]] && logout_uris_json='[]'
 
   jq -nc \
     --arg name "$display_name" \
     --arg desc "$description" \
-    --arg redirect "$redirect_uri" \
-    --arg logout "$logout_uri" \
+    --argjson redirectUris "$redirect_uris_json" \
+    --argjson logoutUris "$logout_uris_json" \
     --arg include_type "$include_type" \
     '{
       name: $name,
       description: $desc,
       oidcClientMetadata: {
-        redirectUris: [$redirect],
-        postLogoutRedirectUris: [$logout]
+        redirectUris: $redirectUris,
+        postLogoutRedirectUris: $logoutUris
       },
       customClientMetadata: {
         alwaysIssueRefreshToken: true,
@@ -110,11 +106,11 @@ reconcile_logto_application_metadata() {
   local apps_url=$2
   local display_name=$3
   local description=$4
-  local redirect_uri=$5
-  local logout_uri=$6
+  local redirect_uris_json=$5
+  local logout_uris_json=$6
 
   local expected_payload existing_response
-  expected_payload=$(build_logto_application_payload "$display_name" 0 "$description" "$redirect_uri" "$logout_uri")
+  expected_payload=$(build_logto_application_payload "$display_name" 0 "$description" "$redirect_uris_json" "$logout_uris_json")
 
   if ! existing_response=$(run_cmd_capture curl -sS --fail-with-body -X GET \
     -H "Authorization: Bearer ${LOGTO_MANAGEMENT_TOKEN}" \
@@ -131,11 +127,31 @@ reconcile_logto_application_metadata() {
   current_description=$(jq -r '.description // empty' <<<"$existing_response" 2>/dev/null || true)
   [[ "$current_description" != "$description" ]] && patch_required=1
 
-  has_redirect=$(jq --arg redirect "$redirect_uri" '.oidcClientMetadata.redirectUris // [] | index($redirect)' <<<"$existing_response" 2>/dev/null || echo "null")
-  [[ "$has_redirect" == "null" ]] && patch_required=1
+  local redirect_missing=0
+  if [[ -n "$redirect_uris_json" ]]; then
+    while IFS= read -r uri; do
+      [[ -z "$uri" ]] && continue
+      has_redirect=$(jq --arg redirect "$uri" '.oidcClientMetadata.redirectUris // [] | index($redirect)' <<<"$existing_response" 2>/dev/null || echo "null")
+      if [[ "$has_redirect" == "null" ]]; then
+        redirect_missing=1
+        break
+      fi
+    done < <(jq -r '.[]? // empty' <<<"${redirect_uris_json:-[]}" 2>/dev/null || true)
+  fi
+  [[ $redirect_missing -eq 1 ]] && patch_required=1
 
-  has_logout=$(jq --arg logout "$logout_uri" '.oidcClientMetadata.postLogoutRedirectUris // [] | index($logout)' <<<"$existing_response" 2>/dev/null || echo "null")
-  [[ "$has_logout" == "null" ]] && patch_required=1
+  local logout_missing=0
+  if [[ -n "$logout_uris_json" ]]; then
+    while IFS= read -r uri; do
+      [[ -z "$uri" ]] && continue
+      has_logout=$(jq --arg logout "$uri" '.oidcClientMetadata.postLogoutRedirectUris // [] | index($logout)' <<<"$existing_response" 2>/dev/null || echo "null")
+      if [[ "$has_logout" == "null" ]]; then
+        logout_missing=1
+        break
+      fi
+    done < <(jq -r '.[]? // empty' <<<"${logout_uris_json:-[]}" 2>/dev/null || true)
+  fi
+  [[ $logout_missing -eq 1 ]] && patch_required=1
 
   always_issue=$(jq -r '.customClientMetadata.alwaysIssueRefreshToken // empty' <<<"$existing_response" 2>/dev/null || true)
   [[ "$always_issue" != "true" ]] && patch_required=1
@@ -186,18 +202,36 @@ ensure_logto_application() {
     description="Managed for ${PROJECT_NAME} (${PROJECT_ID}) project"
   fi
 
-  local redirect_uri="https://${PROJECT_ID}.justevery.com/callback"
-  local logout_uri="https://${PROJECT_ID}.justevery.com/logout"
+  local redirect_uri_prod="https://${PROJECT_ID}.justevery.com/callback"
+  local logout_uri_prod="https://${PROJECT_ID}.justevery.com/logout"
+  local default_redirect_local="http://localhost:8787/callback"
+  local default_redirect_local_alt="http://127.0.0.1:8787/callback"
+  local default_redirect_metro="http://localhost:19006/callback"
+  local default_redirect_metro_alt="http://127.0.0.1:19006/callback"
 
-  if is_dry_run; then
-    LOGTO_APPLICATION_ID="dry-run-logto-app"
-    export LOGTO_APPLICATION_ID
-    log_info "[dry-run] Would ensure Logto application ${display_name}"
-    return
-  fi
+  local redirect_uris_json logout_uris_json
+  redirect_uris_json=$(printf '%s\n' \
+    "$redirect_uri_prod" \
+    "${EXPO_PUBLIC_LOGTO_REDIRECT_URI_PROD:-}" \
+    "${EXPO_PUBLIC_LOGTO_REDIRECT_URI:-}" \
+    "${EXPO_PUBLIC_LOGTO_REDIRECT_URI_LOCAL:-}" \
+    "$default_redirect_local" \
+    "$default_redirect_local_alt" \
+    "$default_redirect_metro" \
+    "$default_redirect_metro_alt" \
+  | jq -Rsc 'split("\n") | map(select(length > 0)) | unique')
+
+  logout_uris_json=$(printf '%s\n' \
+    "$logout_uri_prod" \
+    "${EXPO_PUBLIC_LOGTO_POST_LOGOUT_REDIRECT_URI:-}" \
+    "http://localhost:8787" \
+    "http://127.0.0.1:8787" \
+    "http://localhost:19006" \
+    "http://127.0.0.1:19006" \
+  | jq -Rsc 'split("\n") | map(select(length > 0)) | unique')
 
   if [[ -n "${LOGTO_APPLICATION_ID:-}" ]]; then
-    if reconcile_logto_application_metadata "$LOGTO_APPLICATION_ID" "$apps_url" "$display_name" "$description" "$redirect_uri" "$logout_uri"; then
+    if reconcile_logto_application_metadata "$LOGTO_APPLICATION_ID" "$apps_url" "$display_name" "$description" "$redirect_uris_json" "$logout_uris_json"; then
       return
     fi
     log_warn "Configured LOGTO_APPLICATION_ID (${LOGTO_APPLICATION_ID}) could not be reconciled; attempting lookup by name"
@@ -227,13 +261,13 @@ ensure_logto_application() {
     LOGTO_APPLICATION_ID="$existing_id"
     export LOGTO_APPLICATION_ID
     log_info "Found existing Logto application ${display_name} (${existing_id})"
-    reconcile_logto_application_metadata "$existing_id" "$apps_url" "$display_name" "$description" "$redirect_uri" "$logout_uri" || true
+    reconcile_logto_application_metadata "$existing_id" "$apps_url" "$display_name" "$description" "$redirect_uris_json" "$logout_uris_json" || true
     return
   fi
 
   log_info "Creating Logto application ${display_name}"
   local payload
-  payload=$(build_logto_application_payload "$display_name" 1 "$description" "$redirect_uri" "$logout_uri")
+  payload=$(build_logto_application_payload "$display_name" 1 "$description" "$redirect_uris_json" "$logout_uris_json")
 
   local create_response
   if ! create_response=$(run_cmd_capture curl -sS --fail-with-body -X POST \

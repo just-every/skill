@@ -29,8 +29,6 @@ ensure_cloudflare_auth() {
     export CLOUDFLARE_ACCOUNT_ID
   fi
 
-  is_dry_run && return
-
   if ! wrangler_cmd whoami >/dev/null 2>&1; then
     log_error "Wrangler is not authenticated. Run 'wrangler login' before executing bootstrap.sh."
     exit 1
@@ -47,11 +45,6 @@ ensure_d1() {
   local name=${CLOUDFLARE_D1_NAME:-"${PROJECT_ID}-d1"}
   D1_DATABASE_NAME="$name"
   log_info "Ensuring D1 database '$name' exists"
-
-  if is_dry_run; then
-    D1_DATABASE_ID="dry-run-${name}"
-    return
-  fi
 
   local list_json existing
   list_json=$(wrangler_d1_list)
@@ -80,11 +73,6 @@ ensure_r2() {
   R2_BUCKET_NAME="$bucket"
   log_info "Ensuring R2 bucket '$bucket' exists"
 
-  if is_dry_run; then
-    R2_BUCKET_ID="$bucket"
-    return
-  fi
-
   local list_output
   list_output=$("${WRANGLER_BASE[@]}" r2 bucket list 2>/dev/null || echo '')
 
@@ -104,11 +92,6 @@ update_wrangler_config() {
   local target="$ROOT_DIR/workers/api/wrangler.toml"
   if [[ ! -f "$template" ]]; then
     log_warn "wrangler.toml.template not found at ${template#$ROOT_DIR/}; skipping templating"
-    return
-  fi
-
-  if is_dry_run; then
-    log_info "[dry-run] Would render workers/api/wrangler.toml from template"
     return
   fi
 
@@ -132,9 +115,13 @@ update_wrangler_config() {
     -e "s#{{EXPO_PUBLIC_LOGTO_APP_ID}}#$(escape_sed "${EXPO_PUBLIC_LOGTO_APP_ID:-${LOGTO_APPLICATION_ID:-}}")#g" \
     -e "s#{{EXPO_PUBLIC_API_RESOURCE}}#$(escape_sed "${EXPO_PUBLIC_API_RESOURCE:-${LOGTO_API_RESOURCE:-}}")#g" \
     -e "s#{{EXPO_PUBLIC_LOGTO_POST_LOGOUT_REDIRECT_URI}}#$(escape_sed "${EXPO_PUBLIC_LOGTO_POST_LOGOUT_REDIRECT_URI:-}")#g" \
+    -e "s#{{EXPO_PUBLIC_LOGTO_REDIRECT_URI}}#$(escape_sed "${EXPO_PUBLIC_LOGTO_REDIRECT_URI:-}")#g" \
+    -e "s#{{EXPO_PUBLIC_LOGTO_REDIRECT_URI_LOCAL}}#$(escape_sed "${EXPO_PUBLIC_LOGTO_REDIRECT_URI_LOCAL:-}")#g" \
+    -e "s#{{EXPO_PUBLIC_LOGTO_REDIRECT_URI_PROD}}#$(escape_sed "${EXPO_PUBLIC_LOGTO_REDIRECT_URI_PROD:-}")#g" \
     -e "s#{{STRIPE_PRODUCTS}}#$(escape_sed "${STRIPE_PRODUCTS:-[]}")#g" \
     -e "s#{{STRIPE_WEBHOOK_SECRET}}#$(escape_sed "${STRIPE_WEBHOOK_SECRET:-}")#g" \
     -e "s#{{EXPO_PUBLIC_WORKER_ORIGIN}}#$(escape_sed "${EXPO_PUBLIC_WORKER_ORIGIN:-}")#g" \
+    -e "s#{{EXPO_PUBLIC_WORKER_ORIGIN_LOCAL}}#$(escape_sed "${EXPO_PUBLIC_WORKER_ORIGIN_LOCAL:-}")#g" \
     -e "s#{{CLOUDFLARE_ZONE_ID}}#$(escape_sed "${CLOUDFLARE_ZONE_ID:-}")#g" \
     "$template" > "$tmp"
   if [[ -f "$target" ]]; then
@@ -144,12 +131,12 @@ update_wrangler_config() {
 }
 
 run_migrations() {
-  if is_dry_run; then
-    log_info "[dry-run] node workers/api/scripts/migrate.js"
-    return
+  if [[ "${BOOTSTRAP_DEPLOY:-0}" == "1" ]]; then
+    log_info "Running D1 migrations against remote database"
+    (cd "$ROOT_DIR/workers/api" && node scripts/migrate.js --remote)
+  else
+    log_info "Skipping remote D1 migrations (local mode)"
   fi
-  log_info "Running D1 migrations against remote database"
-  (cd "$ROOT_DIR/workers/api" && node scripts/migrate.js --remote)
 
   log_info "Running D1 migrations against local preview database"
   (cd "$ROOT_DIR/workers/api" && node scripts/migrate.js)
@@ -184,37 +171,35 @@ INSERT INTO projects (id, slug, domain, app_url, created_at)
 VALUES ('${PROJECT_ID}', '${project_slug}', '${escaped_landing}', '${escaped_app}', CURRENT_TIMESTAMP)
 ON CONFLICT(id) DO UPDATE SET slug=excluded.slug, domain=excluded.domain, app_url=excluded.app_url;
 SQL
-  if is_dry_run; then
-    log_info "[dry-run] ${WRANGLER_LABEL} d1 execute ${db_name} --command \"$sql\""
-    return
+  if [[ "${BOOTSTRAP_DEPLOY:-0}" == "1" ]]; then
+    log_info "Seeding default project row into database '${db_name}' (remote)"
+    "${WRANGLER_BASE[@]}" d1 execute "${db_name}" --remote --command "$sql" >/dev/null
+  else
+    log_info "Skipping remote project seed (local mode)"
   fi
-  log_info "Seeding default project row into database '${db_name}' (remote)"
-  "${WRANGLER_BASE[@]}" d1 execute "${db_name}" --remote --command "$sql" >/dev/null
 
   log_info "Seeding default project row into database '${db_name}' (local preview)"
   "${WRANGLER_BASE[@]}" d1 execute "${db_name}" --command "$sql" >/dev/null
 
-  log_info "Verifying seed in remote database..."
-  local verify_sql="SELECT COUNT(*) as count FROM projects WHERE id='${PROJECT_ID}';"
-  local verify_result
-  verify_result=$("${WRANGLER_BASE[@]}" d1 execute "${db_name}" --remote --json --command "$verify_sql" 2>/dev/null || echo '[]')
-  local count
-  count=$(jq -r '.[0].results[0].count // 0' <<<"$verify_result" 2>/dev/null || echo "0")
-  if [[ "$count" -ge 1 ]]; then
-    log_info "✅ Seed verification passed: found ${count} row(s) for project '${PROJECT_ID}'"
-  else
-    log_error "❌ Seed verification failed: no rows found for project '${PROJECT_ID}' in remote database"
-    log_error "Verification result: $verify_result"
-    exit 1
+  if [[ "${BOOTSTRAP_DEPLOY:-0}" == "1" ]]; then
+    log_info "Verifying seed in remote database..."
+    local verify_sql="SELECT COUNT(*) as count FROM projects WHERE id='${PROJECT_ID}';"
+    local verify_result
+    verify_result=$("${WRANGLER_BASE[@]}" d1 execute "${db_name}" --remote --json --command "$verify_sql" 2>/dev/null || echo '[]')
+    local count
+    count=$(jq -r '.[0].results[0].count // 0' <<<"$verify_result" 2>/dev/null || echo "0")
+    if [[ "$count" -ge 1 ]]; then
+      log_info "✅ Seed verification passed: found ${count} row(s) for project '${PROJECT_ID}'"
+    else
+      log_error "❌ Seed verification failed: no rows found for project '${PROJECT_ID}' in remote database"
+      log_error "Verification result: $verify_result"
+      exit 1
+    fi
   fi
 }
 
 upload_r2_placeholder() {
   local object_key="welcome.txt"
-  if is_dry_run; then
-    log_info "[dry-run] ${WRANGLER_LABEL} r2 object put ${R2_BUCKET_NAME:-$PROJECT_ID-assets}/$object_key"
-    return
-  fi
   log_info "Uploading placeholder asset to R2"
   local tmp_file
   tmp_file=$(mktemp)
