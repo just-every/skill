@@ -39,9 +39,14 @@ EXPO_PUBLIC_WORKER_ORIGIN = "{{EXPO_PUBLIC_WORKER_ORIGIN}}"
 # --- Cloudflare metadata ---
 CLOUDFLARE_ZONE_ID = "{{CLOUDFLARE_ZONE_ID}}"
 
-{{D1_BINDING_SECTION}}
+[[d1_databases]]
+binding = "DB"
+database_name = "{{D1_DATABASE_NAME}}"
+database_id = "{{D1_DATABASE_ID}}"
 
-{{R2_BINDING_SECTION}}
+[[r2_buckets]]
+binding = "STORAGE"
+bucket_name = "{{R2_BUCKET_NAME}}"
 
 [[routes]]
 pattern = "{{PROJECT_ID}}.justevery.com"

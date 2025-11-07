@@ -78,6 +78,13 @@ type AccountMemberRecord = {
   lastActiveAt?: string;
 };
 
+type SubscriptionSummary = {
+  active: boolean;
+  plan: string | null;
+  renewsOn: string | null;
+  seats: number;
+};
+
 const ACCOUNT_DATA: AccountRecord[] = [
   {
     id: 'acct-justevery',
@@ -181,6 +188,286 @@ const ACCOUNT_MEMBERS: AccountMemberRecord[] = [
 
 const ACCOUNT_BRANDING_OVERRIDES = new Map<string, BrandingOverride>();
 
+type DbRow = Record<string, unknown>;
+
+const COMPANY_SELECT = `
+  SELECT
+    c.id,
+    c.slug,
+    c.name,
+    c.plan,
+    c.industry,
+    c.billing_email,
+    c.created_at,
+    b.primary_color,
+    b.secondary_color,
+    b.accent_color,
+    b.logo_url,
+    b.tagline,
+    b.updated_at AS branding_updated_at,
+    stats.active_members,
+    stats.pending_invites,
+    subs.seats,
+    subs.mrr_cents
+  FROM companies c
+  LEFT JOIN company_branding_settings b ON b.company_id = c.id
+  LEFT JOIN (
+    SELECT company_id,
+      SUM(CASE WHEN status = 'active' THEN 1 ELSE 0 END) AS active_members,
+      SUM(CASE WHEN status = 'invited' THEN 1 ELSE 0 END) AS pending_invites
+    FROM company_members
+    GROUP BY company_id
+  ) AS stats ON stats.company_id = c.id
+  LEFT JOIN (
+    SELECT company_id,
+      COALESCE(MAX(seats), 0) AS seats,
+      COALESCE(MAX(mrr_cents), 0) AS mrr_cents
+    FROM company_subscriptions
+    GROUP BY company_id
+  ) AS subs ON subs.company_id = c.id
+`;
+
+const COMPANY_SUMMARY_SQL = `${COMPANY_SELECT} ORDER BY c.created_at ASC;`;
+
+async function queryAll(db: D1Database, sql: string, bindings: unknown[] = []): Promise<DbRow[]> {
+  const statement = db.prepare(sql).bind(...bindings);
+  const result = await statement.all();
+  return result.results ?? [];
+}
+
+async function queryFirst(db: D1Database, sql: string, bindings: unknown[] = []): Promise<DbRow | null> {
+  const statement = db.prepare(sql).bind(...bindings);
+  const result = await statement.first();
+  return (result as DbRow | null) ?? null;
+}
+
+function numberFrom(value: unknown, fallback = 0): number {
+  const num = typeof value === 'number' ? value : typeof value === 'string' ? Number(value) : NaN;
+  return Number.isFinite(num) ? num : fallback;
+}
+
+function stringFrom(value: unknown, fallback = ''): string {
+  return typeof value === 'string' && value.length > 0 ? value : fallback;
+}
+
+function mapDbCompany(row: DbRow): AccountRecord {
+  const stats = {
+    activeMembers: numberFrom(row.active_members),
+    pendingInvites: numberFrom(row.pending_invites),
+    mrr: Number((numberFrom(row.mrr_cents) / 100).toFixed(2)),
+    seats: numberFrom(row.seats)
+  } satisfies AccountRecord['stats'];
+
+  const brand: AccountBranding = {
+    primaryColor: stringFrom(row.primary_color, '#0f172a'),
+    secondaryColor: stringFrom(row.secondary_color, '#38bdf8'),
+    accentColor: row.accent_color ? String(row.accent_color) : undefined,
+    logoUrl: row.logo_url ? String(row.logo_url) : undefined,
+    tagline: row.tagline ? String(row.tagline) : undefined,
+    updatedAt: stringFrom(row.branding_updated_at, new Date().toISOString())
+  };
+
+  return {
+    id: stringFrom(row.id),
+    slug: stringFrom(row.slug),
+    name: stringFrom(row.name),
+    plan: stringFrom(row.plan, 'Launch'),
+    industry: row.industry ? String(row.industry) : 'General',
+    createdAt: stringFrom(row.created_at, new Date().toISOString()),
+    billingEmail: row.billing_email ? String(row.billing_email) : undefined,
+    brand,
+    stats
+  } satisfies AccountRecord;
+}
+
+async function fetchCompaniesFromDb(env: Env): Promise<AccountRecord[] | null> {
+  if (!env.DB) {
+    return null;
+  }
+  const rows = await queryAll(env.DB, COMPANY_SUMMARY_SQL);
+  return rows.map((row) => mapDbCompany(row));
+}
+
+async function fetchCompanyBySlugFromDb(env: Env, slug: string): Promise<AccountRecord | null> {
+  if (!env.DB) {
+    return null;
+  }
+  const rows = await queryAll(env.DB, `${COMPANY_SELECT} WHERE c.slug = ? LIMIT 1`, [slug]);
+  if (rows.length === 0) {
+    return null;
+  }
+  return mapDbCompany(rows[0]);
+}
+
+async function fetchMembersFromDb(env: Env, companyId: string): Promise<AccountMemberRecord[] | null> {
+  if (!env.DB) {
+    return null;
+  }
+  const rows = await queryAll(
+    env.DB,
+    `SELECT id, company_id, display_name, email, role, status, invited_at, accepted_at, last_active_at
+     FROM company_members
+     WHERE company_id = ?
+     ORDER BY created_at ASC`,
+    [companyId]
+  );
+
+  return rows.map((row) => ({
+    id: stringFrom(row.id),
+    accountId: stringFrom(row.company_id),
+    name: stringFrom(row.display_name, stringFrom(row.email)),
+    email: stringFrom(row.email),
+    role: (stringFrom(row.role, 'viewer').charAt(0).toUpperCase() + stringFrom(row.role, 'viewer').slice(1)) as AccountMemberRecord['role'],
+    status: (stringFrom(row.status, 'active')) as AccountMemberRecord['status'],
+    joinedAt: stringFrom(row.accepted_at ?? row.invited_at ?? row.last_active_at ?? new Date().toISOString()),
+    lastActiveAt: row.last_active_at ? String(row.last_active_at) : null
+  }));
+}
+
+async function fetchBrandingFromDb(env: Env, companyId: string): Promise<AccountBranding | null> {
+  if (!env.DB) {
+    return null;
+  }
+  const row = await queryFirst(
+    env.DB,
+    `SELECT primary_color, secondary_color, accent_color, logo_url, tagline, updated_at
+     FROM company_branding_settings WHERE company_id = ?`,
+    [companyId]
+  );
+  if (!row) {
+    return null;
+  }
+  return {
+    primaryColor: stringFrom(row.primary_color, '#0f172a'),
+    secondaryColor: stringFrom(row.secondary_color, '#38bdf8'),
+    accentColor: row.accent_color ? String(row.accent_color) : undefined,
+    logoUrl: row.logo_url ? String(row.logo_url) : undefined,
+    tagline: row.tagline ? String(row.tagline) : undefined,
+    updatedAt: stringFrom(row.updated_at, new Date().toISOString())
+  };
+}
+
+async function fetchUsagePointsFromDb(env: Env, companyId: string, days = 7): Promise<Array<{ bucket: string; requests: number; storageGb: number }>> {
+  if (!env.DB) {
+    return [];
+  }
+  const rows = await queryAll(
+    env.DB,
+    `SELECT usage_date, metric, value FROM company_usage_daily
+     WHERE company_id = ?
+     ORDER BY usage_date DESC
+     LIMIT ?`,
+    [companyId, days * 2]
+  );
+  const map = new Map<string, { requests: number; storageGb: number }>();
+  for (const row of rows) {
+    const bucket = stringFrom(row.usage_date, new Date().toISOString().slice(0, 10));
+    const metric = stringFrom(row.metric);
+    const value = numberFrom(row.value);
+    const entry = map.get(bucket) ?? { requests: 0, storageGb: 0 };
+    if (metric === 'requests') {
+      entry.requests = value;
+    } else if (metric === 'storage_mb') {
+      entry.storageGb = Number((value / 1024).toFixed(2));
+    }
+    map.set(bucket, entry);
+  }
+  return Array.from(map.entries())
+    .sort((a, b) => a[0].localeCompare(b[0]))
+    .map(([bucket, values]) => ({ bucket, ...values }));
+}
+
+async function fetchSubscriptionSummaryFromDb(env: Env, companyId: string): Promise<SubscriptionSummary | null> {
+  if (!env.DB) {
+    return null;
+  }
+  const row = await queryFirst(
+    env.DB,
+    `SELECT plan_name, status, seats, current_period_end, mrr_cents
+     FROM company_subscriptions
+     WHERE company_id = ?
+     ORDER BY updated_at DESC
+     LIMIT 1`,
+    [companyId]
+  );
+  if (!row) {
+    return null;
+  }
+  return {
+    active: stringFrom(row.status, 'active') === 'active',
+    plan: row.plan_name ? String(row.plan_name) : null,
+    renewsOn: row.current_period_end ? String(row.current_period_end) : null,
+    seats: numberFrom(row.seats)
+  };
+}
+
+async function fetchAssetsFromDb(env: Env, companyId: string): Promise<AssetObject[] | null> {
+  if (!env.DB) {
+    return null;
+  }
+  const rows = await queryAll(
+    env.DB,
+    `SELECT storage_key, size_bytes, uploaded_at
+     FROM company_assets
+     WHERE company_id = ?
+     ORDER BY uploaded_at DESC
+     LIMIT 100`,
+    [companyId]
+  );
+  return rows.map((row) => ({
+    key: stringFrom(row.storage_key),
+    size: numberFrom(row.size_bytes),
+    uploaded: row.uploaded_at ? String(row.uploaded_at) : null
+  }));
+}
+
+async function fetchInvitesFromDb(env: Env, companyId: string): Promise<DbRow[] | null> {
+  if (!env.DB) {
+    return null;
+  }
+  return await queryAll(
+    env.DB,
+    `SELECT id, email, role, status, expires_at, created_at
+     FROM member_invites WHERE company_id = ? ORDER BY created_at DESC`,
+    [companyId]
+  );
+}
+
+async function createInviteInDb(env: Env, companyId: string, email: string, role: string): Promise<void> {
+  if (!env.DB) {
+    return;
+  }
+  const id = `inv-${generateSessionId()}`;
+  const token = `${generateSessionId()}-${generateSessionId()}`;
+  await env.DB.prepare(
+    `INSERT INTO member_invites (id, company_id, email, role, token, expires_at)
+     VALUES (?1, ?2, ?3, ?4, ?5, datetime('now', '+7 days'))`
+  )
+    .bind(id, companyId, email, role, token)
+    .run();
+}
+
+async function linkAuditLogToCompany(env: Env, auditId: string, companyId: string | null): Promise<void> {
+  if (!env.DB || !companyId) {
+    return;
+  }
+  await env.DB.prepare(
+    `INSERT INTO audit_log_company_links (audit_log_id, company_id)
+     VALUES (?1, ?2)
+     ON CONFLICT(audit_log_id) DO UPDATE SET company_id=excluded.company_id`
+  )
+    .bind(auditId, companyId)
+    .run();
+}
+
+function fallbackCompanies(): AccountRecord[] {
+  return ACCOUNT_DATA.map((account) => ({ ...account }));
+}
+
+function fallbackMembers(companyId: string): AccountMemberRecord[] {
+  return ACCOUNT_MEMBERS.filter((member) => member.accountId === companyId).map((member) => ({ ...member }));
+}
+
 const CONTENT_TYPE_BY_EXTENSION: Record<string, string> = {
   json: "application/json; charset=UTF-8",
   txt: "text/plain; charset=UTF-8",
@@ -202,7 +489,12 @@ const textEncoder = new TextEncoder();
 
 const STATIC_ASSET_PREFIXES = ["/_expo/", "/assets/"];
 const STATIC_ASSET_PATHS = new Set(["/favicon.ico", "/index.html", "/manifest.json"]);
-const SPA_EXTRA_ROUTES = ["/", "/pricing", "/contact", "/callback", "/app", "/logout"];
+const SPA_EXTRA_ROUTES = ["/callback", "/app", "/logout"];
+const PRERENDER_ROUTES: Record<string, string> = {
+  '/': '',
+  '/pricing': 'pricing',
+  '/contact': 'contact'
+};
 const MARKETING_ROUTE_PREFIX = "/marketing/";
 
 type RuntimeEnvPayload = {
@@ -292,6 +584,76 @@ async function serveStaticAsset(request: Request, env: Env): Promise<Response | 
     console.warn("Asset fetch failed", error);
     return null;
   }
+}
+
+function isBot(userAgent: string | null): boolean {
+  if (!userAgent) {
+    return false;
+  }
+  const patterns = [
+    /bot/i,
+    /crawl/i,
+    /spider/i,
+    /slurp/i,
+    /bing/i,
+    /yahoo/i,
+    /duckduckgo/i,
+    /baidu/i,
+    /yandex/i,
+    /facebot/i,
+    /facebookexternalhit/i,
+    /linkedinbot/i,
+    /twitterbot/i,
+    /embedly/i,
+    /quora link preview/i,
+    /pinterest/i,
+    /redditbot/i,
+    /slackbot/i,
+    /discordbot/i,
+    /telegrambot/i
+  ];
+  return patterns.some((regex) => regex.test(userAgent));
+}
+
+async function servePrerenderedHtml(request: Request, env: Env, pathname: string): Promise<Response | null> {
+  if (!env.ASSETS) {
+    return null;
+  }
+  const assetSuffix = PRERENDER_ROUTES[pathname];
+  if (assetSuffix === undefined) {
+    return null;
+  }
+
+  const assetPath = assetSuffix ? `/prerendered/${assetSuffix}` : '/prerendered/';
+  const assetUrl = new URL(assetPath, request.url).toString();
+  const prerenderResponse = await env.ASSETS.fetch(assetUrl);
+  if (!prerenderResponse || !prerenderResponse.ok) {
+    console.warn('Prerender asset missing', {
+      pathname,
+      assetPath,
+      status: prerenderResponse?.status
+    });
+    return null;
+  }
+
+  let html = await prerenderResponse.text();
+  html = injectRuntimeEnv(html, resolveRuntimeEnvPayload(env, request));
+
+  const userAgent = request.headers.get('user-agent');
+  const cacheHeader = isBot(userAgent)
+    ? 'public, max-age=3600, stale-while-revalidate=86400'
+    : 'no-cache';
+
+  return new Response(html, {
+    status: 200,
+    headers: {
+      'Content-Type': 'text/html; charset=utf-8',
+      'Cache-Control': cacheHeader,
+      'Vary': 'User-Agent',
+      'X-Prerender-Route': pathname,
+      'X-Prerender-Asset': assetPath,
+    }
+  });
 }
 
 async function serveAppShell(request: Request, env: Env): Promise<Response | null> {
@@ -494,6 +856,11 @@ const Worker: ExportedHandler<Env> = {
       return handleMarketingAsset(request, env, pathname);
     }
 
+    const prerenderResponse = await servePrerenderedHtml(request, env, pathname);
+    if (prerenderResponse) {
+      return prerenderResponse;
+    }
+
     if (pathname === "/api/accounts" || pathname.startsWith("/api/accounts/")) {
       return handleAccountsRoute(request, env, pathname);
     }
@@ -551,8 +918,20 @@ function normalisePath(pathname: string): string {
   return pathname.replace(/\/+$/, "");
 }
 
-function buildAccountSummaries(session: AuthenticatedSession): Array<Record<string, unknown>> {
-  return ACCOUNT_DATA.map((account) => mapAccountResponse(account));
+async function buildAccountSummaries(env: Env): Promise<AccountRecord[]> {
+  const fromDb = await fetchCompaniesFromDb(env);
+  if (fromDb && fromDb.length > 0) {
+    return fromDb;
+  }
+  return fallbackCompanies();
+}
+
+async function resolveAccountBySlug(env: Env, slug: string): Promise<AccountRecord | undefined> {
+  const fromDb = await fetchCompanyBySlugFromDb(env, slug);
+  if (fromDb) {
+    return fromDb;
+  }
+  return fallbackCompanies().find((account) => account.slug === slug);
 }
 
 function mapAccountResponse(account: AccountRecord): Record<string, unknown> {
@@ -569,10 +948,6 @@ function mapAccountResponse(account: AccountRecord): Record<string, unknown> {
   };
 }
 
-function findAccountBySlug(slug: string): AccountRecord | undefined {
-  return ACCOUNT_DATA.find((account) => account.slug === slug);
-}
-
 function resolveBranding(account: AccountRecord): AccountBranding {
   const override = ACCOUNT_BRANDING_OVERRIDES.get(account.id);
   if (!override) {
@@ -586,6 +961,37 @@ function resolveBranding(account: AccountRecord): AccountBranding {
     tagline: override.tagline ?? account.brand.tagline,
     updatedAt: override.updatedAt
   };
+}
+
+function fallbackUsage(companyId: string): Array<{ bucket: string; requests: number; storageGb: number }> {
+  const base = [
+    { bucket: '2025-11-01', requests: 12000, storageGb: 1.2 },
+    { bucket: '2025-11-02', requests: 13000, storageGb: 1.28 },
+    { bucket: '2025-11-03', requests: 14000, storageGb: 1.35 },
+    { bucket: '2025-11-04', requests: 15000, storageGb: 1.42 },
+    { bucket: '2025-11-05', requests: 16000, storageGb: 1.5 }
+  ];
+  return base.map((point, idx) => ({
+    ...point,
+    bucket: new Date(Date.now() - idx * 86400000).toISOString().slice(0, 10)
+  }));
+}
+
+function fallbackSubscription(companyId: string): SubscriptionSummary {
+  const account = ACCOUNT_DATA.find((acct) => acct.id === companyId);
+  return {
+    active: true,
+    plan: account?.plan ?? 'Launch',
+    renewsOn: new Date(Date.now() + 1000 * 60 * 60 * 24 * 30).toISOString(),
+    seats: account?.stats.seats ?? 5
+  };
+}
+
+function fallbackAssetsList(): AssetObject[] {
+  return [
+    { key: 'uploads/branding/logo.png', size: 182034, uploaded: '2025-11-05T16:12:00.000Z' },
+    { key: 'uploads/invoices/2024-09.pdf', size: 58234, uploaded: '2024-09-30T08:00:00.000Z' }
+  ];
 }
 
 function normaliseHexColor(input?: string): string | null {
@@ -972,9 +1378,9 @@ async function handleAccountsRoute(request: Request, env: Env, pathname: string)
   }
 
   if (pathname === "/api/accounts") {
-    const accounts = buildAccountSummaries(auth.session);
+    const accounts = await buildAccountSummaries(env);
     return jsonResponse({
-      accounts,
+      accounts: accounts.map((account) => mapAccountResponse(account)),
       currentAccountId: accounts[0]?.id ?? null,
     });
   }
@@ -983,16 +1389,24 @@ async function handleAccountsRoute(request: Request, env: Env, pathname: string)
   const slug = segments[2];
   const action = segments[3];
 
-  const account = findAccountBySlug(slug);
+  const account = await resolveAccountBySlug(env, slug);
   if (!account) {
     return jsonResponse({ error: 'Account not found' }, 404);
   }
 
   switch (action) {
     case 'members':
-      return handleAccountMembers(account, auth.session);
+      return handleAccountMembers(account, auth.session, env);
     case 'branding':
-      return handleAccountBranding(request, account);
+      return handleAccountBranding(request, account, env);
+    case 'usage':
+      return handleAccountUsage(request, env, account);
+    case 'assets':
+      return handleAccountAssets(request, env, account);
+    case 'subscription':
+      return handleAccountSubscription(env, account);
+    case 'invites':
+      return handleAccountInvites(request, env, account);
     default:
       return jsonResponse({
         account: mapAccountResponse(account)
@@ -1002,17 +1416,11 @@ async function handleAccountsRoute(request: Request, env: Env, pathname: string)
 
 async function handleAccountMembers(
   account: AccountRecord,
-  session: AuthenticatedSession
+  session: AuthenticatedSession,
+  env: Env
 ): Promise<Response> {
-  const members = ACCOUNT_MEMBERS.filter((member) => member.accountId === account.id).map((member) => ({
-    id: member.id,
-    name: member.name,
-    email: member.email,
-    role: member.role,
-    status: member.status,
-    joinedAt: member.joinedAt,
-    lastActiveAt: member.lastActiveAt ?? null
-  }));
+  const membersFromDb = await fetchMembersFromDb(env, account.id);
+  const members = membersFromDb ?? fallbackMembers(account.id);
 
   return jsonResponse({
     accountId: account.id,
@@ -1026,7 +1434,8 @@ async function handleAccountMembers(
 
 async function handleAccountBranding(
   request: Request,
-  account: AccountRecord
+  account: AccountRecord,
+  env: Env
 ): Promise<Response> {
   if (request.method !== 'PATCH' && request.method !== 'PUT') {
     return jsonResponse({ error: 'Method Not Allowed' }, 405);
@@ -1077,6 +1486,31 @@ async function handleAccountBranding(
 
   if (typeof payload.tagline === 'string') {
     updates.tagline = payload.tagline.trim().slice(0, 120);
+  }
+
+  if (env.DB) {
+    await env.DB.prepare(
+      `UPDATE company_branding_settings
+       SET primary_color = COALESCE(?1, primary_color),
+           secondary_color = COALESCE(?2, secondary_color),
+           accent_color = COALESCE(?3, accent_color),
+           logo_url = COALESCE(?4, logo_url),
+           tagline = COALESCE(?5, tagline),
+           updated_at = CURRENT_TIMESTAMP
+       WHERE company_id = ?6`
+    )
+      .bind(
+        updates.primaryColor ?? null,
+        updates.secondaryColor ?? null,
+        updates.accentColor ?? null,
+        updates.logoUrl ?? null,
+        updates.tagline ?? null,
+        account.id
+      )
+      .run();
+
+    const refreshedBranding = await fetchBrandingFromDb(env, account.id);
+    return jsonResponse({ ok: true, branding: refreshedBranding ?? resolveBranding(account) });
   }
 
   const existing = ACCOUNT_BRANDING_OVERRIDES.get(account.id) ?? {};
@@ -1228,6 +1662,24 @@ async function handleAssetsPut(request: Request, env: Env): Promise<Response> {
     httpMetadata: contentType ? { contentType } : undefined,
   });
 
+  const companyId = url.searchParams.get('companyId');
+  if (companyId && env.DB) {
+    await env.DB.prepare(
+      `INSERT INTO company_assets (id, company_id, storage_key, scope, content_type, size_bytes)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+       ON CONFLICT(id) DO UPDATE SET storage_key = excluded.storage_key, size_bytes = excluded.size_bytes, updated_at = CURRENT_TIMESTAMP`
+    )
+      .bind(
+        `asset-${generateSessionId()}`,
+        companyId,
+        key,
+        'uploads',
+        contentType ?? null,
+        body.byteLength
+      )
+      .run();
+  }
+
   return jsonResponse({ ok: true, key });
 }
 
@@ -1256,6 +1708,67 @@ async function handleAssetsDelete(request: Request, env: Env): Promise<Response>
   return jsonResponse({ ok: true, deleted: key });
 }
 
+async function handleAccountUsage(request: Request, env: Env, account: AccountRecord): Promise<Response> {
+  if (request.method !== 'GET') {
+    return jsonResponse({ error: 'Method Not Allowed' }, 405);
+  }
+  const url = new URL(request.url);
+  const daysParam = url.searchParams.get('days');
+  const days = daysParam ? Math.min(Math.max(Number.parseInt(daysParam, 10) || 7, 1), 31) : 7;
+  const points = env.DB
+    ? await fetchUsagePointsFromDb(env, account.id, days)
+    : fallbackUsage(account.id);
+  return jsonResponse({ points });
+}
+
+async function handleAccountAssets(request: Request, env: Env, account: AccountRecord): Promise<Response> {
+  if (request.method !== 'GET') {
+    return jsonResponse({ error: 'Method Not Allowed' }, 405);
+  }
+  const rows = env.DB ? await fetchAssetsFromDb(env, account.id) : null;
+  const assets = rows ?? fallbackAssetsList();
+  return jsonResponse({ assets });
+}
+
+async function handleAccountSubscription(env: Env, account: AccountRecord): Promise<Response> {
+  const summary = env.DB ? await fetchSubscriptionSummaryFromDb(env, account.id) : null;
+  return jsonResponse({ subscription: summary ?? fallbackSubscription(account.id) });
+}
+
+async function handleAccountInvites(request: Request, env: Env, account: AccountRecord): Promise<Response> {
+  if (!env.DB) {
+    return jsonResponse({ error: 'Database binding not configured' }, 503);
+  }
+
+  if (request.method === 'GET') {
+    const invites = await fetchInvitesFromDb(env, account.id);
+    return jsonResponse({ invites: invites ?? [] });
+  }
+
+  if (request.method === 'POST') {
+    let payload: { email?: string; role?: string };
+    try {
+      payload = await request.json();
+    } catch {
+      return jsonResponse({ error: 'Invalid JSON' }, 400);
+    }
+    const email = payload.email?.trim().toLowerCase();
+    if (!email) {
+      return jsonResponse({ error: 'Email is required' }, 400);
+    }
+    const allowedRoles = ['owner', 'admin', 'billing', 'viewer'];
+    const role = payload.role?.toLowerCase() ?? 'viewer';
+    if (!allowedRoles.includes(role)) {
+      return jsonResponse({ error: 'Invalid role' }, 400);
+    }
+    await createInviteInDb(env, account.id, email, role);
+    const invites = await fetchInvitesFromDb(env, account.id);
+    return jsonResponse({ ok: true, invites: invites ?? [] }, 201);
+  }
+
+  return jsonResponse({ error: 'Method Not Allowed' }, 405);
+}
+
 async function handleStripeProducts(env: Env): Promise<Response> {
   try {
     const products = parseStripeProducts(env.STRIPE_PRODUCTS);
@@ -1276,18 +1789,19 @@ async function handleSubscription(request: Request, env: Env): Promise<Response>
   if (!auth.ok) {
     return authFailureResponse(auth);
   }
-
-  const payload = {
-    subscription: {
-      active: false,
-      plan: null,
-      expiresAt: null,
-    },
-    userId: auth.session.userId,
-    message: 'Subscription API stub — replace with Stripe Billing integration.',
-  };
-
-  return jsonResponse(payload);
+  const url = new URL(request.url);
+  const slug = url.searchParams.get('slug');
+  let account: AccountRecord | undefined;
+  if (slug) {
+    account = await resolveAccountBySlug(env, slug);
+  } else {
+    const accounts = await buildAccountSummaries(env);
+    account = accounts[0];
+  }
+  if (!account) {
+    return jsonResponse({ error: 'Account not found' }, 404);
+  }
+  return handleAccountSubscription(env, account);
 }
 
 async function handleStripeWebhook(request: Request, env: Env): Promise<Response> {
@@ -1322,6 +1836,16 @@ async function handleStripeWebhook(request: Request, env: Env): Promise<Response
     }
     } catch (dbError) {
       console.error("Failed to persist Stripe webhook event", dbError);
+    }
+
+    let linkedCompanyId: string | null = null;
+    const stripeCustomerId = typeof event?.data?.object?.customer === 'string' ? event.data.object.customer : null;
+    if (stripeCustomerId && env.DB) {
+      const customerRow = await queryFirst(env.DB, `SELECT company_id FROM stripe_customers WHERE stripe_customer_id = ? LIMIT 1`, [stripeCustomerId]);
+      linkedCompanyId = customerRow?.company_id ? String(customerRow.company_id) : null;
+    }
+    if (linkedCompanyId) {
+      await linkAuditLogToCompany(env, auditId, linkedCompanyId);
     }
 
     console.log("Stripe event received", event.type ?? "unknown", event.id ?? "");

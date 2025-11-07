@@ -1,0 +1,59 @@
+name: Deploy Dry Run (ENV_BLOB)
+
+on:
+  workflow_dispatch:
+    inputs:
+      reason:
+        description: 'Why are you running the dry run?'
+        required: false
+
+permissions:
+  contents: read
+
+jobs:
+  dry-run:
+    runs-on: ubuntu-latest
+    env:
+      ENV_BLOB: ${{ secrets.ENV_BLOB || '' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Ensure ENV_BLOB secret exists
+        run: |
+          if [ -z "$ENV_BLOB" ]; then
+            echo "ENV_BLOB secret is required" >&2
+            exit 1
+          fi
+
+      - name: Decode ENV_BLOB
+        run: echo "$ENV_BLOB" | base64 --decode > .env.ci
+
+      - name: Export env vars
+        run: |
+          set -euo pipefail
+          while IFS= read -r line; do
+            var="${line%%=*}"; value="${line#*=}"
+            printf '%s=%s\n' "$var" "$value" >> $GITHUB_ENV
+          done < <(grep -v '^#' .env.ci)
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'pnpm'
+
+      - run: corepack enable
+      - run: pnpm install --frozen-lockfile
+
+      - name: Dry-run migrations
+        run: pnpm --filter @justevery/worker run migrate -- --remote --dry-run
+
+      - name: Bootstrap deploy (dry-run)
+        run: pnpm bootstrap:deploy:dry-run
+
+      - name: Summarize
+        run: echo "Deployment dry run completed" > dry-run-summary.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: deploy-dry-run-${{ github.run_id }}
+          path: dry-run-summary.txt

@@ -1,0 +1,48 @@
+name: Nightly D1 Backup
+
+on:
+  schedule:
+    - cron: '0 2 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    env:
+      ENV_BLOB: ${{ secrets.ENV_BLOB || '' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Decode ENV_BLOB
+        run: |
+          if [ -z "$ENV_BLOB" ]; then
+            echo "ENV_BLOB secret missing" >&2
+            exit 1
+          fi
+          echo "$ENV_BLOB" | base64 --decode > .env.ci
+          while IFS= read -r line; do
+            var="${line%%=*}"; value="${line#*=}"
+            printf '%s=%s\n' "$var" "$value" >> $GITHUB_ENV
+          done < <(grep -v '^#' .env.ci)
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'pnpm'
+
+      - run: corepack enable
+      - run: pnpm install --frozen-lockfile --filter @justevery/worker
+
+      - name: Export D1 backup (remote)
+        run: |
+          mkdir -p backups
+          pnpm --filter @justevery/worker exec wrangler d1 export "$D1_DATABASE_NAME" --remote --config workers/api/wrangler.toml --output backups/d1-nightly-${{ github.run_id }}.sql
+
+      - name: Upload backup artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: d1-nightly-${{ github.run_id }}
+          path: backups/d1-nightly-${{ github.run_id }}.sql

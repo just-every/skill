@@ -42,8 +42,27 @@ Secrets live in `~/.env`. The Node-based bootstrap CLI renders config from
    curl -s https://starter.justevery.com/api/session
    ```
 
-More detail: `docs/QUICKSTART.md`. For GitHub Actions deployments, see `docs/SECRETS_CLOUDFLARE.md` to set up repository secrets. Prefer the `pnpm bootstrap:*` commands—the legacy
-shell scripts have been archived for reference only.
+More detail: `docs/QUICKSTART.md`. Prefer the `pnpm bootstrap:*` commands—the legacy shell scripts have been archived for reference only. For marketing SSR + bot validation notes, see `docs/SSR_MARKETING.md`.
+
+## GitHub Actions (ENV_BLOB)
+
+The repo now uses a single secret (`ENV_BLOB`) that contains your entire `.env`. To sync:
+
+```bash
+./scripts/sync-env-to-github.sh          # reads $HOME/.env by default
+```
+
+### Workflows
+
+- `.github/workflows/deploy.yml` – runs on push to `main`; decodes ENV_BLOB, exports a D1 backup, runs migrations, calls `pnpm bootstrap:deploy`, and uploads artifacts.
+- `.github/workflows/deploy-dry-run.yml` – manual dry run for validation.
+- `.github/workflows/backup-nightly.yml` – nightly `wrangler d1 export` with artifact retention.
+
+### Rollback
+
+1. Grab the backup artifact from the deploy run (SQL file under `d1-backup-*`).
+2. Restore: `wrangler d1 execute <DB_NAME> --remote --file=backup.sql`.
+3. Re-run `deploy.yml` pointing at the previous commit via `workflow_dispatch`.
 
 ## Bootstrap CLI
 - `pnpm bootstrap:preflight` – validations (Cloudflare token, required envs)
@@ -58,3 +77,15 @@ shows exactly what would change and `pnpm bootstrap:env -- --check` confirms gen
 before writing.
 
 See `docs/BOOTSTRAP-CLI-MIGRATION.md` for the full migration guide.
+
+## Appendix: Operations Tips
+
+**ENV_BLOB Deploy** – Secrets travel via `pnpm bootstrap:deploy`; see `docs/SECRETS_CLOUDFLARE.md` for token setup and rotation.
+
+**Nightly D1 Backups** – Managed by `.github/workflows/backup-nightly.yml`; database IDs live in rendered `wrangler.toml` for manual exports.
+
+**SSR Validation** – Follow `docs/SSR_MARKETING.md` (or run `pnpm --filter @justevery/web run build` + `pnpm bootstrap:smoke`) before promoting changes.
+
+**Smoke Tests** – `pnpm bootstrap:smoke` exercises Worker APIs, assets, and Logto bindings; add `--minimal` in CI for fast checks.
+
+For runbooks and deeper troubleshooting, start with the `docs/` folder.

@@ -1,5 +1,6 @@
 import { LogtoConfig, UserScope } from '@logto/rn';
-import React, { ReactNode, useMemo } from 'react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import React, { ReactNode, useMemo, useRef } from 'react';
 import { Text, View } from 'react-native';
 
 import { usePublicEnv } from './src/runtimeEnv';
@@ -69,13 +70,14 @@ const RoutedView = () => {
   }
 
   const content = (() => {
+    if (path.startsWith('/app')) {
+      return <Dashboard />;
+    }
     switch (path) {
       case '/pricing':
         return <Pricing />;
       case '/contact':
         return <Contact />;
-      case '/app':
-        return <Dashboard />;
       case '/':
       default:
         return <Home />;
@@ -104,6 +106,19 @@ const ConfigError = ({ reasons }: { reasons: string[] }) => (
 const App = (): ReactNode => {
   const env = usePublicEnv();
   const state = useMemo(() => buildConfig(env), [env]);
+  const queryClientRef = useRef<QueryClient>();
+
+  if (!queryClientRef.current) {
+    queryClientRef.current = new QueryClient({
+      defaultOptions: {
+        queries: {
+          staleTime: 30_000,
+          refetchOnWindowFocus: false,
+          retry: 1
+        }
+      }
+    });
+  }
 
   const isLocalhost = typeof window !== 'undefined' && window.location.origin.includes('localhost');
 
@@ -139,7 +154,11 @@ const App = (): ReactNode => {
     );
   }
 
-  return <RouterProvider>{content}</RouterProvider>;
+  return (
+    <QueryClientProvider client={queryClientRef.current}>
+      <RouterProvider>{content}</RouterProvider>
+    </QueryClientProvider>
+  );
 };
 
 export default App;

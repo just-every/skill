@@ -1,0 +1,18 @@
+{
+  "extends": "../tsconfig.json",
+  "compilerOptions": {
+    "baseUrl": "..",
+    "module": "commonjs",
+    "jsx": "react-jsx",
+    "paths": {
+      "react-native": ["scripts/prerender-react-native-shim.ts"],
+      "@logto/rn": ["scripts/prerender-logto-shim.tsx"]
+    }
+  },
+  "include": [
+    "scripts/prerender.tsx",
+    "scripts/prerender-react-native-shim.ts",
+    "scripts/prerender-logto-shim.tsx"
+  ],
+  "exclude": ["../node_modules"]
+}

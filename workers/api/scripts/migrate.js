@@ -59,9 +59,14 @@ async function main() {
   // Verify schema was created
   console.log(`→ Verifying schema in ${mode} database...`);
   try {
-    await execWrangler(['d1', 'execute', DATABASE_NAME, '--command',
-      "SELECT name FROM sqlite_master WHERE type='table' AND name='projects';",
-      ...process.argv.slice(2)]);
+    await execWrangler([
+      'd1',
+      'execute',
+      DATABASE_NAME,
+      '--command',
+      "SELECT name FROM sqlite_master WHERE type='table' AND name='companies';",
+      ...process.argv.slice(2),
+    ]);
     console.log('✅ Schema verification passed');
   } catch (error) {
     console.error('❌ Schema verification failed:', error.message);

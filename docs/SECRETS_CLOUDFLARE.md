@@ -8,9 +8,10 @@ The following Cloudflare secrets are required for deployment:
 
 | Secret | Purpose | Where Used |
 | --- | --- | --- |
-| `CLOUDFLARE_ACCOUNT_ID` | Identify your Cloudflare account | Wrangler, GitHub workflows |
-| `CLOUDFLARE_API_TOKEN` | Authenticate API calls for provisioning and deployment | Wrangler, GitHub workflows |
-| `CLOUDFLARE_ZONE_ID` | (Optional) Claim DNS records and route assertions | GitHub workflows, route validation |
+| `ENV_BLOB` | Base64 `.env` blob consumed by CI/CD | GitHub Actions (`deploy.yml`, `deploy-dry-run.yml`, `backup-nightly.yml`) |
+| `CLOUDFLARE_ACCOUNT_ID` | Identify your Cloudflare account | Wrangler, bootstrap CLI |
+| `CLOUDFLARE_API_TOKEN` | Authenticate API calls for provisioning and deployment | Wrangler, bootstrap CLI |
+| `CLOUDFLARE_ZONE_ID` | (Optional) Claim DNS records and route assertions | Optional bootstrap features |
 
 ## Getting Your Account ID
 
@@ -144,27 +145,36 @@ You can continue to deploy and validate the worker with the starter credentials 
 
 ## GitHub Actions Setup
 
-### 1. Add Secrets to Repository
+### 1. Encode `.env` into ENV_BLOB
 
-1. Go to your GitHub repository
-2. Navigate to **Settings** → **Secrets and variables** → **Actions**
-3. Click **New repository secret** for each value:
-   - **Name**: `CLOUDFLARE_ACCOUNT_ID` → **Secret**: Your account ID
-   - **Name**: `CLOUDFLARE_API_TOKEN` → **Secret**: Your API token
-   - **Name**: `CLOUDFLARE_ZONE_ID` → **Secret**: Your zone ID (optional)
+Use the helper script:
 
-### 2. Verify Workflows Can Access Secrets
+```bash
+./scripts/sync-env-to-github.sh            # reads $HOME/.env by default
+```
 
-The deployment workflow (`deploy.yml`) uses these secrets:
+Custom file:
+
+```bash
+ENV_FILE=.env.production ./scripts/sync-env-to-github.sh
+```
+
+Under the hood the script runs:
+
+```bash
+base64 < $ENV_FILE | tr -d '\n' | gh secret set ENV_BLOB --body -
+```
+
+### 2. Verify Workflows Can Access ENV_BLOB
+
+`deploy.yml`, `deploy-dry-run.yml`, and `backup-nightly.yml` decode ENV_BLOB at runtime:
 
 ```yaml
 env:
-  CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-  CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-  CLOUDFLARE_ZONE_ID: ${{ secrets.CLOUDFLARE_ZONE_ID }}
+  ENV_BLOB: ${{ secrets.ENV_BLOB }}
 ```
 
-They are automatically available to all steps in the workflow.
+The workflows base64‑decode the secret into `.env.ci`, export the variables, back up D1, and run migrations/deployments using the same inputs the CLI expects.
 
 ## Token Rotation & Renewal
 
@@ -228,17 +238,17 @@ Error: User does not have permission to access this account
   - `Account → Cloudflare Workers Secrets → Edit`
 - Re-create the token with correct scopes if needed
 
-### GitHub Actions fail with "secret not found"
+### GitHub Actions fail with "ENV_BLOB secret missing"
 
 ```
-Error: Secret CLOUDFLARE_API_TOKEN is not set
+ENV_BLOB secret is required
 ```
 
 **Solutions:**
-- Verify the secret is added to the repository (Settings → Secrets)
-- Check the secret name matches exactly (case-sensitive)
-- Wait a few minutes after adding—secrets may take time to sync
-- Look for any typos in the workflow file
+- Run `./scripts/sync-env-to-github.sh`
+- Confirm the secret exists under **Settings → Secrets and variables → Actions**
+- Ensure the secret is named exactly `ENV_BLOB`
+- Re-run the workflow once the secret is present
 
 ## Security Best Practices
 
