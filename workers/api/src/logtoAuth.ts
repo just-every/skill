@@ -1,9 +1,11 @@
 import {
+  discoveryPath,
   fetchOidcConfig,
   fetchTokenByAuthorizationCode,
   generateSignInUri,
   verifyAndParseCodeFromCallbackUri,
 } from '@logto/js';
+import type { Requester } from '@logto/js';
 import type { Env } from './index';
 
 const SIGN_IN_COOKIE = 'je_pkce';
@@ -17,6 +19,17 @@ const encoder = new TextEncoder();
 const decoder = new TextDecoder();
 const hmacCache = new Map<string, CryptoKey>();
 const oidcCache = new Map<string, Promise<LogtoOidcConfig>>();
+
+const workerRequester: Requester = async <T>(input: RequestInfo | URL, init?: RequestInit) => {
+  const response = await fetch(input, init);
+  if (!response.ok) {
+    const errorBody = await response.text().catch(() => '');
+    const suffix = errorBody ? `: ${errorBody}` : '';
+    throw new Error(`Logto request failed (${response.status} ${response.statusText})${suffix}`);
+  }
+  const parsed = await parseJsonResponse<T>(response);
+  return parsed as T;
+};
 
 type LogtoOidcConfig = {
   authorizationEndpoint: string;
@@ -470,7 +483,7 @@ async function loadOidcConfig(env: Env): Promise<LogtoOidcConfig> {
   if (cached) {
     return cached;
   }
-  const promise = fetchOidcConfig(new URL('/.well-known/openid-configuration', env.LOGTO_ENDPOINT).toString()).then((config) => ({
+  const promise = fetchOidcConfig(new URL(discoveryPath, env.LOGTO_ENDPOINT).toString(), workerRequester).then((config) => ({
     authorizationEndpoint: config.authorizationEndpoint,
     tokenEndpoint: config.tokenEndpoint,
     userinfoEndpoint: config.userinfoEndpoint,
@@ -480,13 +493,36 @@ async function loadOidcConfig(env: Env): Promise<LogtoOidcConfig> {
   return promise;
 }
 
-function createRequester(credentials: { appId: string; appSecret: string }) {
+function createRequester(credentials: { appId: string; appSecret: string }): Requester {
   const header = buildBasicAuth(credentials.appId, credentials.appSecret);
-  return (input: RequestInfo | URL, init?: RequestInit) => {
+  return <T>(input: RequestInfo | URL, init?: RequestInit) => {
     const headers = new Headers(init?.headers);
     headers.set('Authorization', header);
-    return fetch(input, { ...init, headers });
+    return workerRequester<T>(input, { ...init, headers });
   };
+}
+
+async function parseJsonResponse<T>(response: Response): Promise<T | undefined> {
+  if (response.status === 204) {
+    return undefined;
+  }
+  const contentType = response.headers.get('content-type')?.toLowerCase() ?? '';
+  if (contentType.includes('application/json')) {
+    return (await response.json()) as T;
+  }
+  const contentLength = response.headers.get('content-length');
+  if (contentLength === '0') {
+    return undefined;
+  }
+  const text = await response.text();
+  if (!text) {
+    return undefined;
+  }
+  try {
+    return JSON.parse(text) as T;
+  } catch {
+    return undefined;
+  }
 }
 
 function buildBasicAuth(appId: string, appSecret: string): string {

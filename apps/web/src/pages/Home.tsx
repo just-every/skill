@@ -1,6 +1,8 @@
-import React from 'react';
+import React, { useCallback } from 'react';
 import { Image, Platform, Pressable, ScrollView, Text, View } from 'react-native';
 
+import { useAuthConfig } from '../auth/AuthConfig';
+import { useLogto } from '../auth/LogtoProvider';
 import { usePublicEnv } from '../runtimeEnv';
 import { useRouterContext } from '../router/RouterProvider';
 
@@ -25,9 +27,30 @@ const heroFeatures = [
 const Home = () => {
   const env = usePublicEnv();
   const { navigate } = useRouterContext();
+  const authConfig = useAuthConfig();
+  const { isAuthenticated, signIn } = useLogto();
 
   const workerOrigin = env.workerOrigin ?? env.workerOriginLocal;
   const heroImage = workerOrigin ? `${workerOrigin.replace(/\/$/, '')}/marketing/hero.png` : undefined;
+
+  const handleOpenDashboard = useCallback(async () => {
+    if (isAuthenticated) {
+      navigate('/app');
+      return;
+    }
+
+    const redirectTarget = Platform.OS === 'web'
+      ? authConfig.redirectUriProd ?? authConfig.redirectUri
+      : authConfig.redirectUriLocal ?? authConfig.redirectUri;
+
+    const fallbackRedirect = redirectTarget ?? authConfig.redirectUri;
+
+    try {
+      await Promise.resolve(signIn(fallbackRedirect));
+    } catch (error) {
+      console.warn('Failed to start sign-in from home CTA', error);
+    }
+  }, [authConfig.redirectUri, authConfig.redirectUriLocal, authConfig.redirectUriProd, isAuthenticated, navigate, signIn]);
 
   return (
     <ScrollView contentContainerStyle={{ flexGrow: 1, gap: 32 }}>
@@ -54,7 +77,7 @@ const Home = () => {
 
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 12 }}>
           <Pressable
-            onPress={() => navigate('/app')}
+            onPress={() => void handleOpenDashboard()}
             style={{
               backgroundColor: '#38bdf8',
               borderRadius: 12,
@@ -150,4 +173,3 @@ const Home = () => {
 };
 
 export default Home;
-
