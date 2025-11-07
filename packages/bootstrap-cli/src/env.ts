@@ -31,6 +31,8 @@ const GeneratedEnvSchema = z.object({
   D1_DATABASE_ID: z.string().optional(),
   CLOUDFLARE_R2_BUCKET: z.string().optional(),
   LOGTO_APPLICATION_ID: z.string().optional(),
+  LOGTO_APPLICATION_SECRET: z.string().optional(),
+  LOGTO_API_RESOURCE_ID: z.string().optional(),
   LOGTO_ISSUER: z.string().optional(),
   LOGTO_JWKS_URI: z.string().optional(),
   LOGTO_M2M_APP_ID: z.string().optional(),
@@ -198,11 +200,6 @@ function applyFallbacksAndDerivations(
 
   // Fallback: LOGTO_API_RESOURCE ← ${PROJECT_DOMAIN}/api
   // Automatically derived from PROJECT_DOMAIN when missing
-  if (!baseLayer.LOGTO_API_RESOURCE && baseLayer.PROJECT_DOMAIN) {
-    const domain = baseLayer.PROJECT_DOMAIN.replace(/\/$/, '');
-    baseLayer.LOGTO_API_RESOURCE = `${domain}/api`;
-  }
-
   // Derivation: APP_URL ← PROJECT_DOMAIN + APP_BASE_URL
   // Derived from PROJECT_DOMAIN + APP_BASE_URL (defaults to '/app')
   if (!baseLayer.APP_URL && baseLayer.PROJECT_DOMAIN) {
@@ -217,6 +214,16 @@ function applyFallbacksAndDerivations(
   // Defaults to PROJECT_DOMAIN when missing
   if (!baseLayer.WORKER_ORIGIN && baseLayer.PROJECT_DOMAIN) {
     baseLayer.WORKER_ORIGIN = baseLayer.PROJECT_DOMAIN.replace(/\/$/, '');
+  }
+
+  if (!baseLayer.LOGTO_API_RESOURCE) {
+    if (baseLayer.WORKER_ORIGIN) {
+      const workerOrigin = baseLayer.WORKER_ORIGIN.replace(/\/$/, '');
+      baseLayer.LOGTO_API_RESOURCE = `${workerOrigin}/api`;
+    } else if (baseLayer.PROJECT_DOMAIN) {
+      const domain = baseLayer.PROJECT_DOMAIN.replace(/\/$/, '');
+      baseLayer.LOGTO_API_RESOURCE = `${domain}/api`;
+    }
   }
 }
 

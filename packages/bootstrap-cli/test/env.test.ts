@@ -9,19 +9,78 @@ const BASE_OVERRIDES = {
   PROJECT_DOMAIN: 'https://demo.just',
   CLOUDFLARE_ACCOUNT_ID: 'cf-account',
   CLOUDFLARE_API_TOKEN: 'token-value',
-  LOGTO_ENDPOINT: 'https://auth.example.com',
-  LOGTO_API_RESOURCE: 'https://api.example.com'
+  LOGTO_ENDPOINT: 'https://auth.example.com'
 };
+
+const ENV_KEYS_TO_SANDBOX = [
+  'PROJECT_ID',
+  'PROJECT_DOMAIN',
+  'APP_URL',
+  'APP_BASE_URL',
+  'WORKER_ORIGIN',
+  'CLOUDFLARE_ACCOUNT_ID',
+  'CLOUDFLARE_API_TOKEN',
+  'CLOUDFLARE_ZONE_ID',
+  'LOGTO_ENDPOINT',
+  'LOGTO_API_RESOURCE',
+  'LOGTO_MANAGEMENT_ENDPOINT',
+  'LOGTO_MANAGEMENT_AUTH_BASIC',
+  'STRIPE_SECRET_KEY',
+  'STRIPE_TEST_SECRET_KEY',
+  'CLOUDFLARE_D1_NAME',
+  'CLOUDFLARE_D1_ID',
+  'D1_DATABASE_ID',
+  'CLOUDFLARE_R2_BUCKET',
+  'LOGTO_APPLICATION_ID',
+  'LOGTO_API_RESOURCE_ID',
+  'LOGTO_ISSUER',
+  'LOGTO_JWKS_URI',
+  'LOGTO_M2M_APP_ID',
+  'LOGTO_M2M_APP_SECRET',
+  'STRIPE_WEBHOOK_SECRET',
+  'STRIPE_WEBHOOK_URL',
+  'STRIPE_PRODUCTS',
+  'STRIPE_PRODUCT_IDS',
+  'STRIPE_PRICE_IDS',
+  'EXPO_PUBLIC_LOGTO_POST_LOGOUT_REDIRECT_URI',
+  'EXPO_PUBLIC_LOGTO_REDIRECT_URI',
+  'EXPO_PUBLIC_LOGTO_REDIRECT_URI_LOCAL',
+  'EXPO_PUBLIC_LOGTO_REDIRECT_URI_PROD',
+  'EXPO_PUBLIC_WORKER_ORIGIN',
+  'EXPO_PUBLIC_WORKER_ORIGIN_LOCAL',
+  'EXPO_PUBLIC_LOGTO_APP_ID',
+  'EXPO_PUBLIC_LOGTO_ENDPOINT',
+  'EXPO_PUBLIC_API_RESOURCE'
+];
 
 function withTempEnv(files: Record<string, string>, run: (cwd: string) => void): void {
   const dir = mkdtempSync(join(tmpdir(), 'bootstrap-cli-'));
+  const originalEnv: Record<string, string | undefined> = {};
+  for (const [key, value] of Object.entries(process.env)) {
+    originalEnv[key] = value;
+  }
   try {
+    for (const key of ENV_KEYS_TO_SANDBOX) {
+      delete process.env[key];
+    }
     for (const [name, contents] of Object.entries(files)) {
       writeFileSync(join(dir, name), contents);
     }
     run(dir);
   } finally {
     rmSync(dir, { recursive: true, force: true });
+    for (const key of Object.keys(process.env)) {
+      if (!(key in originalEnv)) {
+        delete process.env[key];
+      }
+    }
+    for (const [key, value] of Object.entries(originalEnv)) {
+      if (typeof value === 'undefined') {
+        delete process.env[key];
+      } else {
+        process.env[key] = value;
+      }
+    }
   }
 }
 
@@ -162,14 +221,22 @@ describe('loadBootstrapEnvironment', () => {
         '.env': 'LOGTO_MANAGEMENT_AUTH_BASIC=Basic user:password123\nSTRIPE_SECRET_KEY=sk_test_123'.split('\n').join('\n')
       },
       (cwd) => {
-        const result = loadBootstrapEnvironment({
-          cwd,
-          overrides: BASE_OVERRIDES
-        });
+        const original = process.env.LOGTO_MANAGEMENT_AUTH_BASIC;
+        delete process.env.LOGTO_MANAGEMENT_AUTH_BASIC;
+        try {
+          const result = loadBootstrapEnvironment({
+            cwd,
+            overrides: BASE_OVERRIDES
+          });
 
-        // LOGTO_MANAGEMENT_AUTH_BASIC has AUTH keyword
-        expect(result.report.redacted.LOGTO_MANAGEMENT_AUTH_BASIC).toBe('Basi...23');
-        expect(result.report.summary).not.toContain('user:password1');
+          // LOGTO_MANAGEMENT_AUTH_BASIC has AUTH keyword
+          expect(result.report.redacted.LOGTO_MANAGEMENT_AUTH_BASIC).toBe('Basi...23');
+          expect(result.report.summary).not.toContain('user:password1');
+        } finally {
+          if (typeof original === 'string') {
+            process.env.LOGTO_MANAGEMENT_AUTH_BASIC = original;
+          }
+        }
       }
     );
   });
@@ -184,25 +251,33 @@ describe('loadBootstrapEnvironment', () => {
         ].join('\n')
       },
       (cwd) => {
-        const result = loadBootstrapEnvironment({
-          cwd,
-          overrides: {
-            ...BASE_OVERRIDES,
-            CLOUDFLARE_API_TOKEN: 'cf_token_xyz_456789'
+        const original = process.env.LOGTO_MANAGEMENT_AUTH_BASIC;
+        delete process.env.LOGTO_MANAGEMENT_AUTH_BASIC;
+        try {
+          const result = loadBootstrapEnvironment({
+            cwd,
+            overrides: {
+              ...BASE_OVERRIDES,
+              CLOUDFLARE_API_TOKEN: 'cf_token_xyz_456789'
+            }
+          });
+
+          // Verify summary doesn't contain actual secret values
+          expect(result.report.summary).not.toContain('verysecretvalue123');
+          expect(result.report.summary).not.toContain('cf_token_xyz_456789');
+          expect(result.report.summary).not.toContain('whsec_webhook_abc123');
+          expect(result.report.summary).not.toContain('admin:P@ssw0rd!');
+
+          // Verify redacted forms are present (pattern: first 4 chars + ... + last 2 chars)
+          expect(result.report.redacted.STRIPE_SECRET_KEY).toMatch(/^sk_l\.\.\./);
+          expect(result.report.redacted.CLOUDFLARE_API_TOKEN).toMatch(/^cf_t\.\.\./);
+          expect(result.report.redacted.STRIPE_WEBHOOK_SECRET).toMatch(/^whse\.\.\./);
+          expect(result.report.redacted.LOGTO_MANAGEMENT_AUTH_BASIC).toMatch(/^Basi\.\.\./);
+        } finally {
+          if (typeof original === 'string') {
+            process.env.LOGTO_MANAGEMENT_AUTH_BASIC = original;
           }
-        });
-
-        // Verify summary doesn't contain actual secret values
-        expect(result.report.summary).not.toContain('verysecretvalue123');
-        expect(result.report.summary).not.toContain('cf_token_xyz_456789');
-        expect(result.report.summary).not.toContain('whsec_webhook_abc123');
-        expect(result.report.summary).not.toContain('admin:P@ssw0rd!');
-
-        // Verify redacted forms are present (pattern: first 4 chars + ... + last 2 chars)
-        expect(result.report.redacted.STRIPE_SECRET_KEY).toMatch(/^sk_l\.\.\./);
-        expect(result.report.redacted.CLOUDFLARE_API_TOKEN).toMatch(/^cf_t\.\.\./);
-        expect(result.report.redacted.STRIPE_WEBHOOK_SECRET).toMatch(/^whse\.\.\./);
-        expect(result.report.redacted.LOGTO_MANAGEMENT_AUTH_BASIC).toMatch(/^Basi\.\.\./);
+        }
       }
     );
   });
@@ -275,31 +350,47 @@ describe('Environment variable fallbacks and derivations', () => {
 
   it('derives LOGTO_API_RESOURCE from PROJECT_DOMAIN when missing', () => {
     withTempEnv({}, (cwd) => {
-      const result = loadBootstrapEnvironment({
-        cwd,
-        overrides: {
-          ...BASE_OVERRIDES,
-          PROJECT_DOMAIN: 'https://example.com',
-          LOGTO_API_RESOURCE: undefined,
-          STRIPE_SECRET_KEY: 'sk_test_example'
+      const original = process.env.LOGTO_API_RESOURCE;
+      delete process.env.LOGTO_API_RESOURCE;
+      try {
+        const result = loadBootstrapEnvironment({
+          cwd,
+          overrides: {
+            ...BASE_OVERRIDES,
+            PROJECT_DOMAIN: 'https://example.com',
+            LOGTO_API_RESOURCE: undefined,
+            STRIPE_SECRET_KEY: 'sk_test_example'
+          }
+        });
+        expect(result.env.LOGTO_API_RESOURCE).toBe('https://example.com/api');
+      } finally {
+        if (typeof original === 'string') {
+          process.env.LOGTO_API_RESOURCE = original;
         }
-      });
-      expect(result.env.LOGTO_API_RESOURCE).toBe('https://example.com/api');
+      }
     });
   });
 
   it('removes trailing slash from PROJECT_DOMAIN when deriving LOGTO_API_RESOURCE', () => {
     withTempEnv({}, (cwd) => {
-      const result = loadBootstrapEnvironment({
-        cwd,
-        overrides: {
-          ...BASE_OVERRIDES,
-          PROJECT_DOMAIN: 'https://example.com/',
-          LOGTO_API_RESOURCE: undefined,
-          STRIPE_SECRET_KEY: 'sk_test_example'
+      const original = process.env.LOGTO_API_RESOURCE;
+      delete process.env.LOGTO_API_RESOURCE;
+      try {
+        const result = loadBootstrapEnvironment({
+          cwd,
+          overrides: {
+            ...BASE_OVERRIDES,
+            PROJECT_DOMAIN: 'https://example.com/',
+            LOGTO_API_RESOURCE: undefined,
+            STRIPE_SECRET_KEY: 'sk_test_example'
+          }
+        });
+        expect(result.env.LOGTO_API_RESOURCE).toBe('https://example.com/api');
+      } finally {
+        if (typeof original === 'string') {
+          process.env.LOGTO_API_RESOURCE = original;
         }
-      });
-      expect(result.env.LOGTO_API_RESOURCE).toBe('https://example.com/api');
+      }
     });
   });
 
@@ -439,11 +530,19 @@ describe('Environment variable fallbacks and derivations', () => {
         ].join('\n')
       },
       (cwd) => {
-        const result = loadBootstrapEnvironment({ cwd });
-        expect(result.env.STRIPE_SECRET_KEY).toBe('sk_test_minimal');
-        expect(result.env.LOGTO_API_RESOURCE).toBe('https://minimal.example.com/api');
-        expect(result.env.APP_URL).toBe('https://minimal.example.com/app');
-        expect(result.env.WORKER_ORIGIN).toBe('https://minimal.example.com');
+        const original = process.env.LOGTO_API_RESOURCE;
+        delete process.env.LOGTO_API_RESOURCE;
+        try {
+          const result = loadBootstrapEnvironment({ cwd });
+          expect(result.env.STRIPE_SECRET_KEY).toBe('sk_test_minimal');
+          expect(result.env.LOGTO_API_RESOURCE).toBe('https://minimal.example.com/api');
+          expect(result.env.APP_URL).toBe('https://minimal.example.com/app');
+          expect(result.env.WORKER_ORIGIN).toBe('https://minimal.example.com');
+        } finally {
+          if (typeof original === 'string') {
+            process.env.LOGTO_API_RESOURCE = original;
+          }
+        }
       }
     );
   });

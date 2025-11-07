@@ -1,4 +1,4 @@
-import { LogtoConfig, LogtoProvider, UserScope } from '@logto/rn';
+import { LogtoConfig, UserScope } from '@logto/rn';
 import React, { ReactNode, useMemo } from 'react';
 import { Text, View } from 'react-native';
 
@@ -6,6 +6,8 @@ import { usePublicEnv } from './src/runtimeEnv';
 import Layout from './src/components/Layout';
 import { Callback, Contact, Dashboard, Home, Pricing } from './src/pages';
 import { RouterProvider, useRouterContext } from './src/router/RouterProvider';
+import { AuthConfigProvider } from './src/auth/AuthConfig';
+import { HybridLogtoProvider } from './src/auth/LogtoProvider';
 
 type ConfigState =
   | {
@@ -41,7 +43,7 @@ const buildConfig = (env: ReturnType<typeof usePublicEnv>): ConfigState => {
     return { kind: 'error', reasons: missing };
   }
 
-  const scopes = env.scopes.length > 0 ? env.scopes : [UserScope.Email];
+  const scopes = env.scopes.length > 0 ? env.scopes : ['openid', 'offline_access', UserScope.Profile, UserScope.Email];
   const resources = env.resources.length > 0 ? env.resources : undefined;
 
   const config: LogtoConfig = {
@@ -103,8 +105,12 @@ const App = (): ReactNode => {
   const env = usePublicEnv();
   const state = useMemo(() => buildConfig(env), [env]);
 
-  if (state.kind === 'error' && typeof window !== 'undefined' && window.location.origin.includes('localhost')) {
-    return (
+  const isLocalhost = typeof window !== 'undefined' && window.location.origin.includes('localhost');
+
+  let content: ReactNode;
+
+  if (state.kind === 'error' && isLocalhost) {
+    content = (
       <Layout>
         <View style={{ gap: 12 }}>
           <Text style={{ fontSize: 20, fontWeight: '600', color: '#0f172a' }}>Loading configuration…</Text>
@@ -114,23 +120,26 @@ const App = (): ReactNode => {
         </View>
       </Layout>
     );
+  } else if (state.kind === 'error') {
+    content = <ConfigError reasons={state.reasons} />;
+  } else {
+    content = (
+      <HybridLogtoProvider config={state.config}>
+        <AuthConfigProvider
+          value={{
+            redirectUri: state.redirectUri,
+            redirectUriLocal: env.redirectUriLocal,
+            redirectUriProd: env.redirectUriProd,
+            logoutRedirectUri: state.logoutRedirectUri
+          }}
+        >
+          <RoutedView />
+        </AuthConfigProvider>
+      </HybridLogtoProvider>
+    );
   }
 
-  if (state.kind === 'error') {
-    return <ConfigError reasons={state.reasons} />;
-  }
-
-  return (
-    <LogtoProvider
-      config={state.config}
-      redirectUri={state.redirectUri}
-      postLogoutRedirectUri={state.logoutRedirectUri}
-    >
-      <RouterProvider>
-        <RoutedView />
-      </RouterProvider>
-    </LogtoProvider>
-  );
+  return <RouterProvider>{content}</RouterProvider>;
 };
 
 export default App;

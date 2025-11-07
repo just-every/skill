@@ -17,6 +17,7 @@
     "wrangler": "^4.45.3"
   },
   "dependencies": {
+    "@logto/js": "^4.2.0",
     "jose": "^5.9.2"
   }
 }

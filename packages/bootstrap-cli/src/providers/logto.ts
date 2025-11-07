@@ -8,15 +8,34 @@ export interface LogtoApplication {
   secret?: string;
   customClientMetadata?: {
     corsAllowedOrigins?: string[];
+  };
+  oidcClientMetadata?: {
     redirectUris?: string[];
     postLogoutRedirectUris?: string[];
+    alwaysIssueRefreshToken?: boolean;
+    rotateRefreshToken?: boolean;
   };
+}
+
+export interface LogtoApplicationSecret {
+  id: string;
+  name: string;
+  value?: string;
+  createdAt: string;
+  expiresAt?: string | null;
 }
 
 export interface LogtoApiResource {
   id: string;
   name: string;
   indicator: string;
+}
+
+export interface LogtoApplicationUserConsentScope {
+  organizationScopes?: string[];
+  resourceScopes?: Record<string, string[]>;
+  organizationResourceScopes?: string[];
+  userScopes?: string[];
 }
 
 export interface LogtoM2MApplication {
@@ -150,6 +169,47 @@ async function createApplication(
   return (await response.json()) as LogtoApplication;
 }
 
+async function listApplicationSecrets(
+  managementEndpoint: string,
+  token: string,
+  applicationId: string
+): Promise<LogtoApplicationSecret[]> {
+  const response = await fetch(`${managementEndpoint}/api/applications/${applicationId}/secrets`, {
+    headers: {
+      'Authorization': `Bearer ${token}`
+    }
+  });
+
+  if (!response.ok) {
+    throw new Error(`Failed to list secrets for application ${applicationId}: ${response.status}`);
+  }
+
+  return (await response.json()) as LogtoApplicationSecret[];
+}
+
+async function createApplicationSecret(
+  managementEndpoint: string,
+  token: string,
+  applicationId: string,
+  name: string
+): Promise<LogtoApplicationSecret> {
+  const response = await fetch(`${managementEndpoint}/api/applications/${applicationId}/secrets`, {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${token}`,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({ name })
+  });
+
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(`Failed to create secret for application ${applicationId}: ${response.status} ${text}`);
+  }
+
+  return (await response.json()) as LogtoApplicationSecret;
+}
+
 /**
  * Get application details by ID
  */
@@ -198,7 +258,7 @@ async function updateApplication(
 }
 
 /**
- * Ensure a SPA application exists with correct redirect URIs
+ * Ensure a Traditional application exists with correct redirect URIs
  */
 export async function ensureApplication(
   env: BootstrapEnv,
@@ -211,16 +271,45 @@ export async function ensureApplication(
     throw new Error('LOGTO_MANAGEMENT_ENDPOINT or LOGTO_ENDPOINT is required');
   }
 
-  const appName = `${env.PROJECT_ID}-spa`;
-  const domain = env.PROJECT_DOMAIN ?? '';
+  const appName = `${env.PROJECT_ID}-web`;
+  const origins = buildLogtoOrigins(env);
+  const redirectUris = origins.map((origin) => `${origin}/callback`);
+  const postLogoutRedirectUris = [...origins];
+  const corsAllowedOrigins = [...origins];
 
-  const redirectUris = [
-    `${domain}/callback`,
-    'http://127.0.0.1:8787/callback'
-  ];
+  const desiredOidcMetadata = {
+    redirectUris,
+    postLogoutRedirectUris,
+    alwaysIssueRefreshToken: true,
+    rotateRefreshToken: true
+  };
 
-  const postLogoutRedirectUris = [domain, 'http://127.0.0.1:8787'];
-  const corsAllowedOrigins = [domain, 'http://127.0.0.1:8787'];
+  // Get the API resource ID for scope configuration
+  const apiResourceIndicator = env.LOGTO_API_RESOURCE;
+  let apiResourceId: string | undefined;
+
+  if (!dryRun) {
+    try {
+      const resources = await searchApiResources(managementEndpoint, token, apiResourceIndicator);
+      if (resources.length > 0) {
+        apiResourceId = resources[0].id;
+      }
+    } catch (error) {
+      logger(chalk.yellow(`[logto] Warning: Could not fetch API resource for scope configuration: ${error}`));
+    }
+  }
+
+  // Build user consent scopes
+  // Default scopes: openid, offline_access, profile, email
+  const userScopes = ['openid', 'offline_access', 'profile', 'email'];
+
+  // Build resource scopes if we have the API resource
+  const resourceScopes: Record<string, string[]> = {};
+  if (apiResourceId) {
+    // For now, we'll request all scopes for the API resource
+    // This could be made configurable in the future
+    resourceScopes[apiResourceId] = [];
+  }
 
   const existing = await searchApplications(managementEndpoint, token, appName);
 
@@ -230,14 +319,24 @@ export async function ensureApplication(
 
     // Check if metadata needs update
     const current = await getApplication(managementEndpoint, token, app.id);
-    const currentRedirects = current.customClientMetadata?.redirectUris ?? [];
-    const currentPostLogout = current.customClientMetadata?.postLogoutRedirectUris ?? [];
+    const currentRedirects =
+      current.oidcClientMetadata?.redirectUris ?? current.customClientMetadata?.redirectUris ?? [];
+    const currentPostLogout =
+      current.oidcClientMetadata?.postLogoutRedirectUris ??
+      current.customClientMetadata?.postLogoutRedirectUris ??
+      [];
     const currentCors = current.customClientMetadata?.corsAllowedOrigins ?? [];
+    const currentRefresh = {
+      alwaysIssueRefreshToken: current.oidcClientMetadata?.alwaysIssueRefreshToken ?? false,
+      rotateRefreshToken: current.oidcClientMetadata?.rotateRefreshToken ?? false
+    };
 
     const needsUpdate =
       JSON.stringify(currentRedirects.sort()) !== JSON.stringify(redirectUris.sort()) ||
       JSON.stringify(currentPostLogout.sort()) !== JSON.stringify(postLogoutRedirectUris.sort()) ||
-      JSON.stringify(currentCors.sort()) !== JSON.stringify(corsAllowedOrigins.sort());
+      JSON.stringify(currentCors.sort()) !== JSON.stringify(corsAllowedOrigins.sort()) ||
+      currentRefresh.alwaysIssueRefreshToken !== desiredOidcMetadata.alwaysIssueRefreshToken ||
+      currentRefresh.rotateRefreshToken !== desiredOidcMetadata.rotateRefreshToken;
 
     if (needsUpdate) {
       if (dryRun) {
@@ -245,9 +344,8 @@ export async function ensureApplication(
       } else {
         logger(chalk.yellow(`[logto] Updating application ${app.id} metadata`));
         await updateApplication(managementEndpoint, token, app.id, {
+          oidcClientMetadata: desiredOidcMetadata,
           customClientMetadata: {
-            redirectUris,
-            postLogoutRedirectUris,
             corsAllowedOrigins
           }
         });
@@ -257,28 +355,146 @@ export async function ensureApplication(
       logger(chalk.gray(`[logto] Application ${app.id} metadata is up to date`));
     }
 
-    return { id: app.id };
+    // Update user consent scopes
+    if (!dryRun && apiResourceId) {
+      try {
+        await ensureApplicationUserConsentScopes(
+          managementEndpoint,
+          token,
+          app.id,
+          { userScopes, resourceScopes },
+          logger
+        );
+      } catch (error) {
+        logger(chalk.yellow(`[logto] Warning: Could not update user consent scopes: ${error}`));
+      }
+    }
+
+    const secret = await ensureApplicationSecretValue(
+      env,
+      managementEndpoint,
+      token,
+      app.id,
+      { dryRun, logger }
+    );
+    return { id: app.id, secret };
   }
 
   // Create new application
   if (dryRun) {
-    logger(chalk.cyan(`[dry-run] Would create SPA application: ${appName}`));
+    logger(chalk.cyan(`[dry-run] Would create Traditional application: ${appName}`));
+    logger(chalk.cyan(`[dry-run]   Redirect URIs: ${redirectUris.join(', ')}`));
+    logger(chalk.cyan(`[dry-run]   Post-logout URIs: ${postLogoutRedirectUris.join(', ')}`));
+    logger(chalk.cyan(`[dry-run]   User scopes: ${userScopes.join(', ')}`));
+    if (apiResourceId) {
+      logger(chalk.cyan(`[dry-run]   API resource: ${apiResourceIndicator} (${apiResourceId})`));
+    }
     return { id: 'dry-run-app-id' };
   }
 
-  logger(chalk.yellow(`[logto] Creating SPA application: ${appName}`));
+  logger(chalk.yellow(`[logto] Creating Traditional application: ${appName}`));
   const newApp = await createApplication(managementEndpoint, token, {
     name: appName,
-    type: 'SPA',
+    type: 'Traditional',
+    oidcClientMetadata: desiredOidcMetadata,
     customClientMetadata: {
-      redirectUris,
-      postLogoutRedirectUris,
       corsAllowedOrigins
     }
   });
 
   logger(chalk.green(`[logto] Created application ${newApp.id}`));
-  return { id: newApp.id, secret: newApp.secret };
+
+  // Set user consent scopes for new application
+  if (apiResourceId) {
+    try {
+      await ensureApplicationUserConsentScopes(
+        managementEndpoint,
+        token,
+        newApp.id,
+        { userScopes, resourceScopes },
+        logger
+      );
+    } catch (error) {
+      logger(chalk.yellow(`[logto] Warning: Could not set user consent scopes: ${error}`));
+    }
+  }
+
+  const secret = newApp.secret ??
+    (await ensureApplicationSecretValue(env, managementEndpoint, token, newApp.id, { dryRun, logger }));
+
+  return { id: newApp.id, secret };
+}
+
+async function ensureApplicationSecretValue(
+  env: BootstrapEnv,
+  managementEndpoint: string,
+  token: string,
+  applicationId: string,
+  options: { dryRun?: boolean; logger?: (line: string) => void }
+): Promise<string | undefined> {
+  const { dryRun = false, logger = console.log } = options;
+
+  if (env.LOGTO_APPLICATION_SECRET) {
+    logger(chalk.gray('[logto] Using LOGTO_APPLICATION_SECRET from environment'));
+    return env.LOGTO_APPLICATION_SECRET;
+  }
+
+  if (dryRun) {
+    logger(chalk.cyan(`[dry-run] Would ensure application secret for ${applicationId}`));
+    return 'dry-run-app-secret';
+  }
+
+  try {
+    const secrets = await listApplicationSecrets(managementEndpoint, token, applicationId);
+    const existing = secrets.find((secret) => typeof secret.value === 'string' && secret.value.trim().length > 0);
+    if (existing?.value) {
+      logger(chalk.gray(`[logto] Reusing existing application secret ${existing.id}`));
+      return existing.value;
+    }
+  } catch (error) {
+    logger(chalk.yellow(`[logto] Warning: Could not list application secrets: ${error}`));
+  }
+
+  logger(chalk.yellow(`[logto] Creating application secret for ${applicationId}`));
+  const generatedName = `${env.PROJECT_ID}-web-${Date.now()}`;
+  const created = await createApplicationSecret(managementEndpoint, token, applicationId, generatedName);
+  if (!created.value) {
+    throw new Error('Logto created an application secret but did not return the value');
+  }
+  logger(chalk.green(`[logto] Created application secret ${created.id}`));
+  return created.value;
+}
+
+/**
+ * Update application user consent scopes
+ */
+async function ensureApplicationUserConsentScopes(
+  managementEndpoint: string,
+  token: string,
+  applicationId: string,
+  scopes: LogtoApplicationUserConsentScope,
+  logger: (line: string) => void
+): Promise<void> {
+  logger(chalk.gray(`[logto] Configuring user consent scopes for application ${applicationId}`));
+
+  const response = await fetch(
+    `${managementEndpoint}/api/applications/${applicationId}/user-consent-scopes`,
+    {
+      method: 'PUT',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(scopes)
+    }
+  );
+
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(`Failed to update user consent scopes: ${response.status} ${text}`);
+  }
+
+  logger(chalk.green(`[logto] User consent scopes configured for application ${applicationId}`));
 }
 
 /**
@@ -444,24 +660,35 @@ export async function provisionLogto(options: LogtoProvisionOptions): Promise<Lo
 
   logger(chalk.blue('[logto] Starting Logto provisioning...'));
 
-  // Mint management token
-  let token: string;
   if (dryRun) {
     logger(chalk.cyan('[dry-run] Would mint management token'));
-    token = 'dry-run-token';
-  } else {
-    logger(chalk.gray('[logto] Minting management token...'));
-    token = await mintManagementToken(env);
+    logger(chalk.cyan(`[dry-run] Would ensure Traditional application: ${env.PROJECT_ID}-web`));
+    logger(chalk.cyan(`[dry-run] Would ensure API resource: ${env.LOGTO_API_RESOURCE}`));
+    logger(chalk.cyan(`[dry-run] Would ensure M2M application: ${env.PROJECT_ID}-m2m`));
+    const dryRunResult: LogtoProvisionResult = {
+      applicationId: 'dry-run-app-id',
+      applicationSecret: 'dry-run-app-secret',
+      apiResourceId: 'dry-run-resource-id',
+      m2mApplicationId: 'dry-run-m2m-id',
+      m2mApplicationSecret: 'dry-run-m2m-secret'
+    };
+    logger(chalk.blue('[logto] Dry-run provisioning complete (no network calls)'));
+    return dryRunResult;
   }
 
-  // Ensure SPA application
-  const app = await ensureApplication(env, token, { dryRun, logger });
+  // Mint management token
+  let token: string;
+  logger(chalk.gray('[logto] Minting management token...'));
+  token = await mintManagementToken(env);
+
+  // Ensure Traditional application
+  const app = await ensureApplication(env, token, { logger });
 
   // Ensure API resource
-  const resource = await ensureApiResource(env, token, { dryRun, logger });
+  const resource = await ensureApiResource(env, token, { logger });
 
   // Ensure M2M application
-  const m2m = await ensureM2MApp(env, token, { dryRun, logger });
+  const m2m = await ensureM2MApp(env, token, { logger });
 
   logger(chalk.blue('[logto] Logto provisioning complete'));
 
@@ -472,6 +699,52 @@ export async function provisionLogto(options: LogtoProvisionOptions): Promise<Lo
     m2mApplicationId: m2m.id,
     m2mApplicationSecret: m2m.secret
   };
+}
+
+function buildLogtoOrigins(env: BootstrapEnv): string[] {
+  const origins = new Set<string>();
+
+  const canonical = normaliseOrigin(env.PROJECT_DOMAIN) ?? `https://${env.PROJECT_ID}.justevery.com`;
+  origins.add(canonical);
+
+  const workerOrigin = normaliseOrigin(env.WORKER_ORIGIN);
+  if (workerOrigin) {
+    origins.add(workerOrigin);
+  }
+
+  const appUrlOrigin = normaliseOrigin(env.APP_URL);
+  if (appUrlOrigin) {
+    origins.add(appUrlOrigin);
+  }
+
+  const fallbackWorker = env.EXPO_PUBLIC_WORKER_ORIGIN ? normaliseOrigin(env.EXPO_PUBLIC_WORKER_ORIGIN) : null;
+  if (fallbackWorker) {
+    origins.add(fallbackWorker);
+  }
+
+  const localOrigin = normaliseOrigin(env.EXPO_PUBLIC_WORKER_ORIGIN_LOCAL ?? 'http://127.0.0.1:8787');
+  origins.add(localOrigin ?? 'http://127.0.0.1:8787');
+
+  return Array.from(origins).filter((origin) => Boolean(origin));
+}
+
+function normaliseOrigin(value?: string | null): string | null {
+  if (!value) {
+    return null;
+  }
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return null;
+  }
+  if (!/^https?:/i.test(trimmed)) {
+    return null;
+  }
+  try {
+    const url = new URL(trimmed.replace(/\/$/, ''));
+    return `${url.protocol}//${url.host}`;
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -492,14 +765,14 @@ export interface LogtoPlan {
 }
 
 export function buildLogtoPlan(env: BootstrapEnv): LogtoPlan {
-  const appName = `${env.PROJECT_ID}-spa`;
+  const appName = `${env.PROJECT_ID}-web`;
   const resourceName = `${env.PROJECT_ID}-api`;
   const m2mName = `${env.PROJECT_ID}-m2m`;
 
   const steps: LogtoPlanStep[] = [
     {
-      id: 'spa-app',
-      title: 'SPA Application',
+      id: 'traditional-app',
+      title: 'Traditional Application',
       detail: `Ensure application "${appName}" exists`,
       status: 'ensure'
     },

@@ -17,6 +17,7 @@ const BASE_ENV: BootstrapEnv = {
   LOGTO_ENDPOINT: 'https://auth.example.com',
   LOGTO_API_RESOURCE: 'https://api.example.com',
   LOGTO_APPLICATION_ID: 'logto-app',
+  LOGTO_APPLICATION_SECRET: 'logto-app-secret',
   LOGTO_MANAGEMENT_ENDPOINT: 'https://auth.example.com',
   LOGTO_MANAGEMENT_AUTH_BASIC: 'YWJjOmRlZg==',
   STRIPE_SECRET_KEY: 'sk_test_12345',
@@ -28,20 +29,20 @@ describe('buildLogtoPlan', () => {
     const plan = buildLogtoPlan(BASE_ENV);
     expect(plan.provider).toBe('logto');
     expect(plan.endpoint).toBe('https://auth.example.com');
-    expect(plan.steps.map((step) => step.id)).toEqual(['spa-app', 'api-resource', 'm2m-app']);
+    expect(plan.steps.map((step) => step.id)).toEqual(['traditional-app', 'api-resource', 'm2m-app']);
     expect(plan.notes[0]).toContain('Endpoint:');
     const summary = formatLogtoPlan(plan);
-    expect(summary).toContain('demo-spa');
+    expect(summary).toContain('demo-web');
     expect(summary).toContain('https://api.example.com');
   });
 
   it('includes project ID in resource names', () => {
     const plan = buildLogtoPlan(BASE_ENV);
-    const spaStep = plan.steps.find((step) => step.id === 'spa-app');
+    const spaStep = plan.steps.find((step) => step.id === 'traditional-app');
     const apiStep = plan.steps.find((step) => step.id === 'api-resource');
     const m2mStep = plan.steps.find((step) => step.id === 'm2m-app');
 
-    expect(spaStep?.detail).toContain('demo-spa');
+    expect(spaStep?.detail).toContain('demo-web');
     expect(apiStep?.detail).toContain('https://api.example.com');
     expect(m2mStep?.detail).toContain('demo-m2m');
   });
@@ -62,100 +63,183 @@ describe('ensureApplication', () => {
     const searchResponse = [];
     const createResponse = {
       id: 'new-app-id',
-      name: 'demo-spa',
-      type: 'SPA',
+      name: 'demo-web',
+      type: 'Traditional',
       secret: 'new-app-secret'
     };
 
+    const resourceSearchResponse = [
+      {
+        id: 'api-resource-id',
+        name: 'demo-api',
+        indicator: 'https://api.example.com'
+      }
+    ];
+
     (global.fetch as any)
+      // Search for API resource
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => resourceSearchResponse
+      })
+      // Search for application
       .mockResolvedValueOnce({
         ok: true,
         json: async () => searchResponse
       })
+      // Create application
       .mockResolvedValueOnce({
         ok: true,
         json: async () => createResponse
+      })
+      // Set user consent scopes
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({})
       });
 
     const result = await ensureApplication(BASE_ENV, mockToken);
 
     expect(result.id).toBe('new-app-id');
     expect(result.secret).toBe('new-app-secret');
-    expect(global.fetch).toHaveBeenCalledTimes(2);
+    expect(global.fetch).toHaveBeenCalledTimes(4);
+    const createCall = (global.fetch as any).mock.calls[2];
+    const body = JSON.parse(createCall[1].body);
+    expect(body.oidcClientMetadata.redirectUris).toContain('https://demo.just/callback');
+
+    // Verify user consent scopes were configured
+    const scopeCall = (global.fetch as any).mock.calls[3];
+    expect(scopeCall[0]).toContain('/user-consent-scopes');
+    expect(scopeCall[1].method).toBe('PUT');
   });
 
   it('returns existing application without changes when metadata matches', async () => {
     const existingApp = {
       id: 'existing-app-id',
-      name: 'demo-spa',
-      type: 'SPA',
+      name: 'demo-web',
+      type: 'Traditional',
       customClientMetadata: {
+        corsAllowedOrigins: ['https://demo.just', 'http://127.0.0.1:8787']
+      },
+      oidcClientMetadata: {
         redirectUris: ['https://demo.just/callback', 'http://127.0.0.1:8787/callback'],
         postLogoutRedirectUris: ['https://demo.just', 'http://127.0.0.1:8787'],
-        corsAllowedOrigins: ['https://demo.just', 'http://127.0.0.1:8787']
+        alwaysIssueRefreshToken: true,
+        rotateRefreshToken: true
       }
     };
 
+    const resourceSearchResponse = [
+      {
+        id: 'api-resource-id',
+        name: 'demo-api',
+        indicator: 'https://api.example.com'
+      }
+    ];
+
     (global.fetch as any)
+      // Search for API resource
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => resourceSearchResponse
+      })
+      // Search for application
       .mockResolvedValueOnce({
         ok: true,
         json: async () => [existingApp]
       })
+      // Get application details
       .mockResolvedValueOnce({
         ok: true,
         json: async () => existingApp
+      })
+      // Update user consent scopes
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({})
       });
 
     const result = await ensureApplication(BASE_ENV, mockToken);
 
     expect(result.id).toBe('existing-app-id');
-    expect(result.secret).toBeUndefined();
-    expect(global.fetch).toHaveBeenCalledTimes(2);
+    expect(result.secret).toBe('logto-app-secret');
+    expect(global.fetch).toHaveBeenCalledTimes(4);
   });
 
   it('updates application when metadata differs', async () => {
     const existingApp = {
       id: 'existing-app-id',
-      name: 'demo-spa',
-      type: 'SPA',
+      name: 'demo-web',
+      type: 'Traditional',
       customClientMetadata: {
+        corsAllowedOrigins: ['https://old-domain.com']
+      },
+      oidcClientMetadata: {
         redirectUris: ['https://old-domain.com/callback'],
         postLogoutRedirectUris: ['https://old-domain.com'],
-        corsAllowedOrigins: ['https://old-domain.com']
+        alwaysIssueRefreshToken: false,
+        rotateRefreshToken: false
       }
     };
 
     const updatedApp = {
       ...existingApp,
       customClientMetadata: {
+        corsAllowedOrigins: ['https://demo.just', 'http://127.0.0.1:8787']
+      },
+      oidcClientMetadata: {
         redirectUris: ['https://demo.just/callback', 'http://127.0.0.1:8787/callback'],
         postLogoutRedirectUris: ['https://demo.just', 'http://127.0.0.1:8787'],
-        corsAllowedOrigins: ['https://demo.just', 'http://127.0.0.1:8787']
+        alwaysIssueRefreshToken: true,
+        rotateRefreshToken: true
       }
     };
 
+    const resourceSearchResponse = [
+      {
+        id: 'api-resource-id',
+        name: 'demo-api',
+        indicator: 'https://api.example.com'
+      }
+    ];
+
     (global.fetch as any)
+      // Search for API resource
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => resourceSearchResponse
+      })
+      // Search for application
       .mockResolvedValueOnce({
         ok: true,
         json: async () => [existingApp]
       })
+      // Get application details
       .mockResolvedValueOnce({
         ok: true,
         json: async () => existingApp
       })
+      // Update application metadata
       .mockResolvedValueOnce({
         ok: true,
         json: async () => updatedApp
+      })
+      // Update user consent scopes
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({})
       });
 
     const result = await ensureApplication(BASE_ENV, mockToken);
 
     expect(result.id).toBe('existing-app-id');
-    expect(global.fetch).toHaveBeenCalledTimes(3);
+    expect(global.fetch).toHaveBeenCalledTimes(5);
 
     // Verify PATCH was called
-    const patchCall = (global.fetch as any).mock.calls[2];
+    const patchCall = (global.fetch as any).mock.calls[3];
     expect(patchCall[1].method).toBe('PATCH');
+    const patchBody = JSON.parse(patchCall[1].body);
+    expect(patchBody.oidcClientMetadata.redirectUris).toContain('https://demo.just/callback');
   });
 
   it('skips creation in dry-run mode', async () => {
@@ -329,6 +413,18 @@ describe('provisionLogto', () => {
       json: async () => ({ access_token: 'mock-token', expires_in: 3600 })
     });
 
+    // Mock API resource search for scope configuration in ensureApplication
+    (global.fetch as any).mockResolvedValueOnce({
+      ok: true,
+      json: async () => [
+        {
+          id: 'resource-id',
+          name: 'demo-api',
+          indicator: 'https://api.example.com'
+        }
+      ]
+    });
+
     // Mock application search
     (global.fetch as any).mockResolvedValueOnce({
       ok: true,
@@ -340,10 +436,16 @@ describe('provisionLogto', () => {
       ok: true,
       json: async () => ({
         id: 'app-id',
-        name: 'demo-spa',
-        type: 'SPA',
+        name: 'demo-web',
+        type: 'Traditional',
         secret: 'app-secret'
       })
+    });
+
+    // Mock user consent scopes update
+    (global.fetch as any).mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({})
     });
 
     // Mock resource search
@@ -397,24 +499,6 @@ describe('provisionLogto', () => {
     const logLines: string[] = [];
     const logger = (line: string) => logLines.push(line);
 
-    // Mock application search
-    (global.fetch as any).mockResolvedValueOnce({
-      ok: true,
-      json: async () => []
-    });
-
-    // Mock resource search
-    (global.fetch as any).mockResolvedValueOnce({
-      ok: true,
-      json: async () => []
-    });
-
-    // Mock M2M search
-    (global.fetch as any).mockResolvedValueOnce({
-      ok: true,
-      json: async () => []
-    });
-
     const result = await provisionLogto({
       env: BASE_ENV,
       dryRun: true,
@@ -422,8 +506,12 @@ describe('provisionLogto', () => {
     });
 
     expect(result.applicationId).toBe('dry-run-app-id');
+    expect(result.applicationSecret).toBe('dry-run-app-secret');
     expect(result.m2mApplicationId).toBe('dry-run-m2m-id');
+    expect(result.m2mApplicationSecret).toBe('dry-run-m2m-secret');
     expect(logLines.some((line) => line.includes('dry-run'))).toBe(true);
+    // Verify no network calls were made in dry-run mode
+    expect(global.fetch).not.toHaveBeenCalled();
   });
 
   it('derives correct management resource for Logto Cloud', async () => {
@@ -438,6 +526,18 @@ describe('provisionLogto', () => {
       json: async () => ({ access_token: 'mock-token', expires_in: 3600 })
     });
 
+    // Mock API resource search for scope configuration in ensureApplication
+    (global.fetch as any).mockResolvedValueOnce({
+      ok: true,
+      json: async () => [
+        {
+          id: 'resource-id',
+          name: 'demo-api',
+          indicator: 'https://api.example.com'
+        }
+      ]
+    });
+
     // Mock application search
     (global.fetch as any).mockResolvedValueOnce({
       ok: true,
@@ -447,7 +547,13 @@ describe('provisionLogto', () => {
     // Mock application create
     (global.fetch as any).mockResolvedValueOnce({
       ok: true,
-      json: async () => ({ id: 'app-id', name: 'demo-spa', type: 'SPA' })
+      json: async () => ({ id: 'app-id', name: 'demo-web', type: 'Traditional' })
+    });
+
+    // Mock user consent scopes update
+    (global.fetch as any).mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({})
     });
 
     // Mock resource search
@@ -493,6 +599,18 @@ describe('provisionLogto', () => {
       json: async () => ({ access_token: 'mock-token', expires_in: 3600 })
     });
 
+    // Mock API resource search for scope configuration in ensureApplication
+    (global.fetch as any).mockResolvedValueOnce({
+      ok: true,
+      json: async () => [
+        {
+          id: 'resource-id',
+          name: 'demo-api',
+          indicator: 'https://api.example.com'
+        }
+      ]
+    });
+
     // Mock application search
     (global.fetch as any).mockResolvedValueOnce({
       ok: true,
@@ -502,7 +620,13 @@ describe('provisionLogto', () => {
     // Mock application create
     (global.fetch as any).mockResolvedValueOnce({
       ok: true,
-      json: async () => ({ id: 'app-id', name: 'demo-spa', type: 'SPA' })
+      json: async () => ({ id: 'app-id', name: 'demo-web', type: 'Traditional' })
+    });
+
+    // Mock user consent scopes update
+    (global.fetch as any).mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({})
     });
 
     // Mock resource search
@@ -545,6 +669,7 @@ describe('provisionLogto', () => {
       LOGTO_ENDPOINT: 'https://auth.example.com',
       LOGTO_API_RESOURCE: 'https://api.example.com',
       LOGTO_APPLICATION_ID: 'logto-app',
+      LOGTO_APPLICATION_SECRET: 'logto-app-secret',
       LOGTO_MANAGEMENT_AUTH_BASIC: 'YWJjOmRlZg==',
       STRIPE_SECRET_KEY: 'sk_test_12345',
       STRIPE_WEBHOOK_SECRET: 'whsec_12345'
@@ -556,6 +681,18 @@ describe('provisionLogto', () => {
       json: async () => ({ access_token: 'mock-token', expires_in: 3600 })
     });
 
+    // Mock API resource search for scope configuration in ensureApplication
+    (global.fetch as any).mockResolvedValueOnce({
+      ok: true,
+      json: async () => [
+        {
+          id: 'resource-id',
+          name: 'demo-api',
+          indicator: 'https://api.example.com'
+        }
+      ]
+    });
+
     // Mock application search
     (global.fetch as any).mockResolvedValueOnce({
       ok: true,
@@ -565,7 +702,13 @@ describe('provisionLogto', () => {
     // Mock application create
     (global.fetch as any).mockResolvedValueOnce({
       ok: true,
-      json: async () => ({ id: 'app-id', name: 'demo-spa', type: 'SPA' })
+      json: async () => ({ id: 'app-id', name: 'demo-web', type: 'Traditional' })
+    });
+
+    // Mock user consent scopes update
+    (global.fetch as any).mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({})
     });
 
     // Mock resource search

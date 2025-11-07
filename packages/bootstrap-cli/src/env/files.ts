@@ -47,31 +47,46 @@ export function buildGeneratedFiles(options: GenerateFilesOptions): GenerateFile
 
   // Use Logto result if available, otherwise fall back to env
   const logtoAppId = logtoResult?.applicationId ?? env.LOGTO_APPLICATION_ID ?? '';
+  const logtoAppSecret = logtoResult?.applicationSecret ?? env.LOGTO_APPLICATION_SECRET ?? '';
   const logtoApiResourceId = logtoResult?.apiResourceId ?? '';
   const logtoM2MAppId = logtoResult?.m2mApplicationId ?? '';
   const logtoM2MSecret = logtoResult?.m2mApplicationSecret ?? '';
 
   const logtoEndpoint = env.LOGTO_ENDPOINT ?? '';
+  const canonicalOrigin = deriveCanonicalOrigin(env);
+  const workerOrigin = deriveWorkerOrigin(env, appUrl);
+  const localOrigin = deriveLocalOrigin(env);
+  const prodRedirectUri = `${canonicalOrigin}/callback`;
+  const localRedirectUri = `${localOrigin}/callback`;
+
   pushWeb(webEntries, 'LOGTO_ENDPOINT', logtoEndpoint);
   pushWeb(webEntries, 'LOGTO_APPLICATION_ID', logtoAppId);
+  if (logtoAppSecret) {
+    pushWeb(webEntries, 'LOGTO_APPLICATION_SECRET', logtoAppSecret);
+  }
   pushWeb(webEntries, 'LOGTO_API_RESOURCE', env.LOGTO_API_RESOURCE);
+  pushWeb(webEntries, 'LOGTO_API_RESOURCE_ID', env.LOGTO_API_RESOURCE_ID ?? '');
 
-  const trimmedDomain = trimTrailingSlash(env.PROJECT_DOMAIN ?? '');
+  const issuer = env.LOGTO_ISSUER ?? `${trimTrailingSlash(logtoEndpoint)}/oidc`;
+  const jwksUri = env.LOGTO_JWKS_URI ?? `${trimTrailingSlash(logtoEndpoint)}/oidc/jwks`;
+  pushWeb(webEntries, 'LOGTO_ISSUER', issuer);
+  pushWeb(webEntries, 'LOGTO_JWKS_URI', jwksUri);
+
   pushWeb(webEntries, 'EXPO_PUBLIC_LOGTO_ENDPOINT', logtoEndpoint);
   pushWeb(webEntries, 'EXPO_PUBLIC_LOGTO_APP_ID', logtoAppId);
   pushWeb(webEntries, 'EXPO_PUBLIC_API_RESOURCE', env.LOGTO_API_RESOURCE);
-  pushWeb(webEntries, 'EXPO_PUBLIC_LOGTO_REDIRECT_URI_LOCAL', 'http://127.0.0.1:8787/callback');
-  pushWeb(webEntries, 'EXPO_PUBLIC_LOGTO_REDIRECT_URI_PROD', `${trimmedDomain}/callback`);
-  pushWeb(webEntries, 'EXPO_PUBLIC_LOGTO_REDIRECT_URI', `${trimmedDomain}/callback`);
-  pushWeb(webEntries, 'EXPO_PUBLIC_LOGTO_SCOPES', 'openid profile email');
+  pushWeb(webEntries, 'EXPO_PUBLIC_LOGTO_REDIRECT_URI_LOCAL', localRedirectUri);
+  pushWeb(webEntries, 'EXPO_PUBLIC_LOGTO_REDIRECT_URI_PROD', prodRedirectUri);
+  pushWeb(webEntries, 'EXPO_PUBLIC_LOGTO_REDIRECT_URI', prodRedirectUri);
+  pushWeb(webEntries, 'EXPO_PUBLIC_LOGTO_SCOPES', 'openid offline_access profile email');
   pushWeb(webEntries, 'EXPO_PUBLIC_LOGTO_RESOURCES', env.LOGTO_API_RESOURCE);
   pushWeb(
     webEntries,
     'EXPO_PUBLIC_LOGTO_POST_LOGOUT_REDIRECT_URI',
-    env.EXPO_PUBLIC_LOGTO_POST_LOGOUT_REDIRECT_URI ?? env.PROJECT_DOMAIN ?? ''
+    env.EXPO_PUBLIC_LOGTO_POST_LOGOUT_REDIRECT_URI ?? canonicalOrigin
   );
-  pushWeb(webEntries, 'EXPO_PUBLIC_WORKER_ORIGIN', deriveWorkerOrigin(env, appUrl));
-  pushWeb(webEntries, 'EXPO_PUBLIC_WORKER_ORIGIN_LOCAL', 'http://127.0.0.1:8787');
+  pushWeb(webEntries, 'EXPO_PUBLIC_WORKER_ORIGIN', workerOrigin);
+  pushWeb(webEntries, 'EXPO_PUBLIC_WORKER_ORIGIN_LOCAL', localOrigin);
 
   const d1Name = env.CLOUDFLARE_D1_NAME ?? `${env.PROJECT_ID}-d1`;
   const d1Id = env.D1_DATABASE_ID ?? env.CLOUDFLARE_D1_ID ?? '';
@@ -80,6 +95,7 @@ export function buildGeneratedFiles(options: GenerateFilesOptions): GenerateFile
   pushWeb(webEntries, 'CLOUDFLARE_D1_ID', env.CLOUDFLARE_D1_ID ?? '');
   pushWeb(webEntries, 'D1_DATABASE_NAME', d1Name);
   pushWeb(webEntries, 'D1_DATABASE_ID', d1Id);
+  pushWeb(webEntries, 'CLOUDFLARE_R2_BUCKET', r2Bucket);
   pushWeb(webEntries, 'R2_BUCKET_NAME', r2Bucket);
   pushWeb(webEntries, 'CLOUDFLARE_ZONE_ID', env.CLOUDFLARE_ZONE_ID ?? '');
 
@@ -109,6 +125,14 @@ export function buildGeneratedFiles(options: GenerateFilesOptions): GenerateFile
   }
 
   pushWorker(workerEntries, 'LOGTO_APPLICATION_ID', logtoAppId);
+  if (logtoAppSecret) {
+    pushWorker(workerEntries, 'LOGTO_APPLICATION_SECRET', logtoAppSecret);
+  }
+  pushWorker(workerEntries, 'LOGTO_API_RESOURCE', env.LOGTO_API_RESOURCE);
+  pushWorker(workerEntries, 'LOGTO_API_RESOURCE_ID', env.LOGTO_API_RESOURCE_ID ?? '');
+  pushWorker(workerEntries, 'LOGTO_ISSUER', issuer);
+  pushWorker(workerEntries, 'LOGTO_JWKS_URI', jwksUri);
+  pushWorker(workerEntries, 'CLOUDFLARE_R2_BUCKET', r2Bucket);
   pushWorker(workerEntries, 'STRIPE_SECRET_KEY', env.STRIPE_SECRET_KEY);
   pushWorker(workerEntries, 'STRIPE_WEBHOOK_SECRET', stripeWebhookSecret);
 
@@ -167,6 +191,19 @@ function deriveWorkerOrigin(env: BootstrapEnv, resolvedAppUrl: string): string {
   if (resolvedAppUrl) return originFromUrl(resolvedAppUrl);
   if (env.PROJECT_DOMAIN) return originFromUrl(env.PROJECT_DOMAIN);
   return '';
+}
+
+function deriveCanonicalOrigin(env: BootstrapEnv): string {
+  if (env.PROJECT_DOMAIN) {
+    return originFromUrl(env.PROJECT_DOMAIN);
+  }
+  return `https://${env.PROJECT_ID}.justevery.com`;
+}
+
+function deriveLocalOrigin(env: BootstrapEnv): string {
+  const candidate = env.EXPO_PUBLIC_WORKER_ORIGIN_LOCAL ?? 'http://127.0.0.1:8787';
+  const normalised = originFromUrl(candidate);
+  return normalised || 'http://127.0.0.1:8787';
 }
 
 function originFromUrl(url: string): string {

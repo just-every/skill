@@ -1,4 +1,13 @@
 import { createRemoteJWKSet, jwtVerify, type JWTPayload, type JWTVerifyOptions } from 'jose';
+import {
+  authPreflightResponse,
+  handleAuthCallback,
+  handleAuthIdToken,
+  handleAuthSignIn,
+  handleAuthSignOut,
+  handleAuthToken,
+  handleAuthUserInfo,
+} from './logtoAuth';
 
 type AssetFetcher = {
   fetch(input: Request | string, init?: RequestInit): Promise<Response>;
@@ -12,6 +21,7 @@ export interface Env {
   LOGTO_API_RESOURCE: string;
   LOGTO_ENDPOINT?: string;
   LOGTO_APPLICATION_ID?: string;
+  LOGTO_APPLICATION_SECRET?: string;
   APP_BASE_URL?: string;
   PROJECT_DOMAIN?: string;
   STRIPE_PRODUCTS?: string;
@@ -26,6 +36,150 @@ export interface Env {
   EXPO_PUBLIC_WORKER_ORIGIN?: string;
   ASSETS?: AssetFetcher;
 }
+
+type AccountBranding = {
+  primaryColor: string;
+  secondaryColor: string;
+  accentColor?: string;
+  logoUrl?: string;
+  tagline?: string;
+  updatedAt: string;
+};
+
+type BrandingOverride = Partial<Omit<AccountBranding, 'updatedAt'>> & {
+  updatedAt: string;
+};
+
+type AccountRecord = {
+  id: string;
+  slug: string;
+  name: string;
+  industry: string;
+  plan: string;
+  createdAt: string;
+  billingEmail: string;
+  brand: AccountBranding;
+  stats: {
+    activeMembers: number;
+    pendingInvites: number;
+    mrr: number;
+    seats: number;
+  };
+};
+
+type AccountMemberRecord = {
+  id: string;
+  accountId: string;
+  name: string;
+  email: string;
+  role: 'Owner' | 'Admin' | 'Billing' | 'Viewer';
+  status: 'active' | 'invited' | 'suspended';
+  joinedAt: string;
+  lastActiveAt?: string;
+};
+
+const ACCOUNT_DATA: AccountRecord[] = [
+  {
+    id: 'acct-justevery',
+    slug: 'justevery',
+    name: 'justevery, inc.',
+    industry: 'Developer Tools',
+    plan: 'Scale',
+    createdAt: '2024-01-05T10:00:00.000Z',
+    billingEmail: 'billing@justevery.com',
+    brand: {
+      primaryColor: '#0f172a',
+      secondaryColor: '#38bdf8',
+      accentColor: '#facc15',
+      logoUrl: 'https://dummyimage.com/200x48/0f172a/ffffff&text=justevery',
+      tagline: 'Launch on day one',
+      updatedAt: '2024-11-01T00:00:00.000Z'
+    },
+    stats: {
+      activeMembers: 6,
+      pendingInvites: 1,
+      mrr: 5400,
+      seats: 12
+    }
+  },
+  {
+    id: 'acct-aerion-labs',
+    slug: 'aerion-labs',
+    name: 'Aerion Labs',
+    industry: 'Climate',
+    plan: 'Launch',
+    createdAt: '2024-05-18T09:30:00.000Z',
+    billingEmail: 'finance@aerionlabs.com',
+    brand: {
+      primaryColor: '#052e16',
+      secondaryColor: '#d9f99d',
+      accentColor: '#34d399',
+      logoUrl: 'https://dummyimage.com/200x48/052e16/d9f99d&text=Aerion',
+      tagline: 'Instrumenting the built world',
+      updatedAt: '2024-10-12T00:00:00.000Z'
+    },
+    stats: {
+      activeMembers: 4,
+      pendingInvites: 2,
+      mrr: 2100,
+      seats: 8
+    }
+  }
+];
+
+const ACCOUNT_MEMBERS: AccountMemberRecord[] = [
+  {
+    id: 'mbr-ava',
+    accountId: 'acct-justevery',
+    name: 'Ava Patel',
+    email: 'ava@justevery.com',
+    role: 'Owner',
+    status: 'active',
+    joinedAt: '2024-01-05T10:00:00.000Z',
+    lastActiveAt: '2025-11-06T18:00:00.000Z'
+  },
+  {
+    id: 'mbr-james',
+    accountId: 'acct-justevery',
+    name: 'James Peter',
+    email: 'james@justevery.com',
+    role: 'Admin',
+    status: 'active',
+    joinedAt: '2024-02-12T10:00:00.000Z',
+    lastActiveAt: '2025-11-05T22:15:00.000Z'
+  },
+  {
+    id: 'mbr-eloise',
+    accountId: 'acct-justevery',
+    name: 'Eloise Cho',
+    email: 'eloise@justevery.com',
+    role: 'Billing',
+    status: 'invited',
+    joinedAt: '2024-10-01T10:00:00.000Z'
+  },
+  {
+    id: 'mbr-liam',
+    accountId: 'acct-aerion-labs',
+    name: 'Liam Vega',
+    email: 'liam@aerionlabs.com',
+    role: 'Owner',
+    status: 'active',
+    joinedAt: '2024-05-18T09:30:00.000Z',
+    lastActiveAt: '2025-11-06T16:32:00.000Z'
+  },
+  {
+    id: 'mbr-tara',
+    accountId: 'acct-aerion-labs',
+    name: 'Tara Malik',
+    email: 'tara@aerionlabs.com',
+    role: 'Viewer',
+    status: 'active',
+    joinedAt: '2024-06-01T12:00:00.000Z',
+    lastActiveAt: '2025-11-04T08:00:00.000Z'
+  }
+];
+
+const ACCOUNT_BRANDING_OVERRIDES = new Map<string, BrandingOverride>();
 
 const CONTENT_TYPE_BY_EXTENSION: Record<string, string> = {
   json: "application/json; charset=UTF-8",
@@ -48,7 +202,7 @@ const textEncoder = new TextEncoder();
 
 const STATIC_ASSET_PREFIXES = ["/_expo/", "/assets/"];
 const STATIC_ASSET_PATHS = new Set(["/favicon.ico", "/index.html", "/manifest.json"]);
-const SPA_EXTRA_ROUTES = ["/", "/pricing", "/contact", "/callback", "/app"];
+const SPA_EXTRA_ROUTES = ["/", "/pricing", "/contact", "/callback", "/app", "/logout"];
 const MARKETING_ROUTE_PREFIX = "/marketing/";
 
 type RuntimeEnvPayload = {
@@ -125,7 +279,7 @@ function shouldServeAppShell(pathname: string, env: Env): boolean {
 
 async function serveStaticAsset(request: Request, env: Env): Promise<Response | null> {
   if (!env.ASSETS) {
-    return null;
+    return htmlResponse(landingPageHtml(env));
   }
 
   try {
@@ -160,7 +314,7 @@ async function serveAppShell(request: Request, env: Env): Promise<Response | nul
   try {
     const response = await env.ASSETS.fetch(assetRequest);
     if (response.status >= 400) {
-      return null;
+      return htmlResponse(landingPageHtml(env));
     }
 
     const headers = new Headers(response.headers);
@@ -189,7 +343,7 @@ async function serveAppShell(request: Request, env: Env): Promise<Response | nul
     }
   } catch (error) {
     console.warn("Failed to serve app shell", error);
-    return null;
+    return htmlResponse(landingPageHtml(env));
   }
 }
 
@@ -281,14 +435,52 @@ function injectRuntimeEnv(html: string, payload: RuntimeEnvPayload): string {
   return `${script}${html}`;
 }
 
+async function handleAuthRoute(handler: () => Promise<Response>): Promise<Response> {
+  try {
+    return await handler();
+  } catch (error) {
+    console.error('Auth route failed', error);
+    return new Response('Authentication configuration error', { status: 500 });
+  }
+}
+
 const Worker: ExportedHandler<Env> = {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
     const pathname = normalisePath(url.pathname);
 
-    // Basic CORS for API endpoints
-    if (request.method === "OPTIONS" && pathname.startsWith("/api/")) {
-      return cors(new Response(null, { status: 204 }));
+    // Basic CORS for API and auth endpoints
+    if (request.method === "OPTIONS") {
+      if (pathname.startsWith("/api/")) {
+        return cors(new Response(null, { status: 204 }));
+      }
+      if (pathname.startsWith("/auth/")) {
+        return authPreflightResponse(request);
+      }
+    }
+
+    if (pathname === "/auth/sign-in") {
+      return handleAuthRoute(() => handleAuthSignIn(request, env));
+    }
+
+    if (pathname === "/callback") {
+      return handleAuthRoute(() => handleAuthCallback(request, env));
+    }
+
+    if (pathname === "/auth/sign-out") {
+      return handleAuthRoute(() => handleAuthSignOut(request, env));
+    }
+
+    if (pathname === "/auth/token") {
+      return handleAuthRoute(() => handleAuthToken(request, env));
+    }
+
+    if (pathname === "/auth/id-token") {
+      return handleAuthRoute(() => handleAuthIdToken(request, env));
+    }
+
+    if (pathname === "/auth/userinfo") {
+      return handleAuthRoute(() => handleAuthUserInfo(request, env));
     }
 
     if (isStaticAssetPath(pathname)) {
@@ -300,6 +492,10 @@ const Worker: ExportedHandler<Env> = {
 
     if (pathname === "/marketing" || pathname.startsWith(MARKETING_ROUTE_PREFIX)) {
       return handleMarketingAsset(request, env, pathname);
+    }
+
+    if (pathname === "/api/accounts" || pathname.startsWith("/api/accounts/")) {
+      return handleAccountsRoute(request, env, pathname);
     }
 
     switch (pathname) {
@@ -353,6 +549,70 @@ export default Worker;
 function normalisePath(pathname: string): string {
   if (pathname === "/") return "/";
   return pathname.replace(/\/+$/, "");
+}
+
+function buildAccountSummaries(session: AuthenticatedSession): Array<Record<string, unknown>> {
+  return ACCOUNT_DATA.map((account) => mapAccountResponse(account));
+}
+
+function mapAccountResponse(account: AccountRecord): Record<string, unknown> {
+  return {
+    id: account.id,
+    slug: account.slug,
+    name: account.name,
+    plan: account.plan,
+    industry: account.industry,
+    createdAt: account.createdAt,
+    billingEmail: account.billingEmail,
+    stats: account.stats,
+    branding: resolveBranding(account)
+  };
+}
+
+function findAccountBySlug(slug: string): AccountRecord | undefined {
+  return ACCOUNT_DATA.find((account) => account.slug === slug);
+}
+
+function resolveBranding(account: AccountRecord): AccountBranding {
+  const override = ACCOUNT_BRANDING_OVERRIDES.get(account.id);
+  if (!override) {
+    return account.brand;
+  }
+  return {
+    primaryColor: override.primaryColor ?? account.brand.primaryColor,
+    secondaryColor: override.secondaryColor ?? account.brand.secondaryColor,
+    accentColor: override.accentColor ?? account.brand.accentColor,
+    logoUrl: override.logoUrl ?? account.brand.logoUrl,
+    tagline: override.tagline ?? account.brand.tagline,
+    updatedAt: override.updatedAt
+  };
+}
+
+function normaliseHexColor(input?: string): string | null {
+  if (!input) return null;
+  const trimmed = input.trim();
+  if (!trimmed) return null;
+  const prefixed = trimmed.startsWith('#') ? trimmed : `#${trimmed}`;
+  const normalised = prefixed.length === 4
+    ? `#${prefixed[1]}${prefixed[1]}${prefixed[2]}${prefixed[2]}${prefixed[3]}${prefixed[3]}`
+    : prefixed;
+  if (!/^#[0-9a-fA-F]{6}$/.test(normalised)) {
+    return null;
+  }
+  return normalised.toLowerCase();
+}
+
+function normalisePublicUrl(value?: string): string | null {
+  if (!value) return null;
+  try {
+    const url = new URL(value);
+    if (url.protocol === 'http:' || url.protocol === 'https:') {
+      return url.toString();
+    }
+    return null;
+  } catch {
+    return null;
+  }
 }
 
 type AuthenticatedSession = {
@@ -702,6 +962,132 @@ async function handleMe(request: Request, env: Env): Promise<Response> {
       session_id: session.sessionId,
       expires_at: session.expiresAt,
     },
+  });
+}
+
+async function handleAccountsRoute(request: Request, env: Env, pathname: string): Promise<Response> {
+  const auth = await requireAuthenticatedSession(request, env);
+  if (!auth.ok) {
+    return authFailureResponse(auth);
+  }
+
+  if (pathname === "/api/accounts") {
+    const accounts = buildAccountSummaries(auth.session);
+    return jsonResponse({
+      accounts,
+      currentAccountId: accounts[0]?.id ?? null,
+    });
+  }
+
+  const segments = pathname.split('/').filter(Boolean);
+  const slug = segments[2];
+  const action = segments[3];
+
+  const account = findAccountBySlug(slug);
+  if (!account) {
+    return jsonResponse({ error: 'Account not found' }, 404);
+  }
+
+  switch (action) {
+    case 'members':
+      return handleAccountMembers(account, auth.session);
+    case 'branding':
+      return handleAccountBranding(request, account);
+    default:
+      return jsonResponse({
+        account: mapAccountResponse(account)
+      });
+  }
+}
+
+async function handleAccountMembers(
+  account: AccountRecord,
+  session: AuthenticatedSession
+): Promise<Response> {
+  const members = ACCOUNT_MEMBERS.filter((member) => member.accountId === account.id).map((member) => ({
+    id: member.id,
+    name: member.name,
+    email: member.email,
+    role: member.role,
+    status: member.status,
+    joinedAt: member.joinedAt,
+    lastActiveAt: member.lastActiveAt ?? null
+  }));
+
+  return jsonResponse({
+    accountId: account.id,
+    members,
+    viewer: {
+      userId: session.userId,
+      email: session.emailAddress ?? null
+    }
+  });
+}
+
+async function handleAccountBranding(
+  request: Request,
+  account: AccountRecord
+): Promise<Response> {
+  if (request.method !== 'PATCH' && request.method !== 'PUT') {
+    return jsonResponse({ error: 'Method Not Allowed' }, 405);
+  }
+
+  let payload: Record<string, unknown>;
+  try {
+    payload = await request.json();
+  } catch {
+    return jsonResponse({ error: 'Invalid JSON' }, 400);
+  }
+
+  const updates: BrandingOverride = {
+    updatedAt: new Date().toISOString()
+  };
+
+  if (typeof payload.primaryColor === 'string') {
+    const normalised = normaliseHexColor(payload.primaryColor);
+    if (!normalised) {
+      return jsonResponse({ error: 'primaryColor must be a valid hex color' }, 400);
+    }
+    updates.primaryColor = normalised;
+  }
+
+  if (typeof payload.secondaryColor === 'string') {
+    const normalised = normaliseHexColor(payload.secondaryColor);
+    if (!normalised) {
+      return jsonResponse({ error: 'secondaryColor must be a valid hex color' }, 400);
+    }
+    updates.secondaryColor = normalised;
+  }
+
+  if (typeof payload.accentColor === 'string') {
+    const normalised = normaliseHexColor(payload.accentColor);
+    if (!normalised) {
+      return jsonResponse({ error: 'accentColor must be a valid hex color' }, 400);
+    }
+    updates.accentColor = normalised;
+  }
+
+  if (typeof payload.logoUrl === 'string') {
+    const normalised = normalisePublicUrl(payload.logoUrl);
+    if (!normalised) {
+      return jsonResponse({ error: 'logoUrl must be an absolute http(s) URL' }, 400);
+    }
+    updates.logoUrl = normalised;
+  }
+
+  if (typeof payload.tagline === 'string') {
+    updates.tagline = payload.tagline.trim().slice(0, 120);
+  }
+
+  const existing = ACCOUNT_BRANDING_OVERRIDES.get(account.id) ?? {};
+  ACCOUNT_BRANDING_OVERRIDES.set(account.id, {
+    ...existing,
+    ...updates
+  });
+
+  return jsonResponse({
+    ok: true,
+    branding: resolveBranding(account)
   });
 }
 

@@ -243,34 +243,26 @@ describe('worker route extras', () => {
   });
 
   describe('SPA shell routes', () => {
-    it('serves the app shell for /callback', async () => {
+    it('requires Logto configuration for /callback', async () => {
       const env = createMockEnv();
-      const html = '<!DOCTYPE html><html><head><title>App</title></head><body><div id="root"></div></body></html>';
-      const assetResponse = new Response(html, { status: 200, headers: { 'content-type': 'text/html' } });
-      env.ASSETS.fetch = vi.fn().mockResolvedValue(assetResponse);
+      env.ASSETS.fetch = vi.fn();
 
       const response = await runFetch(new Request('https://example.com/callback'), env);
 
-      expect(env.ASSETS.fetch).toHaveBeenCalled();
-      expect(response.status).toBe(200);
-      expect(response.headers.get('Content-Type')).toBe('text/html; charset=UTF-8');
-      const body = await response.text();
-      expect(body).toContain('window.__JUSTEVERY_ENV__');
+      expect(env.ASSETS.fetch).not.toHaveBeenCalled();
+      expect(response.status).toBe(500);
     });
 
-    it('serves the app shell for /logout', async () => {
+    it('serves the landing page for /logout when assets are missing', async () => {
       const env = createMockEnv();
-      const html = '<!DOCTYPE html><html><body><div id="app"></div></body></html>';
-      const assetResponse = new Response(html, { status: 200, headers: { 'content-type': 'text/html' } });
-      env.ASSETS.fetch = vi.fn().mockResolvedValue(assetResponse);
+      env.ASSETS.fetch = vi.fn().mockResolvedValue(new Response('Not Found', { status: 404 }));
 
       const response = await runFetch(new Request('https://example.com/logout'), env);
 
       expect(env.ASSETS.fetch).toHaveBeenCalled();
       expect(response.status).toBe(200);
-      expect(response.headers.get('Content-Type')).toBe('text/html; charset=UTF-8');
       const body = await response.text();
-      expect(body).toContain('window.__JUSTEVERY_ENV__');
+      expect(body).toContain('Launch your product');
     });
   });
 

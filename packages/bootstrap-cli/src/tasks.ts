@@ -14,6 +14,7 @@ import {
   executeCloudflarePlan,
   formatCloudflarePlan,
   detectCloudflareCapabilities,
+  createCloudflareClient,
   type CloudflarePlan,
   type CloudflareCapabilities
 } from './providers/cloudflare.js';
@@ -72,6 +73,7 @@ interface DeployContext {
   envResult?: LoadEnvironmentResult;
   cloudflareCapabilities?: CloudflareCapabilities;
   wranglerResult?: FileWriteResult;
+  logtoResult?: LogtoProvisionResult;
   deployResult?: { command: string; dryRun: boolean };
 }
 
@@ -123,13 +125,7 @@ function baseTasks(cwd: string): ListrTask<BootstrapTaskContext>[] {
           looksLikePlaceholderAccountId(env.CLOUDFLARE_ACCOUNT_ID) ||
           looksLikePlaceholderApiToken(env.CLOUDFLARE_API_TOKEN)
         ) {
-          task.skip?.('Placeholder Cloudflare credentials');
-          ctx.cloudflareCapabilities = {
-            authenticated: false,
-            canUseD1: false,
-            canUseR2: false
-          };
-          return;
+          guardCloudflareCredentials(env);
         }
         try {
           ctx.cloudflareCapabilities = await detectCloudflareCapabilities(env);
@@ -259,7 +255,8 @@ export function createApplyTasks(options: PipelineOptions = {}): Listr<Bootstrap
           const logtoUpdates = {
             LOGTO_APPLICATION_ID: ctx.logtoResult.applicationId,
             LOGTO_M2M_APP_ID: ctx.logtoResult.m2mApplicationId,
-            LOGTO_M2M_APP_SECRET: ctx.logtoResult.m2mApplicationSecret
+            LOGTO_M2M_APP_SECRET: ctx.logtoResult.m2mApplicationSecret,
+            LOGTO_API_RESOURCE_ID: ctx.logtoResult.apiResourceId
           } as Partial<GeneratedEnv>;
           ctx.envResult = mergeGeneratedValues(ctx.envResult, logtoUpdates);
         }
@@ -370,7 +367,8 @@ export function createEnvGenerateTasks(options: EnvGenerateOptions = {}): Listr<
             const logtoUpdates = {
               LOGTO_APPLICATION_ID: ctx.logtoResult.applicationId,
               LOGTO_M2M_APP_ID: ctx.logtoResult.m2mApplicationId,
-              LOGTO_M2M_APP_SECRET: ctx.logtoResult.m2mApplicationSecret
+              LOGTO_M2M_APP_SECRET: ctx.logtoResult.m2mApplicationSecret,
+              LOGTO_API_RESOURCE_ID: ctx.logtoResult.apiResourceId
             } as Partial<GeneratedEnv>;
             ctx.envResult = mergeGeneratedValues(ctx.envResult, logtoUpdates);
           }
@@ -514,6 +512,24 @@ export function createDeployTasks(options: DeployOptions = {}): Listr<DeployCont
       }
     },
     {
+      title: 'Build Expo web bundle',
+      enabled: () => !checkOnly,
+      task: async (ctx, task) => {
+        if (!ctx.envResult) {
+          throw new Error('Environment not loaded');
+        }
+        if (shouldSkipExpoBuild(ctx.envResult.env)) {
+          task.skip?.('Skipping Expo build in test mode or with placeholder credentials');
+          return;
+        }
+        await execa('pnpm', ['--filter', '@justevery/web', 'run', 'build'], {
+          cwd,
+          stdio: 'inherit',
+          env: createCommandEnv(ctx.envResult.env)
+        });
+      }
+    },
+    {
       title: 'Detect Cloudflare capabilities',
       task: async (ctx, task) => {
         if (!ctx.envResult) {
@@ -552,6 +568,95 @@ export function createDeployTasks(options: DeployOptions = {}): Listr<DeployCont
       }
     },
     {
+      title: checkOnly ? 'Skip R2 bucket ensure (check-only)' : dryRun ? 'Preview R2 bucket' : 'Ensure R2 bucket',
+      enabled: () => !checkOnly,
+      task: async (ctx, task) => {
+        if (!ctx.envResult) {
+          throw new Error('Environment not loaded');
+        }
+        const env = ctx.envResult.env;
+        if (
+          looksLikePlaceholderAccountId(env.CLOUDFLARE_ACCOUNT_ID) ||
+          looksLikePlaceholderApiToken(env.CLOUDFLARE_API_TOKEN)
+        ) {
+          task.skip?.('Placeholder Cloudflare credentials');
+          return;
+        }
+        const bucketName = deriveR2BucketName(env);
+        const client = createCloudflareClient(env);
+        const existing = await client.getR2Bucket(bucketName);
+        if (existing) {
+          task.output = `${bucketName} (exists)`;
+        } else if (dryRun) {
+          task.output = `${bucketName} (would create)`;
+        } else {
+          await client.createR2Bucket(bucketName);
+          task.output = `${bucketName} (created)`;
+        }
+        if (!dryRun) {
+          ctx.envResult = mergeGeneratedValues(ctx.envResult, {
+            CLOUDFLARE_R2_BUCKET: bucketName
+          });
+        }
+      }
+    },
+    {
+      title: dryRun ? 'Preview Logto provisioning' : 'Sync Logto configuration',
+      enabled: () => !checkOnly,
+      task: async (ctx, task) => {
+        if (!ctx.envResult) {
+          throw new Error('Environment not loaded');
+        }
+        const lines: string[] = [];
+        ctx.logtoResult = await provisionLogto({
+          env: ctx.envResult.env,
+          dryRun,
+          logger: (line) => lines.push(line)
+        });
+        task.output = lines.join('\n');
+        if (!dryRun && ctx.logtoResult) {
+          const logtoUpdates = {
+            LOGTO_APPLICATION_ID: ctx.logtoResult.applicationId,
+            LOGTO_M2M_APP_ID: ctx.logtoResult.m2mApplicationId,
+            LOGTO_M2M_APP_SECRET: ctx.logtoResult.m2mApplicationSecret,
+            LOGTO_API_RESOURCE_ID: ctx.logtoResult.apiResourceId
+          } as Partial<GeneratedEnv>;
+          ctx.envResult = mergeGeneratedValues(ctx.envResult, logtoUpdates);
+        }
+      }
+    },
+    {
+      title: dryRun
+        ? 'Skip env file update (dry run)'
+        : checkOnly
+          ? 'Skip env file update (check-only)'
+          : 'Write generated env files',
+      enabled: () => !checkOnly && !dryRun,
+      task: async (ctx, task) => {
+        if (!ctx.envResult) {
+          throw new Error('Environment not loaded');
+        }
+        const { summary } = await writeGeneratedArtifacts(cwd, ctx.envResult, {
+          logtoResult: ctx.logtoResult
+        });
+        task.output = summary || 'No changes';
+      }
+    },
+    {
+      title: 'Check Wrangler CLI',
+      enabled: () => !checkOnly,
+      task: async (ctx, task) => {
+        if (!ctx.envResult) {
+          throw new Error('Environment not loaded');
+        }
+        if (shouldSkipWranglerCommands(ctx.envResult.env)) {
+          task.skip?.('Skipping Wrangler checks in test mode or with placeholder credentials');
+          return;
+        }
+        await ensureWranglerReady({ cwd });
+      }
+    },
+    {
       title: checkOnly ? 'Check Wrangler config' : 'Render Wrangler config',
       task: async (ctx, task) => {
         if (!ctx.envResult) {
@@ -569,11 +674,11 @@ export function createDeployTasks(options: DeployOptions = {}): Listr<DeployCont
         }
       }
     },
-      {
-        title: dryRun ? 'Skip deploy (dry run)' : 'Deploy worker',
-        enabled: () => !checkOnly,
-        task: async (ctx, task) => {
-          if (dryRun) {
+    {
+      title: dryRun ? 'Skip deploy (dry run)' : 'Deploy worker',
+      enabled: () => !checkOnly,
+      task: async (ctx, task) => {
+        if (dryRun) {
             ctx.deployResult = { command: 'pnpm --filter @justevery/worker run deploy', dryRun: true };
             task.skip?.('Dry run requested; skipping deploy');
             return;
@@ -584,7 +689,6 @@ export function createDeployTasks(options: DeployOptions = {}): Listr<DeployCont
           }
 
           guardCloudflareCredentials(ctx.envResult.env);
-          await ensureWranglerReady({ cwd });
           await execa('pnpm', ['--filter', '@justevery/worker', 'run', 'deploy'], {
             cwd,
             stdio: 'inherit'
@@ -601,6 +705,94 @@ export function createDeployTasks(options: DeployOptions = {}): Listr<DeployCont
       }
     }
   );
+}
+
+function createCommandEnv(env: BootstrapEnv): NodeJS.ProcessEnv {
+  const next: NodeJS.ProcessEnv = { ...process.env };
+  for (const [key, value] of Object.entries(env)) {
+    if (value == null) {
+      continue;
+    }
+    next[key] = String(value);
+  }
+  return next;
+}
+
+function deriveR2BucketName(env: BootstrapEnv): string {
+  const desired = env.CLOUDFLARE_R2_BUCKET?.trim();
+  if (desired) {
+    return slugifyBucketName(desired);
+  }
+  return slugifyBucketName(`${env.PROJECT_ID}-assets`);
+}
+
+function slugifyBucketName(input: string): string {
+  let value = input.toLowerCase().replace(/[^a-z0-9-]/g, '-');
+  value = value.replace(/-+/g, '-').replace(/^-+|-+$/g, '');
+  if (value.length === 0) {
+    value = 'assets';
+  }
+  if (!/^[a-z0-9]/.test(value)) {
+    value = `a${value}`;
+  }
+  if (!/[a-z0-9]$/.test(value)) {
+    value = `${value}z`;
+  }
+  if (value.length < 3) {
+    value = `${value}assets`.slice(0, 3);
+  }
+  if (value.length > 63) {
+    value = value.slice(0, 63).replace(/-+$/g, '');
+    if (value.length < 3) {
+      value = value.padEnd(3, 'a');
+    }
+  }
+  value = value.replace(/(\d{3})(\d+)$/, (_match, prefix: string) => prefix);
+  return value;
+}
+
+export const __deployInternals = {
+  slugifyBucketName,
+  deriveR2BucketName
+};
+
+function shouldSkipWranglerCommands(env?: BootstrapEnv): boolean {
+  return shouldSkipExpensiveCommand(env, 'BOOTSTRAP_FORCE_WRANGLER');
+}
+
+function shouldSkipExpoBuild(env?: BootstrapEnv): boolean {
+  return shouldSkipExpensiveCommand(env, 'BOOTSTRAP_FORCE_EXPO_BUILD');
+}
+
+function shouldSkipExpensiveCommand(env: BootstrapEnv | undefined, forceFlag?: string): boolean {
+  if (forceFlag && isTruthyEnvVar(process.env[forceFlag])) {
+    return false;
+  }
+  if (isTestRuntime()) {
+    return true;
+  }
+  if (!env) {
+    return true;
+  }
+  if (
+    looksLikePlaceholderAccountId(env.CLOUDFLARE_ACCOUNT_ID) ||
+    looksLikePlaceholderApiToken(env.CLOUDFLARE_API_TOKEN)
+  ) {
+    return true;
+  }
+  return false;
+}
+
+function isTruthyEnvVar(value: string | undefined): boolean {
+  if (!value) {
+    return false;
+  }
+  const normalized = value.trim().toLowerCase();
+  return normalized !== '' && normalized !== '0' && normalized !== 'false' && normalized !== 'no';
+}
+
+function isTestRuntime(): boolean {
+  return process.env.VITEST === 'true' || process.env.NODE_ENV === 'test';
 }
 
 function guardCloudflareCredentials(env: BootstrapEnv): void {

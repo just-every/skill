@@ -119,7 +119,7 @@ cli/
 | `derive_logto_defaults` | `deriveDefaults()` | `(env: Partial<Env>) => LogtoConfig` | Calculate issuer, JWKS, API resource from endpoint |
 | `build_logto_application_payload` | `buildAppPayload()` | `(opts: AppOpts) => object` | Return typed JSON for POST/PATCH |
 | `reconcile_logto_application_metadata` | `reconcileApp()` | `(id: string, opts: AppOpts) => Promise<{id: string}>` | PATCH if metadata differs; idempotent |
-| `ensure_logto_application` | `ensureApplication()` | `(opts: AppOpts) => Promise<{id: string, secret?: string}>` | Create SPA app or reconcile existing |
+| `ensure_logto_application` | `ensureApplication()` | `(opts: AppOpts) => Promise<{id: string, secret?: string}>` | Create Traditional app or reconcile existing |
 | `ensure_logto_api_resource` | `ensureApiResource()` | `(indicator: string) => Promise<{id: string}>` | Create API resource or return existing |
 | `ensure_logto_m2m_application` | `ensureM2MApp()` | `(name?: string) => Promise<{id: string, secret: string}>` | Create M2M app for smoke tests |
 | `logto_post_deploy_note` | `postDeployNote()` | `() => void` | Log redirect URI instructions |
@@ -132,7 +132,7 @@ cli/
 
 ### Side Effects
 - Exports `LOGTO_MANAGEMENT_TOKEN` (in-memory cache)
-- Creates Logto SPA application (if missing)
+- Creates Logto Traditional application (if missing)
 - Updates redirect URIs on existing app
 - Creates API resource (if missing)
 - Creates M2M application (if missing)

@@ -66,6 +66,25 @@ const ENV_KEYS = [
 
 const activeEnvRestorers: Array<() => void> = [];
 
+function forceExpensiveCommands(): void {
+  const previousWrangler = process.env.BOOTSTRAP_FORCE_WRANGLER;
+  const previousExpo = process.env.BOOTSTRAP_FORCE_EXPO_BUILD;
+  process.env.BOOTSTRAP_FORCE_WRANGLER = '1';
+  process.env.BOOTSTRAP_FORCE_EXPO_BUILD = '1';
+  activeEnvRestorers.push(() => {
+    if (previousWrangler == null) {
+      delete process.env.BOOTSTRAP_FORCE_WRANGLER;
+    } else {
+      process.env.BOOTSTRAP_FORCE_WRANGLER = previousWrangler;
+    }
+    if (previousExpo == null) {
+      delete process.env.BOOTSTRAP_FORCE_EXPO_BUILD;
+    } else {
+      process.env.BOOTSTRAP_FORCE_EXPO_BUILD = previousExpo;
+    }
+  });
+}
+
 function createWorkspace(env: BootstrapEnv = SAMPLE_ENV): string {
   const dir = mkdtempSync(join(tmpdir(), 'bootstrap-cli-deploy-'));
   writeFileSync(join(dir, 'pnpm-workspace.yaml'), 'packages: []\n');
@@ -204,21 +223,28 @@ describe('deploy command', () => {
   it('runs wrangler preflight and deploy when not in dry run', async () => {
     const dir = createWorkspace();
     try {
+      forceExpensiveCommands();
       await runDeploy({ cwd: dir, dryRun: false });
       expect(execaMock).toHaveBeenNthCalledWith(
         1,
+        'pnpm',
+        ['--filter', '@justevery/web', 'run', 'build'],
+        expect.objectContaining({ cwd: dir, stdio: 'inherit' })
+      );
+      expect(execaMock).toHaveBeenNthCalledWith(
+        2,
         'wrangler',
         ['--version'],
         expect.objectContaining({ cwd: dir, stdout: 'ignore', stderr: 'pipe' })
       );
       expect(execaMock).toHaveBeenNthCalledWith(
-        2,
+        3,
         'wrangler',
         ['whoami'],
         expect.objectContaining({ cwd: dir, stdout: 'ignore', stderr: 'pipe' })
       );
       expect(execaMock).toHaveBeenNthCalledWith(
-        3,
+        4,
         'pnpm',
         ['--filter', '@justevery/worker', 'run', 'deploy'],
         expect.objectContaining({ cwd: dir, stdio: 'inherit' })
@@ -231,9 +257,12 @@ describe('deploy command', () => {
   it('fails fast when wrangler CLI is missing', async () => {
     const dir = createWorkspace();
     try {
-      execaMock.mockRejectedValueOnce(new Error('command not found'));
+      forceExpensiveCommands();
+      execaMock
+        .mockResolvedValueOnce({} as any)
+        .mockRejectedValueOnce(new Error('command not found'));
       await expect(runDeploy({ cwd: dir, dryRun: false })).rejects.toThrow('Wrangler CLI not available');
-      expect(execaMock).toHaveBeenCalledTimes(1);
+      expect(execaMock).toHaveBeenCalledTimes(2);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -242,11 +271,13 @@ describe('deploy command', () => {
   it('fails fast when wrangler authentication is missing', async () => {
     const dir = createWorkspace();
     try {
+      forceExpensiveCommands();
       execaMock
+        .mockResolvedValueOnce({} as any)
         .mockResolvedValueOnce({ stdout: '' } as any)
         .mockRejectedValueOnce(new Error('not authenticated'));
       await expect(runDeploy({ cwd: dir, dryRun: false })).rejects.toThrow('Wrangler authentication check failed');
-      expect(execaMock).toHaveBeenCalledTimes(2);
+      expect(execaMock).toHaveBeenCalledTimes(3);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
