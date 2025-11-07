@@ -869,7 +869,7 @@ async function handleSessionApi(request: Request, env: Env): Promise<Response> {
 
 async function handleMarketingAsset(request: Request, env: Env, pathname: string): Promise<Response> {
   if (!env.STORAGE) {
-    return jsonResponse({ error: "Storage binding not configured" }, 503);
+    return jsonResponse({ error: "storage_not_configured", hint: 'Bind CLOUDFLARE_R2_BUCKET or run `pnpm bootstrap:env` to provision starter-assets.' }, 503);
   }
 
   if (request.method !== "GET" && request.method !== "HEAD") {

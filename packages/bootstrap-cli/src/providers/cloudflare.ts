@@ -289,7 +289,7 @@ export async function detectCloudflareCapabilities(
 
   // Test R2 permissions
   try {
-    const r2ListOutput = await runWrangler(['r2', 'bucket', 'list', '--json'], wranglerEnv, {
+    const r2ListOutput = await runWrangler(['r2', 'bucket', 'list'], wranglerEnv, {
       ignoreFailure: true
     });
     if (r2ListOutput && r2ListOutput.trim()) {

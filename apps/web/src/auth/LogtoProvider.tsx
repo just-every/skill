@@ -125,7 +125,7 @@ const useRedirectLogto = (): RedirectLogtoHook => {
       if (!isBrowser) {
         return;
       }
-      const target = returnUri ?? window.location.href;
+      const target = sanitiseReturnTarget(returnUri ?? window.location.href);
       const url = new URL(buildUrl('/auth/sign-in'));
       url.searchParams.set('return', target);
       window.location.assign(url.toString());
@@ -200,6 +200,25 @@ function buildWorkerUrl(env: { workerOrigin?: string }, path: string): string {
   }
   const base = env.workerOrigin ?? window.location.origin;
   return `${base.replace(/\/$/, '')}${path}`;
+}
+
+function sanitiseReturnTarget(candidate: string): string {
+  if (!isBrowser) {
+    return '/app';
+  }
+  try {
+    const base = window.location.origin;
+    const url = new URL(candidate, base);
+    if (url.origin !== base) {
+      return `${base}/app`;
+    }
+    if (url.pathname === '/callback' || url.pathname.startsWith('/auth/')) {
+      return `${base}/app`;
+    }
+    return url.toString();
+  } catch {
+    return '/app';
+  }
 }
 
 async function fetchJson<T>(input: string, init?: RequestInit): Promise<T> {

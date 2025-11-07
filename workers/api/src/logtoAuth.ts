@@ -2,6 +2,7 @@ import {
   discoveryPath,
   fetchOidcConfig,
   fetchTokenByAuthorizationCode,
+  fetchTokenByRefreshToken,
   generateSignInUri,
   verifyAndParseCodeFromCallbackUri,
 } from '@logto/js';
@@ -18,7 +19,9 @@ const DEFAULT_SCOPES = ['openid', 'offline_access', 'profile', 'email'];
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
 const hmacCache = new Map<string, CryptoKey>();
+const stateKeyCache = new Map<string, CryptoKey>();
 const oidcCache = new Map<string, Promise<LogtoOidcConfig>>();
+const STATE_TOKEN_IV_LENGTH = 12;
 
 const workerRequester: Requester = async <T>(input: RequestInfo | URL, init?: RequestInit) => {
   const response = await fetch(input, init);
@@ -47,6 +50,10 @@ type SignInSessionPayload = {
   createdAt: number;
 };
 
+type StateTokenPayload = Omit<SignInSessionPayload, 'state'> & {
+  nonce: string;
+};
+
 type SessionCookiePayload = {
   v: number;
   sid: string;
@@ -62,10 +69,19 @@ export async function handleAuthSignIn(request: Request, env: Env): Promise<Resp
   const url = new URL(request.url);
   const returnTo = url.searchParams.get('return') ?? '/app';
   const redirectUri = resolveRedirectUri(env, request);
-  const state = generateRandomString(64);
   const codeVerifier = generateRandomString(96);
   const codeChallenge = await sha256Base64Url(codeVerifier);
   const oidc = await loadOidcConfig(env);
+
+  const pkceBasePayload: Omit<SignInSessionPayload, 'state'> = {
+    v: 1,
+    codeVerifier,
+    redirectUri,
+    returnTo,
+    createdAt: Date.now(),
+  };
+
+  const state = await encodePkceStateToken(pkceBasePayload, env);
 
   const signInUri = generateSignInUri({
     authorizationEndpoint: oidc.authorizationEndpoint,
@@ -78,12 +94,8 @@ export async function handleAuthSignIn(request: Request, env: Env): Promise<Resp
   });
 
   const pkcePayload: SignInSessionPayload = {
-    v: 1,
+    ...pkceBasePayload,
     state,
-    codeVerifier,
-    redirectUri,
-    returnTo,
-    createdAt: Date.now(),
   };
 
   const cookieValue = await encodeCookie(pkcePayload, env);
@@ -100,16 +112,46 @@ export async function handleAuthCallback(request: Request, env: Env): Promise<Re
     return new Response('Method Not Allowed', { status: 405 });
   }
   const credentials = getLogtoCredentials(env);
-  const signinCookie = getCookie(request, SIGN_IN_COOKIE);
-  if (!signinCookie) {
+  const url = new URL(request.url);
+  const stateParam = url.searchParams.get('state');
+  if (!stateParam) {
+    logAuthCallbackIssue(request, 'missing_state');
     return new Response('Sign-in session expired. Please try again.', { status: 400 });
   }
+  const signinCookie = getCookie(request, SIGN_IN_COOKIE);
+  let pkcePayload: SignInSessionPayload | null = null;
+  if (signinCookie) {
+    pkcePayload = await decodeCookie<SignInSessionPayload>(signinCookie, env);
+  }
 
-  const pkcePayload = await decodeCookie<SignInSessionPayload>(signinCookie, env);
   if (!pkcePayload) {
+    pkcePayload = await decodePkceStateToken(stateParam, env);
+  }
+
+  if (!pkcePayload) {
+    logAuthCallbackIssue(request, 'session_not_found', {
+      hasCookie: Boolean(signinCookie),
+      statePreview: stateParam.slice(0, 12),
+      stateLength: stateParam.length,
+    });
+    return new Response('Sign-in session invalid. Please try again.', { status: 400 });
+  }
+  if (pkcePayload.state !== stateParam) {
+    logAuthCallbackIssue(request, 'state_mismatch', {
+      hasCookie: Boolean(signinCookie),
+      statePreview: stateParam.slice(0, 12),
+      stateLength: stateParam.length,
+    });
     return new Response('Sign-in session invalid. Please try again.', { status: 400 });
   }
   if (Date.now() - pkcePayload.createdAt > PKCE_SESSION_TTL_MS) {
+    logAuthCallbackIssue(request, 'session_expired', {
+      createdAt: pkcePayload.createdAt,
+      ageMs: Date.now() - pkcePayload.createdAt,
+      hasCookie: Boolean(signinCookie),
+      statePreview: stateParam.slice(0, 12),
+      stateLength: stateParam.length,
+    });
     return new Response('Sign-in session expired. Please try again.', { status: 400 });
   }
 
@@ -122,6 +164,7 @@ export async function handleAuthCallback(request: Request, env: Env): Promise<Re
       redirectUri: pkcePayload.redirectUri,
       codeVerifier: pkcePayload.codeVerifier,
       code,
+      resource: env.LOGTO_API_RESOURCE,
     },
     createRequester(credentials)
   );
@@ -140,7 +183,10 @@ export async function handleAuthCallback(request: Request, env: Env): Promise<Re
   const headers = new Headers({ Location: resolveReturnTo(request, pkcePayload.returnTo) });
   headers.append(
     'Set-Cookie',
-    serializeCookie(SESSION_COOKIE, sessionCookie, request, { maxAgeSeconds: SESSION_MAX_AGE_SECONDS })
+    serializeCookie(SESSION_COOKIE, sessionCookie, request, {
+      maxAgeSeconds: SESSION_MAX_AGE_SECONDS,
+      sameSite: 'None',
+    })
   );
   headers.append('Set-Cookie', serializeCookie(SIGN_IN_COOKIE, '', request, { maxAgeSeconds: 0 }));
   return new Response(null, { status: 302, headers });
@@ -168,7 +214,7 @@ export async function handleAuthSignOut(request: Request, env: Env): Promise<Res
   }
 
   const headers = new Headers();
-  headers.append('Set-Cookie', serializeCookie(SESSION_COOKIE, '', request, { maxAgeSeconds: 0 }));
+  headers.append('Set-Cookie', serializeCookie(SESSION_COOKIE, '', request, { maxAgeSeconds: 0, sameSite: 'None' }));
   const url = new URL(request.url);
   const returnTo = url.searchParams.get('return');
 
@@ -198,12 +244,18 @@ export async function handleAuthToken(request: Request, env: Env): Promise<Respo
     if (session.cookieHeader) {
       headers.append('Set-Cookie', session.cookieHeader);
     }
+    logAuthTokenIssue(request, 'missing_session', {
+      hasCookie: Boolean(getCookie(request, SESSION_COOKIE)),
+    });
     return jsonAuthResponse(request, { error: 'not_authenticated' }, 401, headers);
   }
 
   if (session.payload.expiresAt <= Date.now()) {
     const headers = new Headers();
-    headers.append('Set-Cookie', serializeCookie(SESSION_COOKIE, '', request, { maxAgeSeconds: 0 }));
+    headers.append('Set-Cookie', serializeCookie(SESSION_COOKIE, '', request, { maxAgeSeconds: 0, sameSite: 'None' }));
+    logAuthTokenIssue(request, 'session_expired', {
+      expiresAt: session.payload.expiresAt,
+    });
     return jsonAuthResponse(request, { error: 'session_expired' }, 401, headers);
   }
 
@@ -261,30 +313,70 @@ export async function handleAuthUserInfo(request: Request, env: Env): Promise<Re
     return jsonAuthResponse(request, { error: 'not_authenticated' }, 401, headers);
   }
 
+  const credentials = getLogtoCredentials(env);
   const oidc = await loadOidcConfig(env);
   if (!oidc.userinfoEndpoint) {
     return jsonAuthResponse(request, { error: 'unsupported' }, 400);
-  }
-
-  const response = await fetch(oidc.userinfoEndpoint, {
-    headers: {
-      Authorization: `Bearer ${session.payload.accessToken}`,
-    },
-  });
-
-  if (!response.ok) {
-    if (response.status === 401 || response.status === 403) {
-      const headers = new Headers();
-      headers.append('Set-Cookie', serializeCookie(SESSION_COOKIE, '', request, { maxAgeSeconds: 0 }));
-      return jsonAuthResponse(request, { error: 'session_expired' }, 401, headers);
-    }
-    return jsonAuthResponse(request, { error: 'userinfo_failed' }, 502);
   }
 
   const headers = new Headers();
   if (session.cookieHeader) {
     headers.append('Set-Cookie', session.cookieHeader);
   }
+
+  const fetchUserInfo = (token: string) =>
+    fetch(oidc.userinfoEndpoint!, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    });
+
+  let response = await fetchUserInfo(session.payload.accessToken);
+
+  if ((response.status === 401 || response.status === 403) && session.payload.refreshToken) {
+    try {
+      const refreshed = await fetchTokenByRefreshToken(
+        {
+          clientId: credentials.appId,
+          tokenEndpoint: oidc.tokenEndpoint,
+          refreshToken: session.payload.refreshToken,
+        },
+        createRequester(credentials)
+      );
+
+      response = await fetchUserInfo(refreshed.accessToken);
+
+      if (refreshed.refreshToken && refreshed.refreshToken !== session.payload.refreshToken) {
+        const updatedPayload: SessionCookiePayload = {
+          ...session.payload,
+          refreshToken: refreshed.refreshToken,
+        };
+        const encoded = await encodeCookie(updatedPayload, env);
+        headers.append(
+          'Set-Cookie',
+          serializeCookie(SESSION_COOKIE, encoded, request, {
+            maxAgeSeconds: SESSION_MAX_AGE_SECONDS,
+            sameSite: 'None',
+          })
+        );
+      }
+    } catch (error) {
+      console.warn('Failed to refresh access token for userinfo', error);
+    }
+  }
+
+  if (!response.ok) {
+    if (response.status === 401 || response.status === 403) {
+      const failureHeaders = new Headers();
+      failureHeaders.append(
+        'Set-Cookie',
+        serializeCookie(SESSION_COOKIE, '', request, { maxAgeSeconds: 0, sameSite: 'None' })
+      );
+      return jsonAuthResponse(request, { error: 'session_expired' }, 401, failureHeaders);
+    }
+    return jsonAuthResponse(request, { error: 'userinfo_failed' }, 502);
+  }
+
   return jsonAuthResponse(request, await response.json(), 200, headers);
 }
 
@@ -317,17 +409,60 @@ function resolveRedirectUri(env: Env, request: Request): string {
 
 function resolveReturnTo(request: Request, target?: string): string {
   if (!target) {
-    return '/app';
+    return defaultAppPath(request);
   }
   try {
     const url = new URL(target);
-    return url.toString();
+    return normaliseReturnUrl(request, url);
   } catch {
     const base = new URL(request.url);
     if (target.startsWith('/')) {
-      return `${base.origin}${target}`;
+      return normaliseReturnUrl(request, new URL(target, base.origin));
     }
-    return `${base.origin}/${target}`;
+    return normaliseReturnUrl(request, new URL(`/${target}`, base.origin));
+  }
+}
+
+function normaliseReturnUrl(request: Request, url: URL): string {
+  if (url.pathname === '/callback' || url.pathname.startsWith('/auth/')) {
+    return defaultAppPath(request);
+  }
+  return url.toString();
+}
+
+function defaultAppPath(request: Request): string {
+  const base = new URL(request.url).origin;
+  return `${base}/app`;
+}
+
+function logAuthCallbackIssue(
+  request: Request,
+  reason: 'missing_state' | 'session_not_found' | 'state_mismatch' | 'session_expired',
+  metadata?: Record<string, unknown>
+): void {
+  try {
+    const ray = request.headers.get('cf-ray') ?? undefined;
+    const info = {
+      reason,
+      ray,
+      ...metadata,
+    };
+    console.warn('[auth/callback]', JSON.stringify(info));
+  } catch {
+    // ignore logging failures
+  }
+}
+
+function logAuthTokenIssue(
+  request: Request,
+  reason: 'missing_session' | 'session_expired',
+  metadata?: Record<string, unknown>
+): void {
+  try {
+    const ray = request.headers.get('cf-ray') ?? undefined;
+    console.warn('[auth/token]', JSON.stringify({ reason, ray, ...metadata }));
+  } catch {
+    // ignore logging failures
   }
 }
 
@@ -349,6 +484,48 @@ async function encodeCookie<T>(payload: T, env: Env): Promise<string> {
   const data = toBase64Url(encoder.encode(JSON.stringify(payload)));
   const signature = await signData(env.LOGTO_APPLICATION_SECRET, data);
   return `${data}.${signature}`;
+}
+
+async function encodePkceStateToken(payload: Omit<SignInSessionPayload, 'state'>, env: Env): Promise<string> {
+  if (!env.LOGTO_APPLICATION_SECRET) {
+    throw new Error('LOGTO_APPLICATION_SECRET missing');
+  }
+  const tokenPayload: StateTokenPayload = {
+    ...payload,
+    nonce: generateRandomString(32),
+  };
+  const key = await getPkceStateKey(env.LOGTO_APPLICATION_SECRET);
+  const iv = crypto.getRandomValues(new Uint8Array(STATE_TOKEN_IV_LENGTH));
+  const plaintext = encoder.encode(JSON.stringify(tokenPayload));
+  const ciphertext = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, plaintext);
+  const packed = new Uint8Array(iv.length + ciphertext.byteLength);
+  packed.set(iv, 0);
+  packed.set(new Uint8Array(ciphertext), iv.length);
+  return toBase64Url(packed);
+}
+
+async function decodePkceStateToken(value: string, env: Env): Promise<SignInSessionPayload | null> {
+  if (!env.LOGTO_APPLICATION_SECRET) {
+    return null;
+  }
+  try {
+    const data = fromBase64Url(value);
+    if (data.length <= STATE_TOKEN_IV_LENGTH) {
+      return null;
+    }
+    const iv = data.slice(0, STATE_TOKEN_IV_LENGTH);
+    const ciphertext = data.slice(STATE_TOKEN_IV_LENGTH);
+    const key = await getPkceStateKey(env.LOGTO_APPLICATION_SECRET);
+    const decrypted = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, key, ciphertext);
+    const decoded = JSON.parse(decoder.decode(decrypted)) as StateTokenPayload;
+    const { nonce: _nonce, ...rest } = decoded;
+    return {
+      ...rest,
+      state: value,
+    } satisfies SignInSessionPayload;
+  } catch {
+    return null;
+  }
 }
 
 async function decodeCookie<T>(value: string, env: Env): Promise<T | null> {
@@ -382,7 +559,7 @@ async function decodeSessionCookie(
   if (!payload || payload.v !== SESSION_VERSION) {
     return {
       payload: null,
-      cookieHeader: serializeCookie(SESSION_COOKIE, '', request, { maxAgeSeconds: 0 }),
+      cookieHeader: serializeCookie(SESSION_COOKIE, '', request, { maxAgeSeconds: 0, sameSite: 'None' }),
     };
   }
   return { payload };
@@ -401,11 +578,13 @@ function getCookie(request: Request, name: string): string | null {
   return null;
 }
 
+type CookieSameSite = 'Lax' | 'None' | 'Strict';
+
 function serializeCookie(
   name: string,
   value: string,
   request: Request,
-  options: { maxAgeSeconds?: number }
+  options: { maxAgeSeconds?: number; sameSite?: CookieSameSite } = {}
 ): string {
   const parts = [`${name}=${value}`];
   parts.push('Path=/');
@@ -421,7 +600,8 @@ function serializeCookie(
   if (isHttpsRequest(request)) {
     parts.push('Secure');
   }
-  parts.push('SameSite=Lax');
+  const sameSite = options.sameSite ?? 'Lax';
+  parts.push(`SameSite=${sameSite}`);
   return parts.join('; ');
 }
 
@@ -451,6 +631,17 @@ async function verifySignature(secret: string, value: string, signature: string)
   } catch {
     return false;
   }
+}
+
+async function getPkceStateKey(secret: string): Promise<CryptoKey> {
+  let key = stateKeyCache.get(secret);
+  if (key) {
+    return key;
+  }
+  const hash = await crypto.subtle.digest('SHA-256', encoder.encode(secret));
+  key = await crypto.subtle.importKey('raw', hash, { name: 'AES-GCM' }, false, ['encrypt', 'decrypt']);
+  stateKeyCache.set(secret, key);
+  return key;
 }
 
 function toBase64Url(data: ArrayBuffer | Uint8Array): string {

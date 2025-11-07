@@ -316,6 +316,14 @@ const Dashboard = () => {
         headers: authHeaders
       });
       if (!response.ok) {
+        try {
+          const payload = (await response.json()) as { error?: string; hint?: string };
+          if (payload?.error === 'storage_not_configured' && payload.hint) {
+            throw new Error(payload.hint);
+          }
+        } catch {
+          // ignore parse issues and fall through to default error
+        }
         throw new Error(`Asset listing failed (${response.status})`);
       }
       const payload = (await response.json()) as { objects?: AssetObject[] };
