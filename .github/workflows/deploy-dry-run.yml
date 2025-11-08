@@ -36,12 +36,14 @@ jobs:
             printf '%s=%s\n' "$var" "$value" >> $GITHUB_ENV
           done < <(grep -v '^#' .env.ci)
 
+      - name: Enable Corepack for pnpm
+        run: corepack enable pnpm
+
       - uses: actions/setup-node@v4
         with:
           node-version: 20
           cache: 'pnpm'
 
-      - run: corepack enable
       - run: pnpm install --frozen-lockfile
 
       - name: Render Wrangler config (bootstrap dry-run)
