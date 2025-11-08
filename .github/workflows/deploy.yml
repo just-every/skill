@@ -39,6 +39,9 @@ jobs:
           echo "MODE=$MODE" >> "$GITHUB_ENV"
           echo "Deployment mode: $MODE"
 
+      - name: Enable Corepack
+        run: corepack enable
+
       - name: Ensure ENV_BLOB secret exists
         if: env.MODE == 'deploy'
         run: |
@@ -88,8 +91,6 @@ jobs:
         with:
           node-version: 20
           cache: 'pnpm'
-
-      - run: corepack enable
       - run: pnpm install --frozen-lockfile
 
       - name: Render Wrangler config (dry run)
