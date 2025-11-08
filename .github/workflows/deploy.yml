@@ -130,7 +130,6 @@ jobs:
         with:
           name: deploy-${{ github.run_id }}
           path: |
-            .env.ci
             backups/d1-backup-${{ github.run_id }}.sql
             workers/api/wrangler.toml
             test-results/**
