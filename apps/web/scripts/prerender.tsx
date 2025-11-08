@@ -28,7 +28,7 @@ const injectRuntimeShim = (html: string): string => {
   if (html.includes(`id="${RUNTIME_SHIM_ID}"`)) {
     return html;
   }
-  const shim = `\n    <script id="${RUNTIME_SHIM_ID}">(function(){\n      if (typeof globalThis === 'undefined') { return; }\n      var target = globalThis;\n      if (typeof target.nativePerformanceNow !== 'function') {\n        var perf = target.performance && target.performance.now ? target.performance : { now: function () { return Date.now(); } };\n        target.nativePerformanceNow = perf.now.bind(perf);\n      }\n      if (!target.__JUSTEVERY_IMPORT_META_ENV__) {\n        target.__JUSTEVERY_IMPORT_META_ENV__ = { MODE: 'production' };\n      }\n    })();</script>`;
+  const shim = `\n    <script id="${RUNTIME_SHIM_ID}">(function(){\n      if (typeof globalThis === 'undefined') { return; }\n      var target = globalThis;\n      if (typeof target.nativePerformanceNow !== 'function') {\n        var perf = target.performance && target.performance.now ? target.performance : { now: function () { return Date.now(); } };\n        var nativeNow = perf.now.bind(perf);\n        target.nativePerformanceNow = nativeNow;\n        if (typeof window !== 'undefined' && !window.nativePerformanceNow) {\n          window.nativePerformanceNow = nativeNow;\n        }\n      }\n      if (!target.__JUSTEVERY_IMPORT_META_ENV__) {\n        target.__JUSTEVERY_IMPORT_META_ENV__ = { MODE: 'production' };\n      }\n      if (typeof window !== 'undefined' && !window.__JUSTEVERY_IMPORT_META_ENV__) {\n        window.__JUSTEVERY_IMPORT_META_ENV__ = target.__JUSTEVERY_IMPORT_META_ENV__;\n      }\n    })();</script>`;
   if (html.includes('</head>')) {
     return html.replace('</head>', `${shim}\n  </head>`);
   }

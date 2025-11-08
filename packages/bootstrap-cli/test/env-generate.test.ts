@@ -57,8 +57,6 @@ const SAMPLE_GENERATED_ENV: GeneratedEnv = {
   D1_DATABASE_ID: 'db_123',
   CLOUDFLARE_R2_BUCKET: 'demo-assets',
   LOGTO_APPLICATION_ID: 'logto-app',
-  LOGTO_M2M_APP_ID: 'logto-m2m',
-  LOGTO_M2M_APP_SECRET: 'logto-m2m-secret',
   STRIPE_WEBHOOK_SECRET: 'whsec_abc',
   STRIPE_WEBHOOK_URL: 'https://demo.example/api/webhooks/stripe',
   STRIPE_PRODUCT_IDS: 'prod_123',
@@ -90,9 +88,7 @@ beforeEach(() => {
   vi.spyOn(logtoProvider, 'provisionLogto').mockResolvedValue({
     applicationId: 'logto-app-generated',
     applicationSecret: 'logto-secret',
-    apiResourceId: 'logto-resource',
-    m2mApplicationId: 'logto-m2m-generated',
-    m2mApplicationSecret: 'logto-m2m-secret'
+    apiResourceId: 'logto-resource'
   });
 
   vi.spyOn(stripeProvider, 'buildStripePlan').mockResolvedValue({

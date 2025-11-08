@@ -35,8 +35,6 @@ const GeneratedEnvSchema = z.object({
   LOGTO_API_RESOURCE_ID: z.string().optional(),
   LOGTO_ISSUER: z.string().optional(),
   LOGTO_JWKS_URI: z.string().optional(),
-  LOGTO_M2M_APP_ID: z.string().optional(),
-  LOGTO_M2M_APP_SECRET: z.string().optional(),
   STRIPE_WEBHOOK_SECRET: z.string().optional(),
   STRIPE_WEBHOOK_URL: z.string().optional(),
   STRIPE_PRODUCTS: z.string().optional(),

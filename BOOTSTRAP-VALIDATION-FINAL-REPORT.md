@@ -27,7 +27,6 @@ The bootstrap flow was executed with a complete configuration including Cloudfla
 ✔ Provision Logto resources
   - Found existing SPA application: starter-spa
   - Found existing API resource: starter-api
-  - Found existing M2M application: starter-m2m
 ✔ Provision Stripe resources
   - All products exist (Founders, Scale)
   - All prices exist and match
@@ -44,7 +43,7 @@ The bootstrap flow was executed with a complete configuration including Cloudfla
 **Variables Resolved**:
 - All base variables from `.env` loaded correctly
 - PROJECT_DOMAIN derivations working: APP_URL, WORKER_ORIGIN, APP_BASE_URL
-- Logto: LOGTO_APPLICATION_ID, LOGTO_M2M_APP_ID populated
+- Logto: LOGTO_APPLICATION_ID populated
 - Stripe: STRIPE_PRODUCT_IDS, STRIPE_PRICE_IDS populated
 - Expo: All EXPO_PUBLIC_* variables derived correctly
 
@@ -117,7 +116,6 @@ From the first run output:
 › [logto] Found existing application: starter-spa (np9x5zkowq850hu1ngith)
 › [logto] Updating application np9x5zkowq850hu1ngith metadata
 › [logto] Found existing API resource: starter-api (tkgjn1yzutqarmoglcqib)
-› [logto] Found existing M2M application: starter-m2m (2v8tkotudg4v4z5yiistk)
 ```
 **Status**: ✅ Resources marked as "existing" - idempotent operation
 
@@ -146,8 +144,6 @@ Plan generation shows:
 ### Environment Variables Generated
 The `.env.local.generated` file was successfully created with 49 variables including:
 - `LOGTO_APPLICATION_ID=np9x5zkowq850hu1ngith`
-- `LOGTO_M2M_APP_ID=2v8tkotudg4v4z5yiistk`
-- `LOGTO_M2M_APP_SECRET=[redacted]`
 - `STRIPE_PRODUCT_IDS=prod_TNHA7XzCAXqNfU,prod_TNHAmpDbavwPfp`
 - `STRIPE_PRICE_IDS=price_1SQWcDGD1Q57MReNLuvln86m,price_1SQWcDGD1Q57MReNhTRLLXWa`
 - All EXPO_PUBLIC_* variables derived from base config

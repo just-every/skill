@@ -102,6 +102,24 @@ const Dashboard = () => {
     );
   }
 
+  if (companiesQuery.isError) {
+    const message = companiesQuery.error instanceof Error ? companiesQuery.error.message : 'Unknown error';
+    return (
+      <View style={centerStyles}>
+        <Text style={{ fontSize: 24, fontWeight: '700', color: '#0f172a' }}>Unable to load company data</Text>
+        <Text style={{ color: '#475569', marginVertical: 12, maxWidth: 420, textAlign: 'center' }}>
+          {message}. Please retry once your session is valid and the Worker can reach Cloudflare D1.
+        </Text>
+        <Pressable
+          onPress={() => void companiesQuery.refetch()}
+          style={{ backgroundColor: '#0f172a', paddingHorizontal: 24, paddingVertical: 12, borderRadius: 12 }}
+        >
+          <Text style={{ color: '#f8fafc', fontWeight: '700' }}>Try again</Text>
+        </Pressable>
+      </View>
+    );
+  }
+
   if (companiesQuery.isLoading && companies.length === 0) {
     return (
       <View style={centerStyles}>

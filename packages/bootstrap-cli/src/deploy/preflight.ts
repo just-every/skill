@@ -25,22 +25,20 @@ function wrapError(message: string, cause: unknown): Error {
 
 export async function ensureWranglerReady(options: WranglerPreflightOptions): Promise<void> {
   try {
-    await execa({
+    await execa('wrangler', ['--version'], {
+      cwd: options.cwd,
       stdout: 'ignore',
       stderr: 'pipe'
-    })('wrangler', ['--version'], {
-      cwd: options.cwd
     });
   } catch (error) {
     throw wrapError(`Wrangler CLI not available.\n${installHint}`, error);
   }
 
   try {
-    await execa({
+    await execa('wrangler', ['whoami'], {
+      cwd: options.cwd,
       stdout: 'ignore',
       stderr: 'pipe'
-    })('wrangler', ['whoami'], {
-      cwd: options.cwd
     });
   } catch (error) {
     throw wrapError(`Wrangler authentication check failed.\n${authHint}`, error);

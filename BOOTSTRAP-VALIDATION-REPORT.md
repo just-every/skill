@@ -117,7 +117,7 @@ All bootstrap operations completed successfully. The system is:
 - 32 environment variables successfully generated
 - All critical variables present and resolved
 - Stripe products and prices: 2 products, 2 prices
-- Logto applications: SPA + M2M configured
+- Logto application configured
 - Worker origin and redirect URIs configured
 
 ---

@@ -1,4 +1,4 @@
-import { describe, expect, it, vi, afterEach } from 'vitest';
+import { describe, expect, it, vi, afterEach, beforeEach } from 'vitest';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -6,6 +6,7 @@ import type { BootstrapEnv } from '../src/env.js';
 import { renderTemplate, renderWranglerConfig } from '../src/deploy/render.js';
 import { runDeploy } from '../src/index.js';
 import { __cloudflareInternals } from '../src/providers/cloudflare.js';
+import * as logtoProvider from '../src/providers/logto.js';
 
 vi.mock('execa', () => {
   return {
@@ -65,6 +66,14 @@ const ENV_KEYS = [
 ] as const;
 
 const activeEnvRestorers: Array<() => void> = [];
+
+beforeEach(() => {
+  vi.spyOn(logtoProvider, 'provisionLogto').mockResolvedValue({
+    applicationId: 'logto-app-generated',
+    applicationSecret: 'logto-secret-generated',
+    apiResourceId: 'logto-resource-generated'
+  });
+});
 
 function forceExpensiveCommands(): void {
   const previousWrangler = process.env.BOOTSTRAP_FORCE_WRANGLER;

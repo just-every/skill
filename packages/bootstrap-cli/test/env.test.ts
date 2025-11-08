@@ -35,8 +35,6 @@ const ENV_KEYS_TO_SANDBOX = [
   'LOGTO_API_RESOURCE_ID',
   'LOGTO_ISSUER',
   'LOGTO_JWKS_URI',
-  'LOGTO_M2M_APP_ID',
-  'LOGTO_M2M_APP_SECRET',
   'STRIPE_WEBHOOK_SECRET',
   'STRIPE_WEBHOOK_URL',
   'STRIPE_PRODUCTS',
@@ -165,10 +163,8 @@ describe('loadBootstrapEnvironment', () => {
       {
         '.env': [
           'STRIPE_SECRET_KEY=sk_live_mysecretvalue123',
-          'STRIPE_WEBHOOK_SECRET=whsec_webhook_secret_456',
-          'LOGTO_M2M_APP_SECRET=m2m_app_secret_789'
-        ].join('\n'),
-        '.env.local.generated': 'LOGTO_M2M_APP_SECRET=generated_secret_abc'
+          'STRIPE_WEBHOOK_SECRET=whsec_webhook_secret_456'
+        ].join('\n')
       },
       (cwd) => {
         const result = loadBootstrapEnvironment({
@@ -179,13 +175,10 @@ describe('loadBootstrapEnvironment', () => {
         // All keys with SECRET keyword should be redacted
         expect(result.report.redacted.STRIPE_SECRET_KEY).toMatch(/^sk_l\.\.\./);
         expect(result.report.redacted.STRIPE_WEBHOOK_SECRET).toMatch(/^whse\.\.\./);
-        expect(result.report.redacted.LOGTO_M2M_APP_SECRET).toMatch(/^gene\.\.\./);
 
         // Ensure no actual secret values leaked
         expect(result.report.summary).not.toContain('mysecretvalue123');
         expect(result.report.summary).not.toContain('webhook_secret_456');
-        expect(result.report.summary).not.toContain('app_secret_789');
-        expect(result.report.summary).not.toContain('generated_secret_abc');
       }
     );
   });

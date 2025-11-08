@@ -15,7 +15,7 @@ const resolveWorkerUrl = (origin?: string, path?: string) => {
 
 export const useApiClient = () => {
   const env = usePublicEnv();
-  const { getAccessToken, isAuthenticated } = useLogto();
+  const { getAccessToken } = useLogto();
 
   const buildUrl = useCallback(
     (path: string) => {
@@ -30,7 +30,7 @@ export const useApiClient = () => {
       const url = buildUrl(path);
       const headers = new Headers(init?.headers ?? {});
 
-      if (!init?.skipAuth && isAuthenticated) {
+      if (!init?.skipAuth) {
         try {
           const token = await getAccessToken(env.apiResource);
           if (token) {
@@ -57,7 +57,7 @@ export const useApiClient = () => {
 
       return (await response.json()) as T;
     },
-    [buildUrl, env.apiResource, getAccessToken, isAuthenticated]
+    [buildUrl, env.apiResource, getAccessToken]
   );
 
   return {

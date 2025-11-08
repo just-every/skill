@@ -13,7 +13,7 @@ cli/
 │   ├── env.ts                # Env validation & resolution (leverages packages/config)
 │   ├── providers/
 │   │   ├── cloudflare.ts     # D1, R2, Wrangler ops
-│   │   ├── logto.ts          # App, resource, M2M provisioning
+│   │   ├── logto.ts          # App & resource provisioning
 │   │   └── stripe.ts         # Products, prices, webhooks
 │   ├── runtime.ts            # Secret sync, config templating, migrations
 │   └── deploy.ts             # Worker deployment, post-deploy notes
@@ -121,7 +121,6 @@ cli/
 | `reconcile_logto_application_metadata` | `reconcileApp()` | `(id: string, opts: AppOpts) => Promise<{id: string}>` | PATCH if metadata differs; idempotent |
 | `ensure_logto_application` | `ensureApplication()` | `(opts: AppOpts) => Promise<{id: string, secret?: string}>` | Create Traditional app or reconcile existing |
 | `ensure_logto_api_resource` | `ensureApiResource()` | `(indicator: string) => Promise<{id: string}>` | Create API resource or return existing |
-| `ensure_logto_m2m_application` | `ensureM2MApp()` | `(name?: string) => Promise<{id: string, secret: string}>` | Create M2M app for smoke tests |
 | `logto_post_deploy_note` | `postDeployNote()` | `() => void` | Log redirect URI instructions |
 
 ### Required Envs
@@ -135,7 +134,6 @@ cli/
 - Creates Logto Traditional application (if missing)
 - Updates redirect URIs on existing app
 - Creates API resource (if missing)
-- Creates M2M application (if missing)
 - Logs post-deploy instructions
 
 ### Idempotency
@@ -143,7 +141,6 @@ cli/
 - ✅ `ensureApplication`: searches by name before creating
 - ✅ `reconcileApp`: PATCHes only if metadata differs
 - ✅ `ensureApiResource`: searches by indicator before creating
-- ✅ `ensureM2MApp`: searches by name/type before creating
 
 ### Suggested Tests
 - Mock token endpoint → verify Bearer token returned
@@ -304,7 +301,7 @@ cli/
    - Add integration tests (mock wrangler calls)
 
 3. **Logto provider** (`providers/logto.ts`)
-   - Port token minting, app/resource/M2M provisioning
+   - Port token minting, app/resource provisioning
    - Add integration tests (mock Logto API)
 
 4. **Stripe provider** (`providers/stripe.ts`)

@@ -49,8 +49,6 @@ export function buildGeneratedFiles(options: GenerateFilesOptions): GenerateFile
   const logtoAppId = logtoResult?.applicationId ?? env.LOGTO_APPLICATION_ID ?? '';
   const logtoAppSecret = logtoResult?.applicationSecret ?? env.LOGTO_APPLICATION_SECRET ?? '';
   const logtoApiResourceId = logtoResult?.apiResourceId ?? '';
-  const logtoM2MAppId = logtoResult?.m2mApplicationId ?? '';
-  const logtoM2MSecret = logtoResult?.m2mApplicationSecret ?? '';
 
   const logtoEndpoint = env.LOGTO_ENDPOINT ?? '';
   const canonicalOrigin = deriveCanonicalOrigin(env);
@@ -115,14 +113,6 @@ export function buildGeneratedFiles(options: GenerateFilesOptions): GenerateFile
   pushWeb(webEntries, 'STRIPE_PRODUCT_IDS', stripeProductIds);
   pushWeb(webEntries, 'STRIPE_PRICE_IDS', stripePriceIds);
   pushWeb(webEntries, 'STRIPE_PRODUCTS', env.STRIPE_PRODUCTS ?? '');
-
-  // Add Logto M2M credentials for smoke tests
-  if (logtoM2MAppId) {
-    pushWeb(webEntries, 'LOGTO_M2M_APP_ID', logtoM2MAppId);
-  }
-  if (logtoM2MSecret) {
-    pushWeb(webEntries, 'LOGTO_M2M_APP_SECRET', logtoM2MSecret);
-  }
 
   pushWorker(workerEntries, 'LOGTO_APPLICATION_ID', logtoAppId);
   if (logtoAppSecret) {

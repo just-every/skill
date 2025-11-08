@@ -34,6 +34,7 @@ export interface Env {
   EXPO_PUBLIC_LOGTO_REDIRECT_URI_LOCAL?: string;
   EXPO_PUBLIC_LOGTO_REDIRECT_URI_PROD?: string;
   EXPO_PUBLIC_WORKER_ORIGIN?: string;
+  ALLOW_PLACEHOLDER_DATA?: string;
   ASSETS?: AssetFetcher;
 }
 
@@ -241,6 +242,23 @@ async function queryFirst(db: D1Database, sql: string, bindings: unknown[] = [])
   return (result as DbRow | null) ?? null;
 }
 
+const DB_ERROR_TTL_MS = 60_000;
+let lastDbErrorAt: number | null = null;
+let lastDbLogAt: number | null = null;
+
+function logDbError(context: string, error: unknown): void {
+  const now = Date.now();
+  lastDbErrorAt = now;
+  if (!lastDbLogAt || now - lastDbLogAt > 5_000) {
+    console.warn(`[D1] ${context} failed`, error);
+    lastDbLogAt = now;
+  }
+}
+
+function hasRecentDbError(): boolean {
+  return lastDbErrorAt !== null && Date.now() - lastDbErrorAt < DB_ERROR_TTL_MS;
+}
+
 function numberFrom(value: unknown, fallback = 0): number {
   const num = typeof value === 'number' ? value : typeof value === 'string' ? Number(value) : NaN;
   return Number.isFinite(num) ? num : fallback;
@@ -282,83 +300,114 @@ function mapDbCompany(row: DbRow): AccountRecord {
 
 async function fetchCompaniesFromDb(env: Env): Promise<AccountRecord[] | null> {
   if (!env.DB) {
+    logDbError('fetchCompaniesFromDb', 'D1 binding is not configured');
     return null;
   }
-  const rows = await queryAll(env.DB, COMPANY_SUMMARY_SQL);
-  return rows.map((row) => mapDbCompany(row));
+  try {
+    const rows = await queryAll(env.DB, COMPANY_SUMMARY_SQL);
+    return rows.map((row) => mapDbCompany(row));
+  } catch (error) {
+    logDbError('fetchCompaniesFromDb', error);
+    return null;
+  }
 }
 
 async function fetchCompanyBySlugFromDb(env: Env, slug: string): Promise<AccountRecord | null> {
   if (!env.DB) {
+    logDbError('fetchCompanyBySlugFromDb', 'D1 binding is not configured');
     return null;
   }
-  const rows = await queryAll(env.DB, `${COMPANY_SELECT} WHERE c.slug = ? LIMIT 1`, [slug]);
-  if (rows.length === 0) {
+  try {
+    const rows = await queryAll(env.DB, `${COMPANY_SELECT} WHERE c.slug = ? LIMIT 1`, [slug]);
+    if (rows.length === 0) {
+      return null;
+    }
+    return mapDbCompany(rows[0]);
+  } catch (error) {
+    logDbError('fetchCompanyBySlugFromDb', error);
     return null;
   }
-  return mapDbCompany(rows[0]);
 }
 
 async function fetchMembersFromDb(env: Env, companyId: string): Promise<AccountMemberRecord[] | null> {
   if (!env.DB) {
+    logDbError('fetchMembersFromDb', 'D1 binding is not configured');
     return null;
   }
-  const rows = await queryAll(
-    env.DB,
-    `SELECT id, company_id, display_name, email, role, status, invited_at, accepted_at, last_active_at
-     FROM company_members
-     WHERE company_id = ?
-     ORDER BY created_at ASC`,
-    [companyId]
-  );
+  try {
+    const rows = await queryAll(
+      env.DB,
+      `SELECT id, company_id, display_name, email, role, status, invited_at, accepted_at, last_active_at
+       FROM company_members
+       WHERE company_id = ?
+       ORDER BY created_at ASC`,
+      [companyId]
+    );
 
-  return rows.map((row) => ({
-    id: stringFrom(row.id),
-    accountId: stringFrom(row.company_id),
-    name: stringFrom(row.display_name, stringFrom(row.email)),
-    email: stringFrom(row.email),
-    role: (stringFrom(row.role, 'viewer').charAt(0).toUpperCase() + stringFrom(row.role, 'viewer').slice(1)) as AccountMemberRecord['role'],
-    status: (stringFrom(row.status, 'active')) as AccountMemberRecord['status'],
-    joinedAt: stringFrom(row.accepted_at ?? row.invited_at ?? row.last_active_at ?? new Date().toISOString()),
-    lastActiveAt: row.last_active_at ? String(row.last_active_at) : null
-  }));
+    return rows.map((row) => ({
+      id: stringFrom(row.id),
+      accountId: stringFrom(row.company_id),
+      name: stringFrom(row.display_name, stringFrom(row.email)),
+      email: stringFrom(row.email),
+      role: (stringFrom(row.role, 'viewer').charAt(0).toUpperCase() + stringFrom(row.role, 'viewer').slice(1)) as AccountMemberRecord['role'],
+      status: (stringFrom(row.status, 'active')) as AccountMemberRecord['status'],
+      joinedAt: stringFrom(row.accepted_at ?? row.invited_at ?? row.last_active_at ?? new Date().toISOString()),
+      lastActiveAt: row.last_active_at ? String(row.last_active_at) : null
+    }));
+  } catch (error) {
+    logDbError('fetchMembersFromDb', error);
+    return null;
+  }
 }
 
 async function fetchBrandingFromDb(env: Env, companyId: string): Promise<AccountBranding | null> {
   if (!env.DB) {
+    logDbError('fetchBrandingFromDb', 'D1 binding is not configured');
     return null;
   }
-  const row = await queryFirst(
-    env.DB,
-    `SELECT primary_color, secondary_color, accent_color, logo_url, tagline, updated_at
-     FROM company_branding_settings WHERE company_id = ?`,
-    [companyId]
-  );
-  if (!row) {
+  try {
+    const row = await queryFirst(
+      env.DB,
+      `SELECT primary_color, secondary_color, accent_color, logo_url, tagline, updated_at
+       FROM company_branding_settings WHERE company_id = ?`,
+      [companyId]
+    );
+    if (!row) {
+      return null;
+    }
+    return {
+      primaryColor: stringFrom(row.primary_color, '#0f172a'),
+      secondaryColor: stringFrom(row.secondary_color, '#38bdf8'),
+      accentColor: row.accent_color ? String(row.accent_color) : undefined,
+      logoUrl: row.logo_url ? String(row.logo_url) : undefined,
+      tagline: row.tagline ? String(row.tagline) : undefined,
+      updatedAt: stringFrom(row.updated_at, new Date().toISOString())
+    };
+  } catch (error) {
+    logDbError('fetchBrandingFromDb', error);
     return null;
   }
-  return {
-    primaryColor: stringFrom(row.primary_color, '#0f172a'),
-    secondaryColor: stringFrom(row.secondary_color, '#38bdf8'),
-    accentColor: row.accent_color ? String(row.accent_color) : undefined,
-    logoUrl: row.logo_url ? String(row.logo_url) : undefined,
-    tagline: row.tagline ? String(row.tagline) : undefined,
-    updatedAt: stringFrom(row.updated_at, new Date().toISOString())
-  };
 }
 
-async function fetchUsagePointsFromDb(env: Env, companyId: string, days = 7): Promise<Array<{ bucket: string; requests: number; storageGb: number }>> {
+async function fetchUsagePointsFromDb(env: Env, companyId: string, days = 7): Promise<Array<{ bucket: string; requests: number; storageGb: number }> | null> {
   if (!env.DB) {
-    return [];
+    logDbError('fetchUsagePointsFromDb', 'D1 binding is not configured');
+    return null;
   }
-  const rows = await queryAll(
-    env.DB,
-    `SELECT usage_date, metric, value FROM company_usage_daily
-     WHERE company_id = ?
-     ORDER BY usage_date DESC
-     LIMIT ?`,
-    [companyId, days * 2]
-  );
+  let rows: DbRow[] = [];
+  try {
+    rows = await queryAll(
+      env.DB,
+      `SELECT usage_date, metric, value FROM company_usage_daily
+       WHERE company_id = ?
+       ORDER BY usage_date DESC
+       LIMIT ?`,
+      [companyId, days * 2]
+    );
+  } catch (error) {
+    logDbError('fetchUsagePointsFromDb', error);
+    return null;
+  }
   const map = new Map<string, { requests: number; storageGb: number }>();
   for (const row of rows) {
     const bucket = stringFrom(row.usage_date, new Date().toISOString().slice(0, 10));
@@ -379,58 +428,76 @@ async function fetchUsagePointsFromDb(env: Env, companyId: string, days = 7): Pr
 
 async function fetchSubscriptionSummaryFromDb(env: Env, companyId: string): Promise<SubscriptionSummary | null> {
   if (!env.DB) {
+    logDbError('fetchSubscriptionSummaryFromDb', 'D1 binding is not configured');
     return null;
   }
-  const row = await queryFirst(
-    env.DB,
-    `SELECT plan_name, status, seats, current_period_end, mrr_cents
-     FROM company_subscriptions
-     WHERE company_id = ?
-     ORDER BY updated_at DESC
-     LIMIT 1`,
-    [companyId]
-  );
-  if (!row) {
+  try {
+    const row = await queryFirst(
+      env.DB,
+      `SELECT plan_name, status, seats, current_period_end, mrr_cents
+       FROM company_subscriptions
+       WHERE company_id = ?
+       ORDER BY updated_at DESC
+       LIMIT 1`,
+      [companyId]
+    );
+    if (!row) {
+      return null;
+    }
+    return {
+      active: stringFrom(row.status, 'active') === 'active',
+      plan: row.plan_name ? String(row.plan_name) : null,
+      renewsOn: row.current_period_end ? String(row.current_period_end) : null,
+      seats: numberFrom(row.seats)
+    };
+  } catch (error) {
+    logDbError('fetchSubscriptionSummaryFromDb', error);
     return null;
   }
-  return {
-    active: stringFrom(row.status, 'active') === 'active',
-    plan: row.plan_name ? String(row.plan_name) : null,
-    renewsOn: row.current_period_end ? String(row.current_period_end) : null,
-    seats: numberFrom(row.seats)
-  };
 }
 
 async function fetchAssetsFromDb(env: Env, companyId: string): Promise<AssetObject[] | null> {
   if (!env.DB) {
+    logDbError('fetchAssetsFromDb', 'D1 binding is not configured');
     return null;
   }
-  const rows = await queryAll(
-    env.DB,
-    `SELECT storage_key, size_bytes, uploaded_at
-     FROM company_assets
-     WHERE company_id = ?
-     ORDER BY uploaded_at DESC
-     LIMIT 100`,
-    [companyId]
-  );
-  return rows.map((row) => ({
-    key: stringFrom(row.storage_key),
-    size: numberFrom(row.size_bytes),
-    uploaded: row.uploaded_at ? String(row.uploaded_at) : null
-  }));
+  try {
+    const rows = await queryAll(
+      env.DB,
+      `SELECT storage_key, size_bytes, uploaded_at
+       FROM company_assets
+       WHERE company_id = ?
+       ORDER BY uploaded_at DESC
+       LIMIT 100`,
+      [companyId]
+    );
+    return rows.map((row) => ({
+      key: stringFrom(row.storage_key),
+      size: numberFrom(row.size_bytes),
+      uploaded: row.uploaded_at ? String(row.uploaded_at) : null
+    }));
+  } catch (error) {
+    logDbError('fetchAssetsFromDb', error);
+    return null;
+  }
 }
 
 async function fetchInvitesFromDb(env: Env, companyId: string): Promise<DbRow[] | null> {
   if (!env.DB) {
+    logDbError('fetchInvitesFromDb', 'D1 binding is not configured');
     return null;
   }
-  return await queryAll(
-    env.DB,
-    `SELECT id, email, role, status, expires_at, created_at
-     FROM member_invites WHERE company_id = ? ORDER BY created_at DESC`,
-    [companyId]
-  );
+  try {
+    return await queryAll(
+      env.DB,
+      `SELECT id, email, role, status, expires_at, created_at
+       FROM member_invites WHERE company_id = ? ORDER BY created_at DESC`,
+      [companyId]
+    );
+  } catch (error) {
+    logDbError('fetchInvitesFromDb', error);
+    return null;
+  }
 }
 
 async function createInviteInDb(env: Env, companyId: string, email: string, role: string): Promise<void> {
@@ -466,6 +533,26 @@ function fallbackCompanies(): AccountRecord[] {
 
 function fallbackMembers(companyId: string): AccountMemberRecord[] {
   return ACCOUNT_MEMBERS.filter((member) => member.accountId === companyId).map((member) => ({ ...member }));
+}
+
+const LOCAL_PLACEHOLDER_HOSTS = new Set(['localhost', '127.0.0.1', '::1']);
+
+function shouldAllowPlaceholderData(request: Request, env: Env): boolean {
+  if (env.ALLOW_PLACEHOLDER_DATA) {
+    return env.ALLOW_PLACEHOLDER_DATA.toLowerCase() === 'true';
+  }
+  const hostname = new URL(request.url).hostname.toLowerCase();
+  if (LOCAL_PLACEHOLDER_HOSTS.has(hostname)) {
+    return true;
+  }
+  if (hostname.endsWith('.workers.dev') || hostname.endsWith('.pages.dev')) {
+    return true;
+  }
+  const projectHost = extractHostname(env.PROJECT_DOMAIN);
+  if (projectHost && hostname === projectHost) {
+    return false;
+  }
+  return false;
 }
 
 const CONTENT_TYPE_BY_EXTENSION: Record<string, string> = {
@@ -918,20 +1005,26 @@ function normalisePath(pathname: string): string {
   return pathname.replace(/\/+$/, "");
 }
 
-async function buildAccountSummaries(env: Env): Promise<AccountRecord[]> {
+async function buildAccountSummaries(env: Env, allowFallback: boolean): Promise<AccountRecord[] | null> {
   const fromDb = await fetchCompaniesFromDb(env);
-  if (fromDb && fromDb.length > 0) {
+  if (fromDb !== null) {
     return fromDb;
   }
-  return fallbackCompanies();
+  if (allowFallback) {
+    return fallbackCompanies();
+  }
+  return null;
 }
 
-async function resolveAccountBySlug(env: Env, slug: string): Promise<AccountRecord | undefined> {
+async function resolveAccountBySlug(env: Env, slug: string, allowFallback: boolean): Promise<AccountRecord | undefined> {
   const fromDb = await fetchCompanyBySlugFromDb(env, slug);
   if (fromDb) {
     return fromDb;
   }
-  return fallbackCompanies().find((account) => account.slug === slug);
+  if (allowFallback) {
+    return fallbackCompanies().find((account) => account.slug === slug);
+  }
+  return undefined;
 }
 
 function mapAccountResponse(account: AccountRecord): Record<string, unknown> {
@@ -992,6 +1085,17 @@ function fallbackAssetsList(): AssetObject[] {
     { key: 'uploads/branding/logo.png', size: 182034, uploaded: '2025-11-05T16:12:00.000Z' },
     { key: 'uploads/invoices/2024-09.pdf', size: 58234, uploaded: '2024-09-30T08:00:00.000Z' }
   ];
+}
+
+function extractHostname(value?: string): string | null {
+  if (!value) {
+    return null;
+  }
+  try {
+    return new URL(value).hostname.toLowerCase();
+  } catch {
+    return null;
+  }
 }
 
 function normaliseHexColor(input?: string): string | null {
@@ -1377,8 +1481,13 @@ async function handleAccountsRoute(request: Request, env: Env, pathname: string)
     return authFailureResponse(auth);
   }
 
+  const allowFallback = shouldAllowPlaceholderData(request, env);
+
   if (pathname === "/api/accounts") {
-    const accounts = await buildAccountSummaries(env);
+    const accounts = await buildAccountSummaries(env, allowFallback);
+    if (!accounts) {
+      return dataUnavailableResponse(env);
+    }
     return jsonResponse({
       accounts: accounts.map((account) => mapAccountResponse(account)),
       currentAccountId: accounts[0]?.id ?? null,
@@ -1389,22 +1498,25 @@ async function handleAccountsRoute(request: Request, env: Env, pathname: string)
   const slug = segments[2];
   const action = segments[3];
 
-  const account = await resolveAccountBySlug(env, slug);
+  const account = await resolveAccountBySlug(env, slug, allowFallback);
   if (!account) {
+    if (!allowFallback && (!env.DB || hasRecentDbError())) {
+      return dataUnavailableResponse(env);
+    }
     return jsonResponse({ error: 'Account not found' }, 404);
   }
 
   switch (action) {
     case 'members':
-      return handleAccountMembers(account, auth.session, env);
+      return handleAccountMembers(account, auth.session, env, allowFallback);
     case 'branding':
       return handleAccountBranding(request, account, env);
     case 'usage':
-      return handleAccountUsage(request, env, account);
+      return handleAccountUsage(request, env, account, allowFallback);
     case 'assets':
-      return handleAccountAssets(request, env, account);
+      return handleAccountAssets(request, env, account, allowFallback);
     case 'subscription':
-      return handleAccountSubscription(env, account);
+      return handleAccountSubscription(env, account, allowFallback);
     case 'invites':
       return handleAccountInvites(request, env, account);
     default:
@@ -1417,9 +1529,13 @@ async function handleAccountsRoute(request: Request, env: Env, pathname: string)
 async function handleAccountMembers(
   account: AccountRecord,
   session: AuthenticatedSession,
-  env: Env
+  env: Env,
+  allowFallback: boolean
 ): Promise<Response> {
   const membersFromDb = await fetchMembersFromDb(env, account.id);
+  if (!membersFromDb && !allowFallback) {
+    return dataUnavailableResponse(env);
+  }
   const members = membersFromDb ?? fallbackMembers(account.id);
 
   return jsonResponse({
@@ -1708,31 +1824,56 @@ async function handleAssetsDelete(request: Request, env: Env): Promise<Response>
   return jsonResponse({ ok: true, deleted: key });
 }
 
-async function handleAccountUsage(request: Request, env: Env, account: AccountRecord): Promise<Response> {
+async function handleAccountUsage(
+  request: Request,
+  env: Env,
+  account: AccountRecord,
+  allowFallback: boolean
+): Promise<Response> {
   if (request.method !== 'GET') {
     return jsonResponse({ error: 'Method Not Allowed' }, 405);
   }
   const url = new URL(request.url);
   const daysParam = url.searchParams.get('days');
   const days = daysParam ? Math.min(Math.max(Number.parseInt(daysParam, 10) || 7, 1), 31) : 7;
-  const points = env.DB
-    ? await fetchUsagePointsFromDb(env, account.id, days)
-    : fallbackUsage(account.id);
-  return jsonResponse({ points });
+  const pointsFromDb = await fetchUsagePointsFromDb(env, account.id, days);
+  if (!pointsFromDb) {
+    if (!allowFallback) {
+      return dataUnavailableResponse(env);
+    }
+    return jsonResponse({ points: fallbackUsage(account.id) });
+  }
+  return jsonResponse({ points: pointsFromDb });
 }
 
-async function handleAccountAssets(request: Request, env: Env, account: AccountRecord): Promise<Response> {
+async function handleAccountAssets(
+  request: Request,
+  env: Env,
+  account: AccountRecord,
+  allowFallback: boolean
+): Promise<Response> {
   if (request.method !== 'GET') {
     return jsonResponse({ error: 'Method Not Allowed' }, 405);
   }
-  const rows = env.DB ? await fetchAssetsFromDb(env, account.id) : null;
-  const assets = rows ?? fallbackAssetsList();
-  return jsonResponse({ assets });
+  const rows = await fetchAssetsFromDb(env, account.id);
+  if (!rows) {
+    if (!allowFallback) {
+      return dataUnavailableResponse(env);
+    }
+    return jsonResponse({ assets: fallbackAssetsList() });
+  }
+  return jsonResponse({ assets: rows });
 }
 
-async function handleAccountSubscription(env: Env, account: AccountRecord): Promise<Response> {
-  const summary = env.DB ? await fetchSubscriptionSummaryFromDb(env, account.id) : null;
-  return jsonResponse({ subscription: summary ?? fallbackSubscription(account.id) });
+async function handleAccountSubscription(env: Env, account: AccountRecord, allowFallback: boolean): Promise<Response> {
+  const summary = await fetchSubscriptionSummaryFromDb(env, account.id);
+  if (!summary) {
+    if (!allowFallback) {
+      return dataUnavailableResponse(env);
+    }
+    return jsonResponse({ subscription: fallbackSubscription(account.id) });
+  }
+  return jsonResponse({ subscription: summary });
 }
 
 async function handleAccountInvites(request: Request, env: Env, account: AccountRecord): Promise<Response> {
@@ -1789,19 +1930,23 @@ async function handleSubscription(request: Request, env: Env): Promise<Response>
   if (!auth.ok) {
     return authFailureResponse(auth);
   }
+  const allowFallback = shouldAllowPlaceholderData(request, env);
   const url = new URL(request.url);
   const slug = url.searchParams.get('slug');
   let account: AccountRecord | undefined;
   if (slug) {
-    account = await resolveAccountBySlug(env, slug);
+    account = await resolveAccountBySlug(env, slug, allowFallback);
   } else {
-    const accounts = await buildAccountSummaries(env);
-    account = accounts[0];
+    const accounts = await buildAccountSummaries(env, allowFallback);
+    account = accounts?.[0];
   }
   if (!account) {
+    if (!allowFallback && (!env.DB || hasRecentDbError())) {
+      return dataUnavailableResponse(env);
+    }
     return jsonResponse({ error: 'Account not found' }, 404);
   }
-  return handleAccountSubscription(env, account);
+  return handleAccountSubscription(env, account, allowFallback);
 }
 
 async function handleStripeWebhook(request: Request, env: Env): Promise<Response> {
@@ -1890,6 +2035,17 @@ function jsonResponse(data: unknown, status = 200, extraHeaders?: HeadersInit): 
   );
 }
 
+function dataUnavailableResponse(env: Env): Response {
+  return jsonResponse(
+    {
+      error: 'data_unavailable',
+      hint: 'Cloudflare D1 data is unavailable. Run `pnpm bootstrap:env` to provision or configure the DB binding.',
+      project: env.PROJECT_DOMAIN ?? null,
+    },
+    503,
+  );
+}
+
 function generateSessionId(): string {
   return `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}`;
 }
@@ -1928,10 +2084,17 @@ async function landingPageHtml(env: Env): Promise<string> {
       var target = globalThis;
       if (typeof target.nativePerformanceNow !== 'function') {
         var perf = target.performance && target.performance.now ? target.performance : { now: function () { return Date.now(); } };
-        target.nativePerformanceNow = perf.now.bind(perf);
+        var nativeNow = perf.now.bind(perf);
+        target.nativePerformanceNow = nativeNow;
+        if (typeof window !== 'undefined' && !window.nativePerformanceNow) {
+          window.nativePerformanceNow = nativeNow;
+        }
       }
       if (!target.__JUSTEVERY_IMPORT_META_ENV__) {
         target.__JUSTEVERY_IMPORT_META_ENV__ = { MODE: 'production' };
+      }
+      if (typeof window !== 'undefined' && !window.__JUSTEVERY_IMPORT_META_ENV__) {
+        window.__JUSTEVERY_IMPORT_META_ENV__ = target.__JUSTEVERY_IMPORT_META_ENV__;
       }
     })();</script>`;
 

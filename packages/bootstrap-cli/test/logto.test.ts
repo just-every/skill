@@ -4,7 +4,6 @@ import {
   formatLogtoPlan,
   ensureApplication,
   ensureApiResource,
-  ensureM2MApp,
   provisionLogto
 } from '../src/providers/logto.js';
 import type { BootstrapEnv } from '../src/env.js';
@@ -29,7 +28,7 @@ describe('buildLogtoPlan', () => {
     const plan = buildLogtoPlan(BASE_ENV);
     expect(plan.provider).toBe('logto');
     expect(plan.endpoint).toBe('https://auth.example.com');
-    expect(plan.steps.map((step) => step.id)).toEqual(['traditional-app', 'api-resource', 'm2m-app']);
+    expect(plan.steps.map((step) => step.id)).toEqual(['traditional-app', 'api-resource']);
     expect(plan.notes[0]).toContain('Endpoint:');
     const summary = formatLogtoPlan(plan);
     expect(summary).toContain('demo-web');
@@ -40,11 +39,8 @@ describe('buildLogtoPlan', () => {
     const plan = buildLogtoPlan(BASE_ENV);
     const spaStep = plan.steps.find((step) => step.id === 'traditional-app');
     const apiStep = plan.steps.find((step) => step.id === 'api-resource');
-    const m2mStep = plan.steps.find((step) => step.id === 'm2m-app');
-
     expect(spaStep?.detail).toContain('demo-web');
     expect(apiStep?.detail).toContain('https://api.example.com');
-    expect(m2mStep?.detail).toContain('demo-m2m');
   });
 });
 
@@ -325,78 +321,6 @@ describe('ensureApiResource', () => {
   });
 });
 
-describe('ensureM2MApp', () => {
-  const mockToken = 'mock-management-token';
-
-  beforeEach(() => {
-    global.fetch = vi.fn();
-  });
-
-  afterEach(() => {
-    vi.restoreAllMocks();
-  });
-
-  it('creates new M2M application when none exists', async () => {
-    const searchResponse = [];
-    const createResponse = {
-      id: 'new-m2m-id',
-      name: 'demo-m2m',
-      type: 'MachineToMachine',
-      secret: 'new-m2m-secret'
-    };
-
-    (global.fetch as any)
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => searchResponse
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => createResponse
-      });
-
-    const result = await ensureM2MApp(BASE_ENV, mockToken);
-
-    expect(result.id).toBe('new-m2m-id');
-    expect(result.secret).toBe('new-m2m-secret');
-    expect(global.fetch).toHaveBeenCalledTimes(2);
-  });
-
-  it('returns existing M2M application when found', async () => {
-    const existingM2M = {
-      id: 'existing-m2m-id',
-      name: 'demo-m2m',
-      type: 'MachineToMachine'
-    };
-
-    (global.fetch as any).mockResolvedValueOnce({
-      ok: true,
-      json: async () => [existingM2M]
-    });
-
-    const result = await ensureM2MApp(BASE_ENV, mockToken);
-
-    expect(result.id).toBe('existing-m2m-id');
-    expect(result.secret).toBe('existing-app-secret-unavailable');
-    expect(global.fetch).toHaveBeenCalledTimes(1);
-  });
-
-  it('skips creation in dry-run mode', async () => {
-    const searchResponse = [];
-
-    (global.fetch as any).mockResolvedValueOnce({
-      ok: true,
-      json: async () => searchResponse
-    });
-
-    const result = await ensureM2MApp(BASE_ENV, mockToken, { dryRun: true });
-
-    expect(result.id).toBe('dry-run-m2m-id');
-    expect(result.secret).toBe('dry-run-m2m-secret');
-    expect(global.fetch).toHaveBeenCalledTimes(1);
-  });
-});
-
 describe('provisionLogto', () => {
   beforeEach(() => {
     global.fetch = vi.fn();
@@ -464,30 +388,11 @@ describe('provisionLogto', () => {
       })
     });
 
-    // Mock M2M search
-    (global.fetch as any).mockResolvedValueOnce({
-      ok: true,
-      json: async () => []
-    });
-
-    // Mock M2M create
-    (global.fetch as any).mockResolvedValueOnce({
-      ok: true,
-      json: async () => ({
-        id: 'm2m-id',
-        name: 'demo-m2m',
-        type: 'MachineToMachine',
-        secret: 'm2m-secret'
-      })
-    });
-
     const result = await provisionLogto({ env: BASE_ENV });
 
     expect(result.applicationId).toBe('app-id');
     expect(result.applicationSecret).toBe('app-secret');
     expect(result.apiResourceId).toBe('resource-id');
-    expect(result.m2mApplicationId).toBe('m2m-id');
-    expect(result.m2mApplicationSecret).toBe('m2m-secret');
 
     // Verify token endpoint was called with correct resource
     const tokenCall = (global.fetch as any).mock.calls[0];
@@ -507,8 +412,6 @@ describe('provisionLogto', () => {
 
     expect(result.applicationId).toBe('dry-run-app-id');
     expect(result.applicationSecret).toBe('dry-run-app-secret');
-    expect(result.m2mApplicationId).toBe('dry-run-m2m-id');
-    expect(result.m2mApplicationSecret).toBe('dry-run-m2m-secret');
     expect(logLines.some((line) => line.includes('dry-run'))).toBe(true);
     // Verify no network calls were made in dry-run mode
     expect(global.fetch).not.toHaveBeenCalled();
@@ -566,18 +469,6 @@ describe('provisionLogto', () => {
     (global.fetch as any).mockResolvedValueOnce({
       ok: true,
       json: async () => ({ id: 'resource-id', name: 'demo-api', indicator: 'https://api.example.com' })
-    });
-
-    // Mock M2M search
-    (global.fetch as any).mockResolvedValueOnce({
-      ok: true,
-      json: async () => []
-    });
-
-    // Mock M2M create
-    (global.fetch as any).mockResolvedValueOnce({
-      ok: true,
-      json: async () => ({ id: 'm2m-id', name: 'demo-m2m', type: 'MachineToMachine', secret: 'm2m-secret' })
     });
 
     await provisionLogto({ env: cloudEnv });
@@ -639,18 +530,6 @@ describe('provisionLogto', () => {
     (global.fetch as any).mockResolvedValueOnce({
       ok: true,
       json: async () => ({ id: 'resource-id', name: 'demo-api', indicator: 'https://api.example.com' })
-    });
-
-    // Mock M2M search
-    (global.fetch as any).mockResolvedValueOnce({
-      ok: true,
-      json: async () => []
-    });
-
-    // Mock M2M create
-    (global.fetch as any).mockResolvedValueOnce({
-      ok: true,
-      json: async () => ({ id: 'm2m-id', name: 'demo-m2m', type: 'MachineToMachine', secret: 'm2m-secret' })
     });
 
     await provisionLogto({ env: ossEnv });
@@ -721,18 +600,6 @@ describe('provisionLogto', () => {
     (global.fetch as any).mockResolvedValueOnce({
       ok: true,
       json: async () => ({ id: 'resource-id', name: 'demo-api', indicator: 'https://api.example.com' })
-    });
-
-    // Mock M2M search
-    (global.fetch as any).mockResolvedValueOnce({
-      ok: true,
-      json: async () => []
-    });
-
-    // Mock M2M create
-    (global.fetch as any).mockResolvedValueOnce({
-      ok: true,
-      json: async () => ({ id: 'm2m-id', name: 'demo-m2m', type: 'MachineToMachine', secret: 'm2m-secret' })
     });
 
     await provisionLogto({ env: fallbackEnv });

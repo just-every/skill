@@ -13,6 +13,5 @@ CREATE TABLE IF NOT EXISTS company_branding_settings (
   updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
-INSERT INTO company_branding_settings (company_id)
-SELECT id FROM companies
-ON CONFLICT(company_id) DO NOTHING;
+INSERT OR IGNORE INTO company_branding_settings (company_id)
+SELECT id FROM companies;

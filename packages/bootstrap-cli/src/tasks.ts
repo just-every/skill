@@ -254,8 +254,6 @@ export function createApplyTasks(options: PipelineOptions = {}): Listr<Bootstrap
         if (!dryRun && ctx.logtoResult) {
           const logtoUpdates = {
             LOGTO_APPLICATION_ID: ctx.logtoResult.applicationId,
-            LOGTO_M2M_APP_ID: ctx.logtoResult.m2mApplicationId,
-            LOGTO_M2M_APP_SECRET: ctx.logtoResult.m2mApplicationSecret,
             LOGTO_API_RESOURCE_ID: ctx.logtoResult.apiResourceId
           } as Partial<GeneratedEnv>;
           ctx.envResult = mergeGeneratedValues(ctx.envResult, logtoUpdates);
@@ -366,8 +364,6 @@ export function createEnvGenerateTasks(options: EnvGenerateOptions = {}): Listr<
           if (!checkOnly && ctx.logtoResult) {
             const logtoUpdates = {
               LOGTO_APPLICATION_ID: ctx.logtoResult.applicationId,
-              LOGTO_M2M_APP_ID: ctx.logtoResult.m2mApplicationId,
-              LOGTO_M2M_APP_SECRET: ctx.logtoResult.m2mApplicationSecret,
               LOGTO_API_RESOURCE_ID: ctx.logtoResult.apiResourceId
             } as Partial<GeneratedEnv>;
             ctx.envResult = mergeGeneratedValues(ctx.envResult, logtoUpdates);
@@ -617,8 +613,6 @@ export function createDeployTasks(options: DeployOptions = {}): Listr<DeployCont
         if (!dryRun && ctx.logtoResult) {
           const logtoUpdates = {
             LOGTO_APPLICATION_ID: ctx.logtoResult.applicationId,
-            LOGTO_M2M_APP_ID: ctx.logtoResult.m2mApplicationId,
-            LOGTO_M2M_APP_SECRET: ctx.logtoResult.m2mApplicationSecret,
             LOGTO_API_RESOURCE_ID: ctx.logtoResult.apiResourceId
           } as Partial<GeneratedEnv>;
           ctx.envResult = mergeGeneratedValues(ctx.envResult, logtoUpdates);

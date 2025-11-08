@@ -38,18 +38,10 @@ export interface LogtoApplicationUserConsentScope {
   userScopes?: string[];
 }
 
-export interface LogtoM2MApplication {
-  id: string;
-  name: string;
-  secret: string;
-}
-
 export interface LogtoProvisionResult {
   applicationId: string;
   applicationSecret?: string;
   apiResourceId: string;
-  m2mApplicationId: string;
-  m2mApplicationSecret: string;
 }
 
 export interface LogtoProvisionOptions {
@@ -79,7 +71,7 @@ function deriveManagementResource(managementEndpoint: string): string {
 }
 
 /**
- * Mint a management API token using M2M credentials
+ * Mint a management API token using the configured Basic credentials
  */
 async function mintManagementToken(env: BootstrapEnv): Promise<string> {
   // Use LOGTO_MANAGEMENT_ENDPOINT or fallback to LOGTO_ENDPOINT
@@ -88,7 +80,7 @@ async function mintManagementToken(env: BootstrapEnv): Promise<string> {
     throw new Error('LOGTO_MANAGEMENT_ENDPOINT or LOGTO_ENDPOINT is required');
   }
 
-  // Use LOGTO_MANAGEMENT_AUTH_BASIC or derive from M2M credentials
+  // Use LOGTO_MANAGEMENT_AUTH_BASIC for client credentials
   const authBasic = env.LOGTO_MANAGEMENT_AUTH_BASIC;
   if (!authBasic) {
     throw new Error('LOGTO_MANAGEMENT_AUTH_BASIC is required');
@@ -585,74 +577,6 @@ export async function ensureApiResource(
 }
 
 /**
- * Search for M2M applications
- */
-async function searchM2MApplications(
-  managementEndpoint: string,
-  token: string,
-  name: string
-): Promise<LogtoApplication[]> {
-  const response = await fetch(`${managementEndpoint}/api/applications?page=1&page_size=100`, {
-    headers: {
-      'Authorization': `Bearer ${token}`
-    }
-  });
-
-  if (!response.ok) {
-    throw new Error(`Failed to list applications: ${response.status}`);
-  }
-
-  const applications = (await response.json()) as LogtoApplication[];
-  return applications.filter((app) => app.name === name && app.type === 'MachineToMachine');
-}
-
-/**
- * Ensure an M2M application exists for smoke tests
- */
-export async function ensureM2MApp(
-  env: BootstrapEnv,
-  token: string,
-  options: { dryRun?: boolean; logger?: (line: string) => void } = {}
-): Promise<{ id: string; secret: string }> {
-  const { dryRun = false, logger = console.log } = options;
-  const managementEndpoint = env.LOGTO_MANAGEMENT_ENDPOINT ?? env.LOGTO_ENDPOINT;
-  if (!managementEndpoint) {
-    throw new Error('LOGTO_MANAGEMENT_ENDPOINT or LOGTO_ENDPOINT is required');
-  }
-
-  const appName = `${env.PROJECT_ID}-m2m`;
-
-  const existing = await searchM2MApplications(managementEndpoint, token, appName);
-
-  if (existing.length > 0) {
-    const app = existing[0];
-    logger(chalk.gray(`[logto] Found existing M2M application: ${app.name} (${app.id})`));
-
-    // Note: Cannot retrieve secret for existing M2M apps
-    // User must provide LOGTO_M2M_SECRET if they want to use existing app
-    return { id: app.id, secret: app.secret ?? 'existing-app-secret-unavailable' };
-  }
-
-  if (dryRun) {
-    logger(chalk.cyan(`[dry-run] Would create M2M application: ${appName}`));
-    return { id: 'dry-run-m2m-id', secret: 'dry-run-m2m-secret' };
-  }
-
-  logger(chalk.yellow(`[logto] Creating M2M application: ${appName}`));
-  const newApp = await createApplication(managementEndpoint, token, {
-    name: appName,
-    type: 'MachineToMachine'
-  });
-
-  if (!newApp.secret) {
-    throw new Error('M2M application created but secret not returned');
-  }
-
-  logger(chalk.green(`[logto] Created M2M application ${newApp.id}`));
-  return { id: newApp.id, secret: newApp.secret };
-}
-
-/**
  * Provision all Logto resources idempotently
  */
 export async function provisionLogto(options: LogtoProvisionOptions): Promise<LogtoProvisionResult> {
@@ -664,13 +588,10 @@ export async function provisionLogto(options: LogtoProvisionOptions): Promise<Lo
     logger(chalk.cyan('[dry-run] Would mint management token'));
     logger(chalk.cyan(`[dry-run] Would ensure Traditional application: ${env.PROJECT_ID}-web`));
     logger(chalk.cyan(`[dry-run] Would ensure API resource: ${env.LOGTO_API_RESOURCE}`));
-    logger(chalk.cyan(`[dry-run] Would ensure M2M application: ${env.PROJECT_ID}-m2m`));
     const dryRunResult: LogtoProvisionResult = {
       applicationId: 'dry-run-app-id',
       applicationSecret: 'dry-run-app-secret',
-      apiResourceId: 'dry-run-resource-id',
-      m2mApplicationId: 'dry-run-m2m-id',
-      m2mApplicationSecret: 'dry-run-m2m-secret'
+      apiResourceId: 'dry-run-resource-id'
     };
     logger(chalk.blue('[logto] Dry-run provisioning complete (no network calls)'));
     return dryRunResult;
@@ -687,17 +608,12 @@ export async function provisionLogto(options: LogtoProvisionOptions): Promise<Lo
   // Ensure API resource
   const resource = await ensureApiResource(env, token, { logger });
 
-  // Ensure M2M application
-  const m2m = await ensureM2MApp(env, token, { logger });
-
   logger(chalk.blue('[logto] Logto provisioning complete'));
 
   return {
     applicationId: app.id,
     applicationSecret: app.secret,
-    apiResourceId: resource.id,
-    m2mApplicationId: m2m.id,
-    m2mApplicationSecret: m2m.secret
+    apiResourceId: resource.id
   };
 }
 
@@ -767,8 +683,6 @@ export interface LogtoPlan {
 export function buildLogtoPlan(env: BootstrapEnv): LogtoPlan {
   const appName = `${env.PROJECT_ID}-web`;
   const resourceName = `${env.PROJECT_ID}-api`;
-  const m2mName = `${env.PROJECT_ID}-m2m`;
-
   const steps: LogtoPlanStep[] = [
     {
       id: 'traditional-app',
@@ -780,12 +694,6 @@ export function buildLogtoPlan(env: BootstrapEnv): LogtoPlan {
       id: 'api-resource',
       title: 'API Resource',
       detail: `Ensure resource "${env.LOGTO_API_RESOURCE}" exists`,
-      status: 'ensure'
-    },
-    {
-      id: 'm2m-app',
-      title: 'M2M Application',
-      detail: `Ensure M2M app "${m2mName}" exists`,
       status: 'ensure'
     }
   ];
