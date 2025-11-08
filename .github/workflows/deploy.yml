@@ -39,8 +39,8 @@ jobs:
           echo "MODE=$MODE" >> "$GITHUB_ENV"
           echo "Deployment mode: $MODE"
 
-      - name: Enable Corepack
-        run: corepack enable
+      - name: Enable Corepack for pnpm
+        run: corepack enable pnpm
 
       - name: Ensure ENV_BLOB secret exists
         if: env.MODE == 'deploy'
