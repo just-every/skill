@@ -44,8 +44,8 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Bootstrap preflight (check)
-        run: pnpm bootstrap:preflight -- --check
+      - name: Bootstrap preflight
+        run: pnpm bootstrap:preflight
 
       - name: Bootstrap env (write)
         run: pnpm bootstrap:env
