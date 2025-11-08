@@ -8,6 +8,10 @@ on:
     inputs:
       mode:
         description: 'deploy|dry-run'
+        type: choice
+        options:
+          - deploy
+          - dry-run
         default: 'deploy'
         required: true
 
@@ -23,7 +27,20 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Echo workflow inputs
+        if: ${{ github.event_name == 'workflow_dispatch' }}
+        run: |
+          echo "workflow_dispatch inputs.mode=${{ github.event.inputs.mode }}"
+
+      - name: Set deployment mode
+        id: set-mode
+        run: |
+          MODE="${{ github.event_name == 'workflow_dispatch' && github.event.inputs.mode || 'deploy' }}"
+          echo "MODE=$MODE" >> "$GITHUB_ENV"
+          echo "Deployment mode: $MODE"
+
       - name: Ensure ENV_BLOB secret exists
+        if: env.MODE == 'deploy'
         run: |
           if [ -z "$ENV_BLOB" ]; then
             echo "ENV_BLOB secret is required" >&2
@@ -31,17 +48,41 @@ jobs:
           fi
 
       - name: Decode ENV_BLOB to .env.ci
+        if: env.MODE == 'deploy'
         run: |
           echo "$ENV_BLOB" | base64 --decode > .env.ci
           grep -v '^#' .env.ci | grep -E '^[A-Z0-9_]+=' | sed 's/=.*//' > required.env.keys
 
       - name: Export env vars
+        if: env.MODE == 'deploy'
         run: |
           set -euo pipefail
           while IFS= read -r line; do
             var="${line%%=*}"; value="${line#*=}"
             printf '%s=%s\n' "$var" "$value" >> $GITHUB_ENV
           done < <(grep -v '^#' .env.ci)
+
+      - name: Seed placeholder env for dry-run
+        if: env.MODE != 'deploy'
+        run: |
+          {
+            echo "PROJECT_ID=ci-placeholder"
+            echo "PROJECT_DOMAIN=https://ci-placeholder.justevery.test"
+            echo "CLOUDFLARE_ACCOUNT_ID=placeholder-account"
+            echo "CLOUDFLARE_API_TOKEN=placeholder-token"
+            echo "CLOUDFLARE_ZONE_ID=placeholder-zone"
+            echo "D1_DATABASE_NAME=ci-placeholder-d1"
+            echo "D1_DATABASE_ID=placeholder-d1-id"
+            echo "CLOUDFLARE_R2_BUCKET=ci-placeholder-assets"
+            echo "STRIPE_SECRET_KEY=sk_test_placeholder"
+            echo "STRIPE_WEBHOOK_SECRET=whsec_placeholder"
+            echo "STRIPE_PRODUCTS="
+          } > .env.ci
+          while IFS= read -r line; do
+            var="${line%%=*}"
+            value="${line#*=}"
+            printf '%s=%s\n' "$var" "$value" >> $GITHUB_ENV
+          done < .env.ci
 
       - uses: actions/setup-node@v4
         with:
@@ -55,22 +96,27 @@ jobs:
         run: pnpm bootstrap:deploy -- --dry-run
 
       - name: Create D1 backup (remote)
+        if: env.MODE == 'deploy'
         run: |
           mkdir -p backups
           pnpm exec wrangler d1 export "$D1_DATABASE_NAME" --remote --config workers/api/wrangler.toml --output backups/d1-backup-${{ github.run_id }}.sql
 
       - name: Upload D1 backup
+        if: env.MODE == 'deploy'
         uses: actions/upload-artifact@v4
         with:
           name: d1-backup-${{ github.run_id }}
           path: backups/d1-backup-${{ github.run_id }}.sql
 
       - name: Run migrations (remote)
+        if: env.MODE == 'deploy'
         run: pnpm --filter @justevery/worker run migrate -- --remote
 
       - name: Deploy (bootstrap)
+        env:
+          DEPLOY_MODE: ${{ env.MODE }}
         run: |
-          if [ "${{ inputs.mode || 'deploy' }}" = "dry-run" ]; then
+          if [ "$DEPLOY_MODE" = "dry-run" ]; then
             pnpm bootstrap:deploy:dry-run
           else
             pnpm bootstrap:deploy
