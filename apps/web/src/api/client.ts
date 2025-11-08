@@ -1,6 +1,6 @@
 import { useCallback } from 'react';
 
-import { useLogto } from '../auth/LogtoProvider';
+import { useAuth } from '../auth/AuthProvider';
 import { usePublicEnv } from '../runtimeEnv';
 
 const resolveWorkerUrl = (origin?: string, path?: string) => {
@@ -15,49 +15,41 @@ const resolveWorkerUrl = (origin?: string, path?: string) => {
 
 export const useApiClient = () => {
   const env = usePublicEnv();
-  const { getAccessToken } = useLogto();
+  const { status } = useAuth();
 
   const buildUrl = useCallback(
-    (path: string) => {
-      const origin = env.workerOrigin ?? env.workerOriginLocal;
-      return resolveWorkerUrl(origin, path);
-    },
+    (path: string) => resolveWorkerUrl(env.workerOrigin ?? env.workerOriginLocal, path),
     [env.workerOrigin, env.workerOriginLocal]
   );
 
   const request = useCallback(
-    async <T>(path: string, init?: RequestInit & { skipAuth?: boolean }): Promise<T> => {
+    async <T>(path: string, init?: RequestInit): Promise<T> => {
       const url = buildUrl(path);
       const headers = new Headers(init?.headers ?? {});
-
-      if (!init?.skipAuth) {
-        try {
-          const token = await getAccessToken(env.apiResource);
-          if (token) {
-            headers.set('Authorization', `Bearer ${token}`);
-          }
-        } catch (error) {
-          console.warn('Failed to fetch access token for API request', error);
-        }
+      if (!headers.has('Content-Type') && init?.body) {
+        headers.set('Content-Type', 'application/json');
       }
 
       const response = await fetch(url, {
         ...init,
         credentials: 'include',
-        headers
+        headers,
       });
-
-      if (!response.ok) {
-        throw new Error(`API request failed: ${response.status}`);
-      }
 
       if (response.status === 204) {
         return undefined as T;
       }
 
+      if (!response.ok) {
+        if (response.status === 401) {
+          throw new Error('Authentication required');
+        }
+        throw new Error(`API request failed: ${response.status}`);
+      }
+
       return (await response.json()) as T;
     },
-    [buildUrl, env.apiResource, getAccessToken]
+    [buildUrl, status]
   );
 
   return {
@@ -66,14 +58,14 @@ export const useApiClient = () => {
       request<T>(path, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: body ? JSON.stringify(body) : undefined
+        body: body ? JSON.stringify(body) : undefined,
       }),
     patch: <T,>(path: string, body?: unknown) =>
       request<T>(path, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: body ? JSON.stringify(body) : undefined
+        body: body ? JSON.stringify(body) : undefined,
       }),
-    delete: <T,>(path: string) => request<T>(path, { method: 'DELETE' })
+    delete: <T,>(path: string) => request<T>(path, { method: 'DELETE' }),
   };
 };

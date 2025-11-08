@@ -72,30 +72,9 @@ function buildSubstitutions(
 
   const map: Record<string, string> = {
     PROJECT_ID: escapeToml(env.PROJECT_ID),
-    LOGTO_ISSUER: escapeToml(env.LOGTO_ISSUER ?? `${trimTrailingSlash(env.LOGTO_ENDPOINT ?? '')}/oidc`),
-    LOGTO_JWKS_URI: escapeToml(
-      env.LOGTO_JWKS_URI ?? `${trimTrailingSlash(env.LOGTO_ENDPOINT ?? '')}/oidc/jwks`
-    ),
-    LOGTO_API_RESOURCE: escapeToml(env.LOGTO_API_RESOURCE ?? ''),
-    LOGTO_ENDPOINT: escapeToml(env.LOGTO_ENDPOINT ?? ''),
-    LOGTO_APPLICATION_ID: escapeToml(env.LOGTO_APPLICATION_ID ?? ''),
-    EXPO_PUBLIC_LOGTO_ENDPOINT: escapeToml(env.LOGTO_ENDPOINT ?? ''),
-    EXPO_PUBLIC_LOGTO_APP_ID: escapeToml(env.LOGTO_APPLICATION_ID ?? ''),
-    EXPO_PUBLIC_API_RESOURCE: escapeToml(env.LOGTO_API_RESOURCE ?? ''),
-    EXPO_PUBLIC_LOGTO_POST_LOGOUT_REDIRECT_URI: escapeToml(
-      env.EXPO_PUBLIC_LOGTO_POST_LOGOUT_REDIRECT_URI ?? projectDomain ?? ''
-    ),
-    EXPO_PUBLIC_LOGTO_REDIRECT_URI: escapeToml(
-      env.EXPO_PUBLIC_LOGTO_REDIRECT_URI ??
-        (projectDomain ? `${trimTrailingSlash(projectDomain)}/callback` : '')
-    ),
-    EXPO_PUBLIC_LOGTO_REDIRECT_URI_LOCAL: escapeToml(
-      env.EXPO_PUBLIC_LOGTO_REDIRECT_URI_LOCAL ?? 'http://127.0.0.1:8787/callback'
-    ),
-    EXPO_PUBLIC_LOGTO_REDIRECT_URI_PROD: escapeToml(
-      env.EXPO_PUBLIC_LOGTO_REDIRECT_URI_PROD ??
-        (projectDomain ? `${trimTrailingSlash(projectDomain)}/callback` : '')
-    ),
+    BETTER_AUTH_URL: escapeToml(env.BETTER_AUTH_URL ?? `${trimTrailingSlash(projectDomain)}/api/auth`),
+    LOGIN_ORIGIN: escapeToml(env.LOGIN_ORIGIN ?? projectDomain),
+    SESSION_COOKIE_DOMAIN: escapeToml(env.SESSION_COOKIE_DOMAIN ?? projectHost),
     EXPO_PUBLIC_WORKER_ORIGIN_LOCAL: escapeToml(
       env.EXPO_PUBLIC_WORKER_ORIGIN_LOCAL ?? 'http://127.0.0.1:8787'
     ),

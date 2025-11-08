@@ -1,5 +1,4 @@
 import type { BaseEnv, BootstrapEnv, GeneratedEnv } from '../env.js';
-import type { LogtoProvisionResult } from '../providers/logto.js';
 import type { StripeProvisionResult } from '../providers/stripe.js';
 
 export interface GenerateFilesResult {
@@ -10,7 +9,6 @@ export interface GenerateFilesResult {
 export interface GenerateFilesOptions {
   base: BaseEnv;
   generated: GeneratedEnv;
-  logtoResult?: LogtoProvisionResult;
   stripeResult?: StripeProvisionResult;
 }
 
@@ -27,7 +25,7 @@ const DEV_VARS_HEADER = [
 ].join('\n');
 
 export function buildGeneratedFiles(options: GenerateFilesOptions): GenerateFilesResult {
-  const { base, generated, logtoResult, stripeResult } = options;
+  const { base, generated, stripeResult } = options;
   const env: BootstrapEnv = {
     ...base,
     ...generated
@@ -45,44 +43,18 @@ export function buildGeneratedFiles(options: GenerateFilesOptions): GenerateFile
   pushWeb(webEntries, 'APP_URL', appUrl);
   pushWeb(webEntries, 'APP_BASE_URL', appBaseUrl);
 
-  // Use Logto result if available, otherwise fall back to env
-  const logtoAppId = logtoResult?.applicationId ?? env.LOGTO_APPLICATION_ID ?? '';
-  const logtoAppSecret = logtoResult?.applicationSecret ?? env.LOGTO_APPLICATION_SECRET ?? '';
-  const logtoApiResourceId = logtoResult?.apiResourceId ?? '';
-
-  const logtoEndpoint = env.LOGTO_ENDPOINT ?? '';
   const canonicalOrigin = deriveCanonicalOrigin(env);
   const workerOrigin = deriveWorkerOrigin(env, appUrl);
   const localOrigin = deriveLocalOrigin(env);
-  const prodRedirectUri = `${canonicalOrigin}/callback`;
-  const localRedirectUri = `${localOrigin}/callback`;
 
-  pushWeb(webEntries, 'LOGTO_ENDPOINT', logtoEndpoint);
-  pushWeb(webEntries, 'LOGTO_APPLICATION_ID', logtoAppId);
-  if (logtoAppSecret) {
-    pushWeb(webEntries, 'LOGTO_APPLICATION_SECRET', logtoAppSecret);
-  }
-  pushWeb(webEntries, 'LOGTO_API_RESOURCE', env.LOGTO_API_RESOURCE);
-  pushWeb(webEntries, 'LOGTO_API_RESOURCE_ID', env.LOGTO_API_RESOURCE_ID ?? '');
+  // Better Auth configuration
+  const betterAuthUrl = env.BETTER_AUTH_URL ?? `${canonicalOrigin}/api/auth`;
+  const loginOrigin = env.LOGIN_ORIGIN ?? canonicalOrigin;
+  const sessionCookieDomain = env.SESSION_COOKIE_DOMAIN ?? deriveProjectHost(env.PROJECT_DOMAIN);
 
-  const issuer = env.LOGTO_ISSUER ?? `${trimTrailingSlash(logtoEndpoint)}/oidc`;
-  const jwksUri = env.LOGTO_JWKS_URI ?? `${trimTrailingSlash(logtoEndpoint)}/oidc/jwks`;
-  pushWeb(webEntries, 'LOGTO_ISSUER', issuer);
-  pushWeb(webEntries, 'LOGTO_JWKS_URI', jwksUri);
-
-  pushWeb(webEntries, 'EXPO_PUBLIC_LOGTO_ENDPOINT', logtoEndpoint);
-  pushWeb(webEntries, 'EXPO_PUBLIC_LOGTO_APP_ID', logtoAppId);
-  pushWeb(webEntries, 'EXPO_PUBLIC_API_RESOURCE', env.LOGTO_API_RESOURCE);
-  pushWeb(webEntries, 'EXPO_PUBLIC_LOGTO_REDIRECT_URI_LOCAL', localRedirectUri);
-  pushWeb(webEntries, 'EXPO_PUBLIC_LOGTO_REDIRECT_URI_PROD', prodRedirectUri);
-  pushWeb(webEntries, 'EXPO_PUBLIC_LOGTO_REDIRECT_URI', prodRedirectUri);
-  pushWeb(webEntries, 'EXPO_PUBLIC_LOGTO_SCOPES', 'openid offline_access profile email');
-  pushWeb(webEntries, 'EXPO_PUBLIC_LOGTO_RESOURCES', env.LOGTO_API_RESOURCE);
-  pushWeb(
-    webEntries,
-    'EXPO_PUBLIC_LOGTO_POST_LOGOUT_REDIRECT_URI',
-    env.EXPO_PUBLIC_LOGTO_POST_LOGOUT_REDIRECT_URI ?? canonicalOrigin
-  );
+  pushWeb(webEntries, 'BETTER_AUTH_URL', betterAuthUrl);
+  pushWeb(webEntries, 'LOGIN_ORIGIN', loginOrigin);
+  pushWeb(webEntries, 'SESSION_COOKIE_DOMAIN', sessionCookieDomain);
   pushWeb(webEntries, 'EXPO_PUBLIC_WORKER_ORIGIN', workerOrigin);
   pushWeb(webEntries, 'EXPO_PUBLIC_WORKER_ORIGIN_LOCAL', localOrigin);
 
@@ -114,14 +86,10 @@ export function buildGeneratedFiles(options: GenerateFilesOptions): GenerateFile
   pushWeb(webEntries, 'STRIPE_PRICE_IDS', stripePriceIds);
   pushWeb(webEntries, 'STRIPE_PRODUCTS', env.STRIPE_PRODUCTS ?? '');
 
-  pushWorker(workerEntries, 'LOGTO_APPLICATION_ID', logtoAppId);
-  if (logtoAppSecret) {
-    pushWorker(workerEntries, 'LOGTO_APPLICATION_SECRET', logtoAppSecret);
-  }
-  pushWorker(workerEntries, 'LOGTO_API_RESOURCE', env.LOGTO_API_RESOURCE);
-  pushWorker(workerEntries, 'LOGTO_API_RESOURCE_ID', env.LOGTO_API_RESOURCE_ID ?? '');
-  pushWorker(workerEntries, 'LOGTO_ISSUER', issuer);
-  pushWorker(workerEntries, 'LOGTO_JWKS_URI', jwksUri);
+  // Worker-specific Better Auth variables
+  pushWorker(workerEntries, 'BETTER_AUTH_URL', betterAuthUrl);
+  pushWorker(workerEntries, 'LOGIN_ORIGIN', loginOrigin);
+  pushWorker(workerEntries, 'SESSION_COOKIE_DOMAIN', sessionCookieDomain);
   pushWorker(workerEntries, 'CLOUDFLARE_R2_BUCKET', r2Bucket);
   pushWorker(workerEntries, 'STRIPE_SECRET_KEY', env.STRIPE_SECRET_KEY);
   pushWorker(workerEntries, 'STRIPE_WEBHOOK_SECRET', stripeWebhookSecret);

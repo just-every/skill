@@ -1,55 +1,45 @@
 /**
- * Example usage for Cloudflare Workers
- * workers/api/src/index.ts
+ * Example usage for Cloudflare Workers env bindings
  */
 
 import { createWorkerEnvGetter, getRequiredWorkerEnv, getOptionalWorkerEnv, validateWorkerEnv } from '@justevery/config/worker';
 
-// Define your worker env bindings interface
 export interface Env {
   DB: D1Database;
   STORAGE: R2Bucket;
-  LOGTO_ISSUER: string;
-  LOGTO_JWKS_URI: string;
-  LOGTO_API_RESOURCE: string;
-  LOGTO_ENDPOINT?: string;
-  LOGTO_APPLICATION_ID?: string;
+  LOGIN_ORIGIN: string;
+  BETTER_AUTH_URL: string;
+  SESSION_COOKIE_DOMAIN?: string;
   APP_BASE_URL?: string;
   PROJECT_DOMAIN?: string;
 }
 
-// Example 1: Extract required env at startup
-const REQUIRED_KEYS = ['LOGTO_ISSUER', 'LOGTO_JWKS_URI', 'LOGTO_API_RESOURCE'] as const;
+const REQUIRED_KEYS = ['LOGIN_ORIGIN', 'BETTER_AUTH_URL'] as const;
 
 export default {
-  async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
-    // Validate required keys
+  async fetch(request: Request, env: Env): Promise<Response> {
     validateWorkerEnv(env, REQUIRED_KEYS);
-
-    // Extract required env
     const required = getRequiredWorkerEnv(env, REQUIRED_KEYS);
+    const optional = getOptionalWorkerEnv(env, ['SESSION_COOKIE_DOMAIN', 'APP_BASE_URL'] as const);
 
-    // Extract optional env
-    const optional = getOptionalWorkerEnv(env, ['LOGTO_ENDPOINT', 'APP_BASE_URL'] as const);
-
-    // Use env values
-    const logtoIssuer = required.LOGTO_ISSUER;
-    const appBaseUrl = optional.APP_BASE_URL ?? '/app';
-
-    return new Response(JSON.stringify({ logtoIssuer, appBaseUrl }), {
-      headers: { 'Content-Type': 'application/json' },
-    });
+    return new Response(
+      JSON.stringify({
+        loginOrigin: required.LOGIN_ORIGIN,
+        betterAuthUrl: required.BETTER_AUTH_URL,
+        sessionCookieDomain: optional.SESSION_COOKIE_DOMAIN ?? '.justevery.com',
+        appBaseUrl: optional.APP_BASE_URL ?? '/app',
+      }),
+      { headers: { 'Content-Type': 'application/json' } }
+    );
   },
 } satisfies ExportedHandler<Env>;
 
-// Example 2: Create a typed getter
 export function useWorkerEnv(env: Env) {
   const getEnv = createWorkerEnvGetter(env);
 
   return {
-    logtoIssuer: getEnv('LOGTO_ISSUER')!,
-    logtoJwksUri: getEnv('LOGTO_JWKS_URI')!,
-    apiResource: getEnv('LOGTO_API_RESOURCE')!,
-    appBaseUrl: getEnv('APP_BASE_URL') ?? '/app',
+    loginOrigin: getEnv('LOGIN_ORIGIN')!,
+    betterAuthUrl: getEnv('BETTER_AUTH_URL')!,
+    sessionCookieDomain: getEnv('SESSION_COOKIE_DOMAIN') ?? '.justevery.com',
   };
 }

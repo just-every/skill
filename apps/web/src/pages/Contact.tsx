@@ -62,7 +62,7 @@ const Contact = () => (
     >
       <Text style={{ color: '#38bdf8', fontSize: 18, fontWeight: '700' }}>Need bespoke support?</Text>
       <Text style={{ color: '#cbd5f5', fontSize: 15 }}>
-        The starter ships with defaults, but we frequently help teams with Logto tenant hardening, Stripe billing
+        The starter ships with defaults, but we frequently help teams with Better Auth hardening, Stripe billing
         models, and Worker performance tuning. Reach out for a working session.
       </Text>
     </View>
@@ -70,4 +70,3 @@ const Contact = () => (
 );
 
 export default Contact;
-

@@ -19,13 +19,6 @@ import {
   type CloudflareCapabilities
 } from './providers/cloudflare.js';
 import {
-  buildLogtoPlan,
-  formatLogtoPlan,
-  provisionLogto,
-  type LogtoPlan,
-  type LogtoProvisionResult
-} from './providers/logto.js';
-import {
   buildStripePlan,
   executeStripePlan,
   formatStripePlan,
@@ -46,8 +39,6 @@ interface BootstrapTaskContext {
   envResult?: LoadEnvironmentResult;
   cloudflareCapabilities?: CloudflareCapabilities;
   cloudflarePlan?: CloudflarePlan;
-  logtoPlan?: LogtoPlan;
-  logtoResult?: LogtoProvisionResult;
   stripePlan?: StripePlan;
   stripeResult?: StripeProvisionResult;
 }
@@ -59,7 +50,6 @@ interface PipelineOptions {
 
 interface EnvGenerateContext {
   envResult?: LoadEnvironmentResult;
-  logtoResult?: LogtoProvisionResult;
   stripeResult?: StripeProvisionResult;
   fileResults?: FileWriteResult[];
 }
@@ -73,7 +63,6 @@ interface DeployContext {
   envResult?: LoadEnvironmentResult;
   cloudflareCapabilities?: CloudflareCapabilities;
   wranglerResult?: FileWriteResult;
-  logtoResult?: LogtoProvisionResult;
   deployResult?: { command: string; dryRun: boolean };
 }
 
@@ -160,16 +149,6 @@ function baseTasks(cwd: string): ListrTask<BootstrapTaskContext>[] {
       }
     },
     {
-      title: 'Generate Logto plan',
-      task: (ctx, task) => {
-        if (!ctx.envResult) {
-          throw new Error('Environment not loaded');
-        }
-        ctx.logtoPlan = buildLogtoPlan(ctx.envResult.env);
-        task.output = formatLogtoPlan(ctx.logtoPlan);
-      }
-    },
-    {
       title: 'Generate Stripe plan',
       task: async (ctx, task) => {
         if (!ctx.envResult) {
@@ -237,30 +216,6 @@ export function createApplyTasks(options: PipelineOptions = {}): Listr<Bootstrap
       }
     },
     {
-      title: dryRun ? 'Preview Logto provisioning' : 'Provision Logto resources',
-      task: async (ctx, task) => {
-        if (!ctx.envResult) {
-          throw new Error('Environment not loaded');
-        }
-        const lines: string[] = [];
-        ctx.logtoResult = await provisionLogto({
-          env: ctx.envResult.env,
-          dryRun,
-          logger: (line) => {
-            lines.push(line);
-          }
-        });
-        task.output = lines.join('\n');
-        if (!dryRun && ctx.logtoResult) {
-          const logtoUpdates = {
-            LOGTO_APPLICATION_ID: ctx.logtoResult.applicationId,
-            LOGTO_API_RESOURCE_ID: ctx.logtoResult.apiResourceId
-          } as Partial<GeneratedEnv>;
-          ctx.envResult = mergeGeneratedValues(ctx.envResult, logtoUpdates);
-        }
-      }
-    },
-    {
       title: dryRun ? 'Preview Stripe provisioning' : 'Provision Stripe resources',
       skip: (ctx) => {
         const env = ctx.envResult?.env;
@@ -314,7 +269,6 @@ export function createApplyTasks(options: PipelineOptions = {}): Listr<Bootstrap
         }
 
         const { summary } = await writeGeneratedArtifacts(cwd, ctx.envResult, {
-          logtoResult: ctx.logtoResult,
           stripeResult: ctx.stripeResult
         });
 
@@ -343,31 +297,6 @@ export function createEnvGenerateTasks(options: EnvGenerateOptions = {}): Listr<
         task: (ctx, task) => {
           ctx.envResult = loadBootstrapEnvironment({ cwd });
           task.output = ctx.envResult.report.summary;
-        }
-      },
-      {
-        title: 'Provision Logto resources',
-        task: async (ctx, task) => {
-          if (!ctx.envResult) {
-            throw new Error('Environment not loaded');
-          }
-
-          const lines: string[] = [];
-          ctx.logtoResult = await provisionLogto({
-            env: ctx.envResult.env,
-            dryRun: checkOnly,
-            logger: (line) => {
-              lines.push(line);
-            }
-          });
-          task.output = lines.join('\n') || 'Logto provisioned';
-          if (!checkOnly && ctx.logtoResult) {
-            const logtoUpdates = {
-              LOGTO_APPLICATION_ID: ctx.logtoResult.applicationId,
-              LOGTO_API_RESOURCE_ID: ctx.logtoResult.apiResourceId
-            } as Partial<GeneratedEnv>;
-            ctx.envResult = mergeGeneratedValues(ctx.envResult, logtoUpdates);
-          }
         }
       },
       {
@@ -419,7 +348,6 @@ export function createEnvGenerateTasks(options: EnvGenerateOptions = {}): Listr<
 
           const { results, summary } = await writeGeneratedArtifacts(cwd, ctx.envResult, {
             checkOnly,
-            logtoResult: ctx.logtoResult,
             stripeResult: ctx.stripeResult
           });
 
@@ -461,15 +389,13 @@ async function writeGeneratedArtifacts(
   envResult: LoadEnvironmentResult,
   options: {
     checkOnly?: boolean;
-    logtoResult?: LogtoProvisionResult;
     stripeResult?: StripeProvisionResult;
   }
 ): Promise<{ results: FileWriteResult[]; summary: string }> {
-  const { checkOnly = false, logtoResult, stripeResult } = options;
+  const { checkOnly = false, stripeResult } = options;
   const { generatedEnvContents, devVarsContents } = buildGeneratedFiles({
     base: envResult.base,
     generated: envResult.generated,
-    logtoResult,
     stripeResult
   });
 
@@ -597,29 +523,6 @@ export function createDeployTasks(options: DeployOptions = {}): Listr<DeployCont
       }
     },
     {
-      title: dryRun ? 'Preview Logto provisioning' : 'Sync Logto configuration',
-      enabled: () => !checkOnly,
-      task: async (ctx, task) => {
-        if (!ctx.envResult) {
-          throw new Error('Environment not loaded');
-        }
-        const lines: string[] = [];
-        ctx.logtoResult = await provisionLogto({
-          env: ctx.envResult.env,
-          dryRun,
-          logger: (line) => lines.push(line)
-        });
-        task.output = lines.join('\n');
-        if (!dryRun && ctx.logtoResult) {
-          const logtoUpdates = {
-            LOGTO_APPLICATION_ID: ctx.logtoResult.applicationId,
-            LOGTO_API_RESOURCE_ID: ctx.logtoResult.apiResourceId
-          } as Partial<GeneratedEnv>;
-          ctx.envResult = mergeGeneratedValues(ctx.envResult, logtoUpdates);
-        }
-      }
-    },
-    {
       title: dryRun
         ? 'Skip env file update (dry run)'
         : checkOnly
@@ -630,9 +533,7 @@ export function createDeployTasks(options: DeployOptions = {}): Listr<DeployCont
         if (!ctx.envResult) {
           throw new Error('Environment not loaded');
         }
-        const { summary } = await writeGeneratedArtifacts(cwd, ctx.envResult, {
-          logtoResult: ctx.logtoResult
-        });
+        const { summary } = await writeGeneratedArtifacts(cwd, ctx.envResult, {});
         task.output = summary || 'No changes';
       }
     },
@@ -915,7 +816,7 @@ export function createSmokeTasks(options: SmokeOptions = {}): Listr<SmokeContext
           const result = await runSmoke({
             baseUrl,
             routes,
-            bearerToken: options.token ?? env.LOGTO_TOKEN ?? null,
+            bearerToken: options.token ?? null,
             outputRoot: options.outputDir,
             stamp: options.stamp,
             mode,
@@ -925,9 +826,7 @@ export function createSmokeTasks(options: SmokeOptions = {}): Listr<SmokeContext
             headless: options.headless ?? true,
             projectId,
             d1Name: options.d1Name ?? env.D1_DATABASE_NAME ?? null,
-            r2Bucket: options.r2Bucket ?? env.CLOUDFLARE_R2_BUCKET ?? null,
-            logtoEndpoint: env.LOGTO_ENDPOINT ?? null,
-            logtoApplicationId: env.LOGTO_APPLICATION_ID ?? null
+            r2Bucket: options.r2Bucket ?? env.CLOUDFLARE_R2_BUCKET ?? null
           });
 
           ctx.smokeResult = result;

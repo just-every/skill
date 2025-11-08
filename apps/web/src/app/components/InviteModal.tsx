@@ -49,7 +49,7 @@ export const InviteModal = ({ visible, onClose, onSubmit }: InviteModalProps) =>
           <View style={{ gap: 4 }}>
             <Text style={{ fontSize: 22, fontWeight: '700', color: '#0f172a' }}>Invite teammate</Text>
             <Text style={{ color: '#475569' }}>
-              Invitations are emailed via Logto after backend wiring. For now the UI captures intent.
+              Invitations are emailed through the Better Auth worker after backend wiring. For now the UI captures intent.
             </Text>
           </View>
 

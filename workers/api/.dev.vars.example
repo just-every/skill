@@ -7,11 +7,9 @@ DB=app-db
 # R2 bucket binding
 ASSETS=local-assets
 
-# Logto / Auth configuration
-LOGTO_ISSUER=https://tenant.logto.app/oidc
-LOGTO_AUDIENCE=https://your-domain.example/api
-LOGTO_JWKS_URI=https://tenant.logto.app/oidc/jwks
-LOGTO_APPLICATION_ID=app_xxxxx
+# Authentication configuration
+# Set this to your login worker origin (e.g., https://login.justevery.com or http://localhost:3000)
+LOGIN_ORIGIN=https://login.justevery.com
 
 # Optional integrations
 STRIPE_SECRET_KEY=

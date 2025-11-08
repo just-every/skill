@@ -24,11 +24,10 @@ import { createWebEnvGetter, parseList } from '@justevery/config/web';
 
 const getEnv = createWebEnvGetter('EXPO_PUBLIC_');
 const staticEnv = {
-  logtoEndpoint: getEnv('LOGTO_ENDPOINT'),
-  logtoAppId: getEnv('LOGTO_APP_ID'),
-  apiResource: getEnv('API_RESOURCE'),
-  scopes: parseList(getEnv('LOGTO_SCOPES')),
-  resources: parseList(getEnv('LOGTO_RESOURCES')),
+  loginOrigin: getEnv('LOGIN_ORIGIN'),
+  betterAuthBaseUrl: getEnv('BETTER_AUTH_URL'),
+  sessionEndpoint: getEnv('SESSION_ENDPOINT'),
+  scopes: parseList(getEnv('AUTH_SCOPES')),
 };
 ```
 
@@ -38,16 +37,16 @@ The worker can use typed helpers for env validation:
 
 ```ts
 // Before: Manual env access
-const logtoIssuer = env.LOGTO_ISSUER;
-if (!logtoIssuer) {
-  throw new Error('Missing LOGTO_ISSUER');
+const loginOrigin = env.LOGIN_ORIGIN;
+if (!loginOrigin) {
+  throw new Error('Missing LOGIN_ORIGIN');
 }
 
 // After: Use @justevery/config helpers
 import { validateWorkerEnv, getRequiredWorkerEnv } from '@justevery/config/worker';
 
-validateWorkerEnv(env, ['LOGTO_ISSUER', 'LOGTO_JWKS_URI', 'LOGTO_API_RESOURCE']);
-const required = getRequiredWorkerEnv(env, ['LOGTO_ISSUER', 'LOGTO_JWKS_URI']);
+validateWorkerEnv(env, ['LOGIN_ORIGIN', 'BETTER_AUTH_URL']);
+const required = getRequiredWorkerEnv(env, ['LOGIN_ORIGIN', 'BETTER_AUTH_URL']);
 ```
 
 ## Migration Strategy

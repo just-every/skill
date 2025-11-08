@@ -1,7 +1,7 @@
 import React, { useEffect } from 'react';
 import { ActivityIndicator, Pressable, Text, View } from 'react-native';
 
-import { useLogto } from '../auth/LogtoProvider';
+import { useAuth } from '../auth/AuthProvider';
 import AppShell, { type AppNavItem } from '../app/AppShell';
 import { useCompanyStore } from '../state/companyStore';
 import {
@@ -10,7 +10,7 @@ import {
   useCompanyById,
   useMembersQuery,
   useSubscriptionQuery,
-  useUsageQuery
+  useUsageQuery,
 } from '../app/hooks';
 import type { Company } from '../app/types';
 import OverviewScreen from '../app/screens/OverviewScreen';
@@ -27,7 +27,7 @@ const NAV_ITEMS: AppNavItem[] = [
   { key: 'billing', label: 'Billing', description: 'Plan & Stripe status', icon: '💳' },
   { key: 'usage', label: 'Usage', description: 'Requests & storage', icon: '📈' },
   { key: 'assets', label: 'Assets', description: 'R2 uploads', icon: '🗂️' },
-  { key: 'settings', label: 'Settings', description: 'Branding & domains', icon: '⚙️' }
+  { key: 'settings', label: 'Settings', description: 'Branding & domains', icon: '⚙️' },
 ];
 
 const resolveSection = (path: string): string => {
@@ -51,7 +51,7 @@ const toPath = (segment: string): string => {
 
 const Dashboard = () => {
   const { path, navigate } = useRouterContext();
-  const { isAuthenticated, isInitialized, signIn } = useLogto();
+  const { status: authStatus, isAuthenticated, openHostedLogin } = useAuth();
   const section = resolveSection(path);
 
   const companiesQuery = useCompaniesQuery();
@@ -74,30 +74,24 @@ const Dashboard = () => {
   const usageQuery = useUsageQuery(activeCompany?.id, activeCompany?.slug);
   const subscriptionQuery = useSubscriptionQuery(activeCompany?.id, activeCompany?.slug);
 
-  const showSignIn = isInitialized && !isAuthenticated;
+  useEffect(() => {
+    if (authStatus === 'unauthenticated') {
+      const next = path.startsWith('/app') ? path : '/app/overview';
+      openHostedLogin({ returnPath: next });
+    }
+  }, [authStatus, openHostedLogin, path]);
 
-  if (!isInitialized) {
+  if (authStatus !== 'authenticated' || !isAuthenticated) {
+    const message = authStatus === 'checking' ? 'Checking your session…' : 'Redirecting to Better Auth…';
     return (
       <View style={centerStyles}>
         <ActivityIndicator size="large" color="#0f172a" />
-        <Text style={{ color: '#475569', marginTop: 12 }}>Checking your session…</Text>
-      </View>
-    );
-  }
-
-  if (showSignIn) {
-    return (
-      <View style={centerStyles}>
-        <Text style={{ fontSize: 28, fontWeight: '700', color: '#0f172a' }}>Sign in required</Text>
-        <Text style={{ color: '#475569', marginVertical: 12, maxWidth: 420, textAlign: 'center' }}>
-          The dashboard surfaces company data that lives behind Logto. Sign in to continue.
-        </Text>
-        <Pressable
-          onPress={() => signIn('/app/overview')}
-          style={{ backgroundColor: '#38bdf8', paddingHorizontal: 28, paddingVertical: 14, borderRadius: 14 }}
-        >
-          <Text style={{ color: '#0f172a', fontWeight: '700' }}>Sign in</Text>
-        </Pressable>
+        <Text style={{ color: '#475569', marginTop: 12 }}>{message}</Text>
+        {authStatus === 'unauthenticated' ? (
+          <Pressable onPress={() => openHostedLogin({ returnPath: '/app/overview' })}>
+            <Text style={{ color: '#38bdf8', fontWeight: '600' }}>Continue to login</Text>
+          </Pressable>
+        ) : null}
       </View>
     );
   }
@@ -177,7 +171,7 @@ const centerStyles = {
   justifyContent: 'center',
   backgroundColor: '#f8fafc',
   gap: 12,
-  padding: 24
+  padding: 24,
 } as const;
 
 export default Dashboard;

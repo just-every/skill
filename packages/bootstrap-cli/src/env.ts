@@ -17,10 +17,9 @@ const BaseEnvSchema = z.object({
   CLOUDFLARE_ACCOUNT_ID: z.string().min(1, 'CLOUDFLARE_ACCOUNT_ID is required'),
   CLOUDFLARE_API_TOKEN: z.string().min(1, 'CLOUDFLARE_API_TOKEN is required'),
   CLOUDFLARE_ZONE_ID: z.string().optional(),
-  LOGTO_ENDPOINT: z.string().url('LOGTO_ENDPOINT must be a valid URL'),
-  LOGTO_API_RESOURCE: z.string().min(1, 'LOGTO_API_RESOURCE is required'),
-  LOGTO_MANAGEMENT_ENDPOINT: z.string().optional(),
-  LOGTO_MANAGEMENT_AUTH_BASIC: z.string().optional(),
+  BETTER_AUTH_URL: z.string().optional(),
+  LOGIN_ORIGIN: z.string().optional(),
+  SESSION_COOKIE_DOMAIN: z.string().optional(),
   STRIPE_SECRET_KEY: z.string().min(1, 'STRIPE_SECRET_KEY is required'),
   STRIPE_TEST_SECRET_KEY: z.string().optional()
 });
@@ -30,26 +29,16 @@ const GeneratedEnvSchema = z.object({
   CLOUDFLARE_D1_ID: z.string().optional(),
   D1_DATABASE_ID: z.string().optional(),
   CLOUDFLARE_R2_BUCKET: z.string().optional(),
-  LOGTO_APPLICATION_ID: z.string().optional(),
-  LOGTO_APPLICATION_SECRET: z.string().optional(),
-  LOGTO_API_RESOURCE_ID: z.string().optional(),
-  LOGTO_ISSUER: z.string().optional(),
-  LOGTO_JWKS_URI: z.string().optional(),
+  BETTER_AUTH_URL: z.string().optional(),
+  LOGIN_ORIGIN: z.string().optional(),
+  SESSION_COOKIE_DOMAIN: z.string().optional(),
   STRIPE_WEBHOOK_SECRET: z.string().optional(),
   STRIPE_WEBHOOK_URL: z.string().optional(),
   STRIPE_PRODUCTS: z.string().optional(),
   STRIPE_PRODUCT_IDS: z.string().optional(),
   STRIPE_PRICE_IDS: z.string().optional(),
-  EXPO_PUBLIC_LOGTO_POST_LOGOUT_REDIRECT_URI: z.string().optional(),
-  EXPO_PUBLIC_LOGTO_REDIRECT_URI: z.string().optional(),
-  EXPO_PUBLIC_LOGTO_REDIRECT_URI_LOCAL: z.string().optional(),
-  EXPO_PUBLIC_LOGTO_REDIRECT_URI_PROD: z.string().optional(),
   EXPO_PUBLIC_WORKER_ORIGIN: z.string().optional(),
   EXPO_PUBLIC_WORKER_ORIGIN_LOCAL: z.string().optional(),
-  EXPO_PUBLIC_LOGTO_APP_ID: z.string().optional(),
-  EXPO_PUBLIC_LOGTO_ENDPOINT: z.string().optional(),
-  EXPO_PUBLIC_API_RESOURCE: z.string().optional(),
-  LOGTO_TOKEN: z.string().optional(),
   D1_DATABASE_NAME: z.string().optional()
 });
 
@@ -184,7 +173,6 @@ export function loadBootstrapEnvironment(options: LoadEnvironmentOptions = {}): 
  * - STRIPE_SECRET_KEY ← STRIPE_TEST_SECRET_KEY
  *
  * Auto-derived values:
- * - LOGTO_API_RESOURCE ← ${PROJECT_DOMAIN}/api
  * - APP_URL ← ${PROJECT_DOMAIN}${APP_BASE_URL || '/app'}
  * - WORKER_ORIGIN ← ${PROJECT_DOMAIN}
  */
@@ -198,8 +186,6 @@ function applyFallbacksAndDerivations(
     baseLayer.STRIPE_SECRET_KEY = baseLayer.STRIPE_TEST_SECRET_KEY;
   }
 
-  // Fallback: LOGTO_API_RESOURCE ← ${PROJECT_DOMAIN}/api
-  // Automatically derived from PROJECT_DOMAIN when missing
   // Derivation: APP_URL ← PROJECT_DOMAIN + APP_BASE_URL
   // Derived from PROJECT_DOMAIN + APP_BASE_URL (defaults to '/app')
   if (!baseLayer.APP_URL && baseLayer.PROJECT_DOMAIN) {
@@ -214,16 +200,6 @@ function applyFallbacksAndDerivations(
   // Defaults to PROJECT_DOMAIN when missing
   if (!baseLayer.WORKER_ORIGIN && baseLayer.PROJECT_DOMAIN) {
     baseLayer.WORKER_ORIGIN = baseLayer.PROJECT_DOMAIN.replace(/\/$/, '');
-  }
-
-  if (!baseLayer.LOGTO_API_RESOURCE) {
-    if (baseLayer.WORKER_ORIGIN) {
-      const workerOrigin = baseLayer.WORKER_ORIGIN.replace(/\/$/, '');
-      baseLayer.LOGTO_API_RESOURCE = `${workerOrigin}/api`;
-    } else if (baseLayer.PROJECT_DOMAIN) {
-      const domain = baseLayer.PROJECT_DOMAIN.replace(/\/$/, '');
-      baseLayer.LOGTO_API_RESOURCE = `${domain}/api`;
-    }
   }
 }
 

@@ -1,4 +1,4 @@
-// Ensure Metro resolves shared workspace modules under pnpm and supports package exports for @logto/rn.
+// Ensure Metro resolves shared workspace modules under pnpm and supports package exports used by shared packages.
 const path = require('path');
 const { getDefaultConfig } = require('expo/metro-config');
 

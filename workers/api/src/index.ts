@@ -1,13 +1,11 @@
-import { createRemoteJWKSet, jwtVerify, type JWTPayload, type JWTVerifyOptions } from 'jose';
 import {
-  authPreflightResponse,
-  handleAuthCallback,
-  handleAuthIdToken,
-  handleAuthSignIn,
-  handleAuthSignOut,
-  handleAuthToken,
-  handleAuthUserInfo,
-} from './logtoAuth';
+  authenticateRequest,
+  requireAuthenticatedSession,
+  sessionSuccessResponse,
+  sessionFailureResponse,
+  authFailureResponse,
+  type AuthenticatedSession,
+} from './sessionAuth';
 
 type AssetFetcher = {
   fetch(input: Request | string, init?: RequestInit): Promise<Response>;
@@ -16,23 +14,11 @@ type AssetFetcher = {
 export interface Env {
   DB?: D1Database;
   STORAGE?: R2Bucket;
-  LOGTO_ISSUER: string;
-  LOGTO_JWKS_URI: string;
-  LOGTO_API_RESOURCE: string;
-  LOGTO_ENDPOINT?: string;
-  LOGTO_APPLICATION_ID?: string;
-  LOGTO_APPLICATION_SECRET?: string;
+  LOGIN_ORIGIN: string;
   APP_BASE_URL?: string;
   PROJECT_DOMAIN?: string;
   STRIPE_PRODUCTS?: string;
   STRIPE_WEBHOOK_SECRET?: string;
-  EXPO_PUBLIC_LOGTO_ENDPOINT?: string;
-  EXPO_PUBLIC_LOGTO_APP_ID?: string;
-  EXPO_PUBLIC_API_RESOURCE?: string;
-  EXPO_PUBLIC_LOGTO_POST_LOGOUT_REDIRECT_URI?: string;
-  EXPO_PUBLIC_LOGTO_REDIRECT_URI?: string;
-  EXPO_PUBLIC_LOGTO_REDIRECT_URI_LOCAL?: string;
-  EXPO_PUBLIC_LOGTO_REDIRECT_URI_PROD?: string;
   EXPO_PUBLIC_WORKER_ORIGIN?: string;
   ALLOW_PLACEHOLDER_DATA?: string;
   ASSETS?: AssetFetcher;
@@ -58,7 +44,7 @@ type AccountRecord = {
   industry: string;
   plan: string;
   createdAt: string;
-  billingEmail: string;
+  billingEmail?: string;
   brand: AccountBranding;
   stats: {
     activeMembers: number;
@@ -76,7 +62,7 @@ type AccountMemberRecord = {
   role: 'Owner' | 'Admin' | 'Billing' | 'Viewer';
   status: 'active' | 'invited' | 'suspended';
   joinedAt: string;
-  lastActiveAt?: string;
+  lastActiveAt?: string | null;
 };
 
 type SubscriptionSummary = {
@@ -84,6 +70,12 @@ type SubscriptionSummary = {
   plan: string | null;
   renewsOn: string | null;
   seats: number;
+};
+
+type AssetObject = {
+  key: string;
+  size: number;
+  uploaded: string | null;
 };
 
 const ACCOUNT_DATA: AccountRecord[] = [
@@ -514,7 +506,7 @@ async function createInviteInDb(env: Env, companyId: string, email: string, role
     .run();
 }
 
-async function linkAuditLogToCompany(env: Env, auditId: string, companyId: string | null): Promise<void> {
+async function linkAuditLogWithCompany(env: Env, auditId: string, companyId: string | null): Promise<void> {
   if (!env.DB || !companyId) {
     return;
   }
@@ -585,15 +577,9 @@ const PRERENDER_ROUTES: Record<string, string> = {
 const MARKETING_ROUTE_PREFIX = "/marketing/";
 
 type RuntimeEnvPayload = {
-  logtoEndpoint: string | null;
-  logtoAppId: string | null;
-  apiResource: string | null;
-  postLogoutRedirectUri: string | null;
   workerOrigin: string | null;
   workerOriginLocal: string | null;
-  logtoRedirectUri: string | null;
-  logtoRedirectUriLocal: string | null;
-  logtoRedirectUriProd: string | null;
+  loginOrigin: string | null;
 };
 
 function isStaticAssetPath(pathname: string): boolean {
@@ -799,18 +785,9 @@ async function serveAppShell(request: Request, env: Env): Promise<Response | nul
 function resolveRuntimeEnvPayload(env: Env, request: Request): RuntimeEnvPayload {
   const { origin: requestOrigin } = new URL(request.url);
   return {
-    logtoEndpoint:
-      env.EXPO_PUBLIC_LOGTO_ENDPOINT ?? env.LOGTO_ENDPOINT ?? null,
-    logtoAppId:
-      env.EXPO_PUBLIC_LOGTO_APP_ID ?? env.LOGTO_APPLICATION_ID ?? null,
-    apiResource:
-      env.EXPO_PUBLIC_API_RESOURCE ?? env.LOGTO_API_RESOURCE ?? null,
-    postLogoutRedirectUri: env.EXPO_PUBLIC_LOGTO_POST_LOGOUT_REDIRECT_URI ?? null,
     workerOrigin: resolveWorkerOrigin(env, requestOrigin),
-    workerOriginLocal: env.EXPO_PUBLIC_WORKER_ORIGIN_LOCAL ?? null,
-    logtoRedirectUri: env.EXPO_PUBLIC_LOGTO_REDIRECT_URI ?? null,
-    logtoRedirectUriLocal: env.EXPO_PUBLIC_LOGTO_REDIRECT_URI_LOCAL ?? null,
-    logtoRedirectUriProd: env.EXPO_PUBLIC_LOGTO_REDIRECT_URI_PROD ?? null,
+    workerOriginLocal: null,
+    loginOrigin: env.LOGIN_ORIGIN,
   };
 }
 
@@ -851,15 +828,9 @@ function injectRuntimeEnv(html: string, payload: RuntimeEnvPayload): string {
     try {
       if (typeof window.dispatchEvent === 'function') {
         const detail = {
-          logtoEndpoint: env.logtoEndpoint,
-          logtoAppId: env.logtoAppId,
-          apiResource: env.apiResource,
-          logtoPostLogoutRedirectUri: env.postLogoutRedirectUri,
           workerOrigin: env.workerOrigin,
           workerOriginLocal: env.workerOriginLocal,
-          logtoRedirectUri: env.logtoRedirectUri,
-          logtoRedirectUriLocal: env.logtoRedirectUriLocal,
-          logtoRedirectUriProd: env.logtoRedirectUriProd,
+          loginOrigin: env.loginOrigin,
         };
         const event = typeof CustomEvent === 'function'
           ? new CustomEvent('justevery:env-ready', { detail })
@@ -884,52 +855,16 @@ function injectRuntimeEnv(html: string, payload: RuntimeEnvPayload): string {
   return `${script}${html}`;
 }
 
-async function handleAuthRoute(handler: () => Promise<Response>): Promise<Response> {
-  try {
-    return await handler();
-  } catch (error) {
-    console.error('Auth route failed', error);
-    return new Response('Authentication configuration error', { status: 500 });
-  }
-}
-
 const Worker: ExportedHandler<Env> = {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
     const pathname = normalisePath(url.pathname);
 
-    // Basic CORS for API and auth endpoints
+    // Basic CORS for API endpoints
     if (request.method === "OPTIONS") {
       if (pathname.startsWith("/api/")) {
         return cors(new Response(null, { status: 204 }));
       }
-      if (pathname.startsWith("/auth/")) {
-        return authPreflightResponse(request);
-      }
-    }
-
-    if (pathname === "/auth/sign-in") {
-      return handleAuthRoute(() => handleAuthSignIn(request, env));
-    }
-
-    if (pathname === "/callback") {
-      return handleAuthRoute(() => handleAuthCallback(request, env));
-    }
-
-    if (pathname === "/auth/sign-out") {
-      return handleAuthRoute(() => handleAuthSignOut(request, env));
-    }
-
-    if (pathname === "/auth/token") {
-      return handleAuthRoute(() => handleAuthToken(request, env));
-    }
-
-    if (pathname === "/auth/id-token") {
-      return handleAuthRoute(() => handleAuthIdToken(request, env));
-    }
-
-    if (pathname === "/auth/userinfo") {
-      return handleAuthRoute(() => handleAuthUserInfo(request, env));
     }
 
     if (isStaticAssetPath(pathname)) {
@@ -1123,249 +1058,6 @@ function normalisePublicUrl(value?: string): string | null {
   } catch {
     return null;
   }
-}
-
-type AuthenticatedSession = {
-  sessionJwt: string;
-  sessionId: string;
-  expiresAt: string;
-  userId: string;
-  emailAddress?: string | null;
-};
-
-type AuthFailureReason =
-  | 'missing_token'
-  | 'invalid_token'
-  | 'insufficient_scope'
-  | 'upstream_error';
-
-type AuthSuccess = {
-  ok: true;
-  session: AuthenticatedSession;
-};
-
-type AuthFailure = {
-  ok: false;
-  reason: AuthFailureReason;
-  error?: unknown;
-  errorDescription?: string;
-};
-
-type AuthResult = AuthSuccess | AuthFailure;
-
-const requestSessionCache = new WeakMap<Request, AuthResult>();
-
-let cachedJwks: ReturnType<typeof createRemoteJWKSet> | null = null;
-let cachedJwksUrl: string | null = null;
-
-function getRemoteJwks(jwksUri: string): ReturnType<typeof createRemoteJWKSet> {
-  if (cachedJwks && cachedJwksUrl === jwksUri) {
-    return cachedJwks;
-  }
-  const url = new URL(jwksUri);
-  cachedJwks = createRemoteJWKSet(url);
-  cachedJwksUrl = jwksUri;
-  return cachedJwks;
-}
-
-function extractBearerToken(request: Request): string | null {
-  const authorization = request.headers.get("authorization") ?? request.headers.get("Authorization");
-  if (!authorization) return null;
-  const [scheme, token] = authorization.split(/\s+/, 2);
-  if (!scheme || scheme.toLowerCase() !== "bearer" || !token) {
-    return null;
-  }
-  return token.trim();
-}
-
-async function authenticateRequest(request: Request, env: Env): Promise<AuthResult> {
-  const cached = requestSessionCache.get(request);
-  if (cached) {
-    return cached;
-  }
-
-  const sessionJwt = extractBearerToken(request);
-  if (!sessionJwt) {
-    const failure: AuthFailure = { ok: false, reason: 'missing_token', errorDescription: 'Bearer token required' };
-    requestSessionCache.set(request, failure);
-    return failure;
-  }
-
-  let payload: JWTPayload;
-  try {
-    const jwks = getRemoteJwks(env.LOGTO_JWKS_URI);
-    const options: JWTVerifyOptions = {
-      issuer: env.LOGTO_ISSUER,
-      audience: env.LOGTO_API_RESOURCE,
-    };
-
-    ({ payload } = await jwtVerify(sessionJwt, jwks, options));
-  } catch (error) {
-    const failure = classifyJwtError(error);
-    requestSessionCache.set(request, failure);
-    return failure;
-  }
-
-  const audiences = Array.isArray(payload.aud) ? payload.aud : payload.aud ? [payload.aud] : [];
-  if (!audiences.includes(env.LOGTO_API_RESOURCE)) {
-    const failure: AuthFailure = {
-      ok: false,
-      reason: 'insufficient_scope',
-      errorDescription: 'Access token audience does not match LOGTO_API_RESOURCE',
-    };
-    requestSessionCache.set(request, failure);
-    return failure;
-  }
-
-  const exp = typeof payload.exp === 'number' ? payload.exp : null;
-  const sub = typeof payload.sub === 'string' ? payload.sub : null;
-  const claims = payload as Record<string, unknown>;
-  const email = typeof claims.email === 'string' ? (claims.email as string) : null;
-  const sid = typeof claims.sid === 'string' ? (claims.sid as string) : null;
-  const jti = typeof payload.jti === 'string' ? payload.jti : null;
-
-  if (!sub || !exp) {
-    const failure: AuthFailure = {
-      ok: false,
-      reason: 'invalid_token',
-      errorDescription: 'JWT missing required subject or expiry claims',
-    };
-    requestSessionCache.set(request, failure);
-    return failure;
-  }
-
-  const normalised: AuthenticatedSession = {
-    sessionJwt,
-    sessionId: sid ?? jti ?? sub,
-    expiresAt: new Date(exp * 1000).toISOString(),
-    userId: sub,
-    emailAddress: email,
-  };
-
-  const success: AuthSuccess = { ok: true, session: normalised };
-  requestSessionCache.set(request, success);
-  return success;
-}
-
-async function requireAuthenticatedSession(request: Request, env: Env): Promise<AuthResult> {
-  return authenticateRequest(request, env);
-}
-
-function classifyJwtError(error: unknown): AuthFailure {
-  const errorObject = error as { code?: string; message?: string } | undefined;
-  const code = errorObject?.code ?? (errorObject && 'name' in errorObject ? (errorObject as { name?: string }).name : undefined);
-
-  let reason: AuthFailureReason = 'invalid_token';
-  let description = 'JWT verification failed';
-
-  if (code === 'ERR_JWT_EXPIRED') {
-    description = 'JWT expired';
-  } else if (code && code.startsWith('ERR_JWKS')) {
-    reason = 'upstream_error';
-    description = 'Failed to resolve JWKS for token verification';
-  } else if (error instanceof TypeError) {
-    reason = 'upstream_error';
-    description = error.message || 'Network error while verifying token';
-  }
-
-  if (reason === 'upstream_error') {
-    console.error('JWT verification failed due to upstream error', error);
-  } else {
-    console.error('JWT verification failed', error);
-  }
-
-  return {
-    ok: false,
-    reason,
-    error,
-    errorDescription: description,
-  };
-}
-
-function interpretAuthFailure(
-  failure: AuthFailure,
-): { status: number; challenge?: string; error: string; description: string } {
-  const description = failure.errorDescription ??
-    (failure.reason === 'missing_token'
-      ? 'Bearer token required'
-      : failure.reason === 'insufficient_scope'
-        ? 'Access token audience does not match LOGTO_API_RESOURCE'
-        : failure.reason === 'upstream_error'
-          ? 'Unable to validate token via identity provider'
-          : 'JWT verification failed');
-
-  switch (failure.reason) {
-    case 'missing_token':
-      return {
-        status: 401,
-        challenge: `Bearer realm="worker", error="invalid_request", error_description="${description}"`,
-        error: 'invalid_request',
-        description,
-      };
-    case 'invalid_token':
-      return {
-        status: 401,
-        challenge: `Bearer realm="worker", error="invalid_token", error_description="${description}"`,
-        error: 'invalid_token',
-        description,
-      };
-    case 'insufficient_scope':
-      return {
-        status: 403,
-        challenge: `Bearer realm="worker", error="insufficient_scope", error_description="${description}"`,
-        error: 'insufficient_scope',
-        description,
-      };
-    case 'upstream_error':
-      return {
-        status: 502,
-        error: 'bad_gateway',
-        description,
-      };
-    default:
-      return {
-        status: 401,
-        challenge: `Bearer realm="worker", error="invalid_token", error_description="${description}"`,
-        error: 'invalid_token',
-        description,
-      };
-  }
-}
-
-function sessionSuccessResponse(session: AuthenticatedSession): Response {
-  return jsonResponse({
-    authenticated: true,
-    sessionId: session.sessionId,
-    expiresAt: session.expiresAt,
-    emailAddress: session.emailAddress ?? null,
-  });
-}
-
-function sessionFailureResponse(failure: AuthFailure): Response {
-  const { status, challenge } = interpretAuthFailure(failure);
-  const headers: Record<string, string> = {};
-  if (challenge) {
-    headers['WWW-Authenticate'] = challenge;
-  }
-  return jsonResponse(
-    {
-      authenticated: false,
-      sessionId: null,
-      expiresAt: null,
-      emailAddress: null,
-    },
-    status,
-    headers,
-  );
-}
-
-function authFailureResponse(failure: AuthFailure): Response {
-  const { status, challenge, error, description } = interpretAuthFailure(failure);
-  const headers: Record<string, string> = {};
-  if (challenge) {
-    headers['WWW-Authenticate'] = challenge;
-  }
-  return jsonResponse({ error, error_description: description }, status, headers);
 }
 
 async function handleSessionApi(request: Request, env: Env): Promise<Response> {
@@ -1990,7 +1682,7 @@ async function handleStripeWebhook(request: Request, env: Env): Promise<Response
       linkedCompanyId = customerRow?.company_id ? String(customerRow.company_id) : null;
     }
     if (linkedCompanyId) {
-      await linkAuditLogToCompany(env, auditId, linkedCompanyId);
+      await linkAuditLogWithCompany(env, auditId, linkedCompanyId);
     }
 
     console.log("Stripe event received", event.type ?? "unknown", event.id ?? "");
@@ -2123,7 +1815,7 @@ async function landingPageHtml(env: Env): Promise<string> {
 <body>
 <main>
   <h1>Launch your product with confidence</h1>
-  <p>justevery ships a turnkey stack powered by Cloudflare, Logto, and Stripe so you can focus on features, not plumbing. Sign in from the web client to obtain a Logto session, then let the Worker validate every request.</p>
+  <p>justevery ships a turnkey stack powered by Cloudflare, Better Auth, and Stripe so you can focus on features, not plumbing. Sign in from the web client to obtain a session, then let the Worker validate every request.</p>
   <a class="button" href="${loginUrl}">Open the app →</a>
   <footer>Need the dashboard? Jump to <a href="${appUrl}">${appUrl}</a> or visit <a href="${landingUrl}">${landingUrl}</a>.</footer>
 </main>
@@ -2158,8 +1850,7 @@ function workerShellHtml(env: Env): string {
       </ul>
       <p><a href="${origin.replace(/\/+$/, '')}${appUrl}" target="_blank" rel="noopener">Open /app in new tab</a></p>
       <pre>${JSON.stringify({
-        logtoEndpoint: env.LOGTO_ENDPOINT ?? env.EXPO_PUBLIC_LOGTO_ENDPOINT ?? null,
-        apiResource: env.LOGTO_API_RESOURCE ?? env.EXPO_PUBLIC_API_RESOURCE ?? null,
+        loginOrigin: env.LOGIN_ORIGIN || null,
         workerOrigin: origin || null,
       }, null, 2)}</pre>
     </main>

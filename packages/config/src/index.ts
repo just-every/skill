@@ -8,4 +8,5 @@
 export * from './web.js';
 export * from './worker.js';
 export * from './env.js';
+export * from './auth.js';
 export type { EnvGetter, EnvSchema, ValidatedEnv } from './types.js';

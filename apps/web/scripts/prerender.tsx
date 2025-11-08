@@ -12,8 +12,8 @@ import Home from '../src/pages/Home';
 import Pricing from '../src/pages/Pricing';
 import Contact from '../src/pages/Contact';
 import { RouterProvider } from '../src/router/RouterProvider';
-import { HybridLogtoProvider } from '../src/auth/LogtoProvider';
-import { AuthConfigProvider } from '../src/auth/AuthConfig';
+import { AuthProvider } from '../src/auth/AuthProvider';
+import { DEFAULT_LOGIN_ORIGIN } from '@justevery/config/auth';
 
 const routes = [
   { path: '/', component: <Home /> },
@@ -68,11 +68,13 @@ const patchBundleImportMeta = async (distDir: string): Promise<void> => {
 const buildPage = (Component: React.ReactNode) => {
   const Entry = () => (
     <RouterProvider>
-      <HybridLogtoProvider config={{ endpoint: '', appId: '' }}>
-        <AuthConfigProvider value={{ redirectUri: '/', redirectUriLocal: '/', redirectUriProd: '/', logoutRedirectUri: '/' }}>
-          <Layout>{Component}</Layout>
-        </AuthConfigProvider>
-      </HybridLogtoProvider>
+      <AuthProvider
+        loginOrigin={DEFAULT_LOGIN_ORIGIN}
+        betterAuthBaseUrl={`${DEFAULT_LOGIN_ORIGIN}/api/auth`}
+        sessionEndpoint={`${DEFAULT_LOGIN_ORIGIN}/api/auth/session`}
+      >
+        <Layout>{Component}</Layout>
+      </AuthProvider>
     </RouterProvider>
   );
   AppRegistry.registerComponent('Marketing', () => Entry);

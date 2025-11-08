@@ -18,8 +18,6 @@ export interface SmokeCheckOptions {
   projectId?: string | null;
   d1Name?: string | null;
   r2Bucket?: string | null;
-  logtoEndpoint?: string | null;
-  logtoApplicationId?: string | null;
 }
 
 export interface SmokeCheckEntry {
@@ -47,14 +45,6 @@ export interface SmokeSecretsResult {
   names?: string[];
 }
 
-export interface LogtoCheckResult {
-  ok: boolean;
-  skipped: boolean;
-  message: string;
-  endpoint?: string;
-  applicationId?: string;
-}
-
 export interface SmokeCheckReport {
   generatedAt: string;
   baseUrl: string;
@@ -63,7 +53,6 @@ export interface SmokeCheckReport {
   checks: SmokeCheckEntry[];
   d1: WranglerCheckResult;
   workerSecrets: SmokeSecretsResult;
-  logto: LogtoCheckResult;
   runDir: string;
   reportPath: string;
   ok: boolean;
@@ -147,13 +136,6 @@ export async function runSmokeChecks(options: SmokeCheckOptions): Promise<SmokeC
     ? { ok: false, skipped: true, message: 'Skipped (minimal mode)' }
     : await checkWorkerSecrets();
 
-  const logtoResult = skipWrangler
-    ? { ok: false, skipped: true, message: 'Skipped (minimal mode)' }
-    : await checkLogtoConfiguration({
-        endpoint: options.logtoEndpoint,
-        applicationId: options.logtoApplicationId
-      });
-
   const report: SmokeCheckReport = {
     generatedAt: new Date().toISOString(),
     baseUrl: options.baseUrl,
@@ -162,10 +144,9 @@ export async function runSmokeChecks(options: SmokeCheckOptions): Promise<SmokeC
     checks,
     d1: d1Result,
     workerSecrets: secretsResult,
-    logto: logtoResult,
     runDir,
     reportPath: join(runDir, 'report.json'),
-    ok: summariseChecks(checks) && (skipWrangler || (d1Result.ok && secretsResult.ok && logtoResult.ok))
+    ok: summariseChecks(checks) && (skipWrangler || (d1Result.ok && secretsResult.ok))
   };
 
   await writeReportFiles(runDir, report, checks);
@@ -338,12 +319,10 @@ async function checkWorkerSecrets(): Promise<SmokeSecretsResult> {
     const secrets = JSON.parse(stdout);
     const names = secrets.map((secret: any) => secret.name).sort();
     const hasStripeSecret = names.includes('STRIPE_WEBHOOK_SECRET');
-    const hasLogtoAppId = names.includes('LOGTO_APPLICATION_ID');
-    const allPresent = hasStripeSecret && hasLogtoAppId;
+    const allPresent = hasStripeSecret;
 
     const missing: string[] = [];
     if (!hasStripeSecret) missing.push('STRIPE_WEBHOOK_SECRET');
-    if (!hasLogtoAppId) missing.push('LOGTO_APPLICATION_ID');
 
     return {
       ok: allPresent,
@@ -357,80 +336,6 @@ async function checkWorkerSecrets(): Promise<SmokeSecretsResult> {
     return {
       ok: false,
       skipped: false,
-      message: error instanceof Error ? error.message : String(error)
-    };
-  }
-}
-
-async function checkLogtoConfiguration({
-  endpoint,
-  applicationId
-}: {
-  endpoint?: string | null;
-  applicationId?: string | null;
-}): Promise<LogtoCheckResult> {
-  if (!endpoint) {
-    return {
-      ok: false,
-      skipped: false,
-      message: 'Logto endpoint not configured'
-    };
-  }
-
-  if (!applicationId) {
-    return {
-      ok: false,
-      skipped: false,
-      endpoint,
-      message: 'Logto application ID not configured'
-    };
-  }
-
-  // Check if Logto OIDC discovery endpoint is reachable
-  try {
-    const discoveryUrl = `${endpoint}/.well-known/openid-configuration`;
-    const response = await fetch(discoveryUrl, {
-      method: 'GET',
-      signal: AbortSignal.timeout(5000)
-    });
-
-    if (!response.ok) {
-      return {
-        ok: false,
-        skipped: false,
-        endpoint,
-        applicationId,
-        message: `Logto discovery endpoint returned ${response.status}`
-      };
-    }
-
-    const config = await response.json();
-    const hasIssuer = typeof config.issuer === 'string';
-    const hasJwksUri = typeof config.jwks_uri === 'string';
-
-    if (!hasIssuer || !hasJwksUri) {
-      return {
-        ok: false,
-        skipped: false,
-        endpoint,
-        applicationId,
-        message: 'Logto discovery endpoint missing required fields'
-      };
-    }
-
-    return {
-      ok: true,
-      skipped: false,
-      endpoint,
-      applicationId,
-      message: 'Logto configuration valid and endpoint reachable'
-    };
-  } catch (error) {
-    return {
-      ok: false,
-      skipped: false,
-      endpoint,
-      applicationId,
       message: error instanceof Error ? error.message : String(error)
     };
   }
@@ -459,13 +364,7 @@ async function writeReportFiles(runDir: string, report: SmokeCheckReport, checks
     '',
     '## Worker Secrets',
     '',
-    `- Required secrets: ${report.workerSecrets.skipped ? 'skipped' : report.workerSecrets.ok ? '✅' : '❌'} (${report.workerSecrets.message})`,
-    '',
-    '## Logto Configuration',
-    '',
-    `- Endpoint: ${report.logto.endpoint ?? 'not configured'}`,
-    `- Application ID: ${report.logto.applicationId ?? 'not configured'}`,
-    `- Status: ${report.logto.skipped ? 'skipped' : report.logto.ok ? '✅' : '❌'} (${report.logto.message})`
+    `- Required secrets: ${report.workerSecrets.skipped ? 'skipped' : report.workerSecrets.ok ? '✅' : '❌'} (${report.workerSecrets.message})`
   ].join('\n');
 
   await fs.writeFile(join(report.runDir, 'report.md'), markdown);

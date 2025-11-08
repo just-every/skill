@@ -100,7 +100,6 @@ export function buildCloudflarePlan(
 
   const notes = [
     `Zone: ${env.CLOUDFLARE_ZONE_ID ?? 'not set'}`,
-    `API resource: ${env.LOGTO_API_RESOURCE}`,
     `Stripe webhook: ${env.STRIPE_WEBHOOK_SECRET ? 'configured' : 'missing'}`
   ];
 

@@ -1,56 +1,41 @@
 import React, { useCallback } from 'react';
 import { Image, Platform, Pressable, ScrollView, Text, View } from 'react-native';
 
-import { useAuthConfig } from '../auth/AuthConfig';
-import { useLogto } from '../auth/LogtoProvider';
+import { useAuth } from '../auth/AuthProvider';
 import { usePublicEnv } from '../runtimeEnv';
 import { useRouterContext } from '../router/RouterProvider';
 
 const heroFeatures = [
   {
     title: 'Worker-first architecture',
-    description:
-      'Ship a Cloudflare Worker, D1, and R2 baseline out of the box. Deployments promote both the API and static assets together.'
+    description: 'Ship Cloudflare Workers, D1, and R2 together. Deployments promote both the API and static assets.',
   },
   {
-    title: 'Logto authentication',
+    title: 'Better Auth login worker',
     description:
-      'Client flows use the Logto React Native SDK while the Worker validates bearer tokens before returning data.'
+      'Marketing and dashboard flows call the Better Auth worker over HTTPS or jump directly into the hosted UI.',
   },
   {
     title: 'Stripe billing hooks',
-    description:
-      'Preview pricing tiers locally, then sync real products and webhook endpoints with a single bootstrap command.'
-  }
+    description: 'Preview pricing tiers locally, then sync live products and webhook endpoints with one bootstrap command.',
+  },
 ];
 
 const Home = () => {
   const env = usePublicEnv();
   const { navigate } = useRouterContext();
-  const authConfig = useAuthConfig();
-  const { isAuthenticated, signIn } = useLogto();
+  const { isAuthenticated, openHostedLogin } = useAuth();
 
   const workerOrigin = env.workerOrigin ?? env.workerOriginLocal;
   const heroImage = workerOrigin ? `${workerOrigin.replace(/\/$/, '')}/marketing/hero.png` : undefined;
 
-  const handleOpenDashboard = useCallback(async () => {
+  const handleOpenDashboard = useCallback(() => {
     if (isAuthenticated) {
       navigate('/app');
       return;
     }
-
-    const redirectTarget = Platform.OS === 'web'
-      ? authConfig.redirectUriProd ?? authConfig.redirectUri
-      : authConfig.redirectUriLocal ?? authConfig.redirectUri;
-
-    const fallbackRedirect = redirectTarget ?? authConfig.redirectUri;
-
-    try {
-      await Promise.resolve(signIn(fallbackRedirect));
-    } catch (error) {
-      console.warn('Failed to start sign-in from home CTA', error);
-    }
-  }, [authConfig.redirectUri, authConfig.redirectUriLocal, authConfig.redirectUriProd, isAuthenticated, navigate, signIn]);
+    openHostedLogin({ returnPath: '/app/overview' });
+  }, [isAuthenticated, navigate, openHostedLogin]);
 
   return (
     <ScrollView contentContainerStyle={{ flexGrow: 1, gap: 32 }}>
@@ -61,7 +46,7 @@ const Home = () => {
           padding: 32,
           gap: 24,
           borderWidth: 1,
-          borderColor: 'rgba(56, 189, 248, 0.25)'
+          borderColor: 'rgba(56, 189, 248, 0.25)',
         }}
       >
         <View style={{ gap: 12 }}>
@@ -70,8 +55,7 @@ const Home = () => {
             Launch front door, auth, and billing on day one.
           </Text>
           <Text style={{ color: '#cbd5f5', fontSize: 16, lineHeight: 24 }}>
-            Scaffold a Cloudflare-native SaaS starter complete with Worker APIs, Logto authentication, and Stripe
-            ready-to-test pricing journeys.
+            Scaffold a Cloudflare-native SaaS starter complete with Worker APIs, Better Auth-managed login, and Stripe-ready pricing journeys.
           </Text>
         </View>
 
@@ -82,7 +66,7 @@ const Home = () => {
               backgroundColor: '#38bdf8',
               borderRadius: 12,
               paddingVertical: 14,
-              paddingHorizontal: 22
+              paddingHorizontal: 22,
             }}
           >
             <Text style={{ color: '#0f172a', fontWeight: '700', fontSize: 16 }}>Open dashboard</Text>
@@ -94,7 +78,7 @@ const Home = () => {
               paddingVertical: 14,
               paddingHorizontal: 22,
               borderWidth: 1,
-              borderColor: 'rgba(148, 163, 184, 0.5)'
+              borderColor: 'rgba(148, 163, 184, 0.5)',
             }}
           >
             <Text style={{ color: '#e2e8f0', fontWeight: '600', fontSize: 16 }}>Preview pricing</Text>
@@ -113,7 +97,7 @@ const Home = () => {
                 borderRadius: 24,
                 borderWidth: 1,
                 borderColor: 'rgba(56,189,248,0.35)',
-                backgroundColor: 'rgba(15,23,42,0.6)'
+                backgroundColor: 'rgba(15,23,42,0.6)',
               }}
             />
           ) : (
@@ -128,12 +112,11 @@ const Home = () => {
                 backgroundColor: 'rgba(15,23,42,0.4)',
                 alignItems: 'center',
                 justifyContent: 'center',
-                paddingHorizontal: 24
+                paddingHorizontal: 24,
               }}
             >
               <Text style={{ color: '#94a3b8', textAlign: 'center' }}>
-                Upload `marketing/hero.png` to your Worker assets bucket or configure `EXPO_PUBLIC_WORKER_ORIGIN` to
-                preview the marketing hero locally.
+                Upload `marketing/hero.png` to your Worker assets bucket or configure `EXPO_PUBLIC_WORKER_ORIGIN` to preview the marketing hero locally.
               </Text>
             </View>
           )
@@ -155,7 +138,7 @@ const Home = () => {
                 padding: 24,
                 gap: 8,
                 borderWidth: 1,
-                borderColor: '#e2e8f0'
+                borderColor: '#e2e8f0',
               }}
             >
               <Text style={{ fontSize: 18, fontWeight: '600', color: '#0f172a' }}>{feature.title}</Text>
@@ -164,8 +147,7 @@ const Home = () => {
           ))}
         </View>
         <Text style={{ color: '#64748b', fontSize: 13 }}>
-          Need a guided tour? Jump into the dashboard to exercise Logto-protected Worker APIs, or open the docs folder
-          for infra walkthroughs.
+          Need a guided tour? Jump into the dashboard to exercise Better Auth-protected Worker APIs, or open the docs folder for infra walkthroughs.
         </Text>
       </View>
     </ScrollView>

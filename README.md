@@ -2,7 +2,8 @@
 
 Ultra-minimal starter: Cloudflare Worker (`workers/api`) plus Expo web (`apps/web`).
 Secrets live in `~/.env`. The Node-based bootstrap CLI renders config from
-`workers/api/wrangler.toml.template` (no `wrangler.toml` committed).
+`workers/api/wrangler.toml.template` (no `wrangler.toml` committed). Authentication via Better Auth
+(login.justevery.com OIDC worker).
 
 ## Prerequisites
 - Node.js ≥ 18 and npm or pnpm
@@ -86,6 +87,6 @@ See `docs/BOOTSTRAP-CLI-MIGRATION.md` for the full migration guide.
 
 **SSR Validation** – Follow `docs/SSR_MARKETING.md` (or run `pnpm --filter @justevery/web run build` + `pnpm bootstrap:smoke`) before promoting changes.
 
-**Smoke Tests** – `pnpm bootstrap:smoke` exercises Worker APIs, assets, and Logto bindings; add `--minimal` in CI for fast checks.
+**Smoke Tests** – `pnpm bootstrap:smoke` exercises Worker APIs, assets, and Better Auth bindings; add `--minimal` in CI for fast checks.
 
 For runbooks and deeper troubleshooting, start with the `docs/` folder.

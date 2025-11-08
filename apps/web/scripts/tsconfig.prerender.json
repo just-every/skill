@@ -5,14 +5,12 @@
     "module": "commonjs",
     "jsx": "react-jsx",
     "paths": {
-      "react-native": ["scripts/prerender-react-native-shim.ts"],
-      "@logto/rn": ["scripts/prerender-logto-shim.tsx"]
+      "react-native": ["scripts/prerender-react-native-shim.ts"]
     }
   },
   "include": [
     "scripts/prerender.tsx",
-    "scripts/prerender-react-native-shim.ts",
-    "scripts/prerender-logto-shim.tsx"
+    "scripts/prerender-react-native-shim.ts"
   ],
   "exclude": ["../node_modules"]
 }

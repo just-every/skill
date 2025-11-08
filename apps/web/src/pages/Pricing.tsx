@@ -15,12 +15,12 @@ const tiers: PricingTier[] = [
     name: 'Sandbox',
     price: '$0',
     description: 'Verify the stack locally with seeded data and stubbed Stripe products.',
-    features: ['Worker + D1 seeded with fixtures', 'R2 uploads locked behind Logto auth', 'Expo marketing shell']
+    features: ['Worker + D1 seeded with fixtures', 'R2 uploads locked behind Better Auth', 'Expo marketing shell']
   },
   {
     name: 'Launch',
     price: '$29',
-    description: 'Promote to production with Logto + Stripe wired to your live tenants.',
+    description: 'Promote to production with Better Auth + Stripe wired to your live tenants.',
     features: [
       'Bootstrap CLI deploys Worker, D1, and R2',
       'Stripe webhook + product sync',
@@ -98,4 +98,3 @@ const Pricing = () => {
 };
 
 export default Pricing;
-

@@ -136,8 +136,9 @@ async function runSmokeTests(baseUrl, outputDir, customRoutes = null) {
     // Only set if not already present
     CLOUDFLARE_ACCOUNT_ID: process.env.CLOUDFLARE_ACCOUNT_ID || 'local-dev',
     CLOUDFLARE_API_TOKEN: process.env.CLOUDFLARE_API_TOKEN || 'local-dev-token',
-    LOGTO_ENDPOINT: process.env.LOGTO_ENDPOINT || 'https://local.example.com',
-    LOGTO_API_RESOURCE: process.env.LOGTO_API_RESOURCE || 'https://api.local.example.com',
+    BETTER_AUTH_URL: process.env.BETTER_AUTH_URL || 'https://login.justevery.com',
+    LOGIN_ORIGIN: process.env.LOGIN_ORIGIN || 'https://login.justevery.com',
+    SESSION_COOKIE_DOMAIN: process.env.SESSION_COOKIE_DOMAIN || '.local.dev',
     STRIPE_SECRET_KEY: process.env.STRIPE_SECRET_KEY || 'sk_test_local',
     STRIPE_WEBHOOK_SECRET: process.env.STRIPE_WEBHOOK_SECRET || 'whsec_local',
   };

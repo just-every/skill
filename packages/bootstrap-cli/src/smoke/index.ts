@@ -14,8 +14,6 @@ export interface SmokeCommandOptions {
   projectId?: string | null;
   d1Name?: string | null;
   r2Bucket?: string | null;
-  logtoEndpoint?: string | null;
-  logtoApplicationId?: string | null;
   headless?: boolean;
 }
 
@@ -39,9 +37,7 @@ export async function runSmoke(options: SmokeCommandOptions): Promise<SmokeComma
     delayMs: options.delayMs,
     projectId: options.projectId,
     d1Name: options.d1Name,
-    r2Bucket: options.r2Bucket,
-    logtoEndpoint: options.logtoEndpoint,
-    logtoApplicationId: options.logtoApplicationId
+    r2Bucket: options.r2Bucket
   };
 
   const checks = await runSmokeChecks(checkConfig);
