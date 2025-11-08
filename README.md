@@ -47,11 +47,15 @@ More detail: `docs/QUICKSTART.md`. Prefer the `pnpm bootstrap:*` commands—the 
 
 ## GitHub Actions (ENV_BLOB)
 
-The repo now uses a single secret (`ENV_BLOB`) that contains your entire `.env`. To sync:
+The repo now uses a single secret (`ENV_BLOB`) that contains your entire `.env`. See
+`docs/env-blob.md` for the required keys and maintenance checklist. To sync:
 
 ```bash
 ./scripts/sync-env-to-github.sh          # reads $HOME/.env by default
 ```
+
+Need a one-off blob for testing? Run `./scripts/generate-env-blob.sh .env.production`
+and paste the output into `gh secret set ENV_BLOB`.
 
 ### Workflows
 

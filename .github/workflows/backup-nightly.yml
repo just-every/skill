@@ -34,7 +34,10 @@ jobs:
           cache: 'pnpm'
 
       - run: corepack enable
-      - run: pnpm install --frozen-lockfile --filter @justevery/worker
+      - run: pnpm install --frozen-lockfile
+
+      - name: Render Wrangler config (bootstrap dry-run)
+        run: pnpm bootstrap:deploy -- --dry-run --check
 
       - name: Export D1 backup (remote)
         run: |

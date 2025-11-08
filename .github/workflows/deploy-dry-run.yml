@@ -44,6 +44,9 @@ jobs:
       - run: corepack enable
       - run: pnpm install --frozen-lockfile
 
+      - name: Render Wrangler config (bootstrap dry-run)
+        run: pnpm bootstrap:deploy -- --dry-run --check
+
       - name: Dry-run migrations
         run: pnpm --filter @justevery/worker run migrate -- --remote --dry-run
 
