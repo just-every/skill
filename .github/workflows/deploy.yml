@@ -51,6 +51,9 @@ jobs:
       - run: corepack enable
       - run: pnpm install --frozen-lockfile
 
+      - name: Render Wrangler config (dry run)
+        run: pnpm bootstrap:deploy -- --dry-run
+
       - name: Create D1 backup (remote)
         run: |
           mkdir -p backups

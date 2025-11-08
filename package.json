@@ -2,6 +2,7 @@
   "name": "@justevery/stack",
   "version": "0.1.0",
   "private": true,
+  "packageManager": "pnpm@10.12.4",
   "workspaces": [
     "apps/*",
     "workers/*",
