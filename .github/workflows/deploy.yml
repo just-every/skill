@@ -62,7 +62,15 @@ jobs:
         run: |
           set -euo pipefail
           while IFS= read -r line; do
+            line="${line%%$'\r'}"
+            if [ -z "$line" ]; then
+              continue
+            fi
             var="${line%%=*}"; value="${line#*=}"
+            if [ -z "$var" ]; then
+              echo "Skipping malformed env line: $line" >&2
+              continue
+            fi
             printf '%s=%s\n' "$var" "$value" >> $GITHUB_ENV
           done < <(grep -v '^#' .env.ci)
 
