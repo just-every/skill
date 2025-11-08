@@ -18,17 +18,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Ensure ENV_BLOB secret exists
-        run: |
-          if [ -z "$ENV_BLOB" ]; then
-            echo "ENV_BLOB secret is required" >&2
-            exit 1
-          fi
+      - name: Enable Corepack for pnpm
+        run: corepack enable pnpm
 
       - name: Decode ENV_BLOB
+        if: env.ENV_BLOB != ''
         run: echo "$ENV_BLOB" | base64 --decode > .env.ci
 
       - name: Export env vars
+        if: env.ENV_BLOB != ''
         run: |
           set -euo pipefail
           while IFS= read -r line; do
@@ -36,8 +34,27 @@ jobs:
             printf '%s=%s\n' "$var" "$value" >> $GITHUB_ENV
           done < <(grep -v '^#' .env.ci)
 
-      - name: Enable Corepack for pnpm
-        run: corepack enable pnpm
+      - name: Seed placeholder env
+        if: env.ENV_BLOB == ''
+        run: |
+          {
+            echo "PROJECT_ID=ci-placeholder"
+            echo "PROJECT_DOMAIN=https://ci-placeholder.justevery.test"
+            echo "CLOUDFLARE_ACCOUNT_ID=placeholder-account"
+            echo "CLOUDFLARE_API_TOKEN=placeholder-token"
+            echo "CLOUDFLARE_ZONE_ID=placeholder-zone"
+            echo "D1_DATABASE_NAME=ci-placeholder-d1"
+            echo "D1_DATABASE_ID=placeholder-d1-id"
+            echo "CLOUDFLARE_R2_BUCKET=ci-placeholder-assets"
+            echo "STRIPE_SECRET_KEY=sk_test_placeholder"
+            echo "STRIPE_WEBHOOK_SECRET=whsec_placeholder"
+            echo "STRIPE_PRODUCTS="
+          } > .env.ci
+          while IFS= read -r line; do
+            var="${line%%=*}"
+            value="${line#*=}"
+            printf '%s=%s\n' "$var" "$value" >> $GITHUB_ENV
+          done < .env.ci
 
       - uses: actions/setup-node@v4
         with:
