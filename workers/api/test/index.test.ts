@@ -97,14 +97,45 @@ async function runFetch(
 }
 
 describe('Worker routes', () => {
-  it('returns landing page HTML for root route', async () => {
-    const env = createMockEnv();
+  it('returns landing page HTML for root route when no ASSETS binding', async () => {
+    const env = createMockEnv({ ASSETS: undefined });
     const request = new Request('https://example.com/');
     const response = await runFetch(request, env);
 
     expect(response.status).toBe(200);
     const text = await response.text();
     expect(text).toContain('Launch your product');
+  });
+
+  it('serves prerendered HTML for root route when ASSETS provides it', async () => {
+    const prerenderHtml = '<!DOCTYPE html><html><head><title>Prerendered</title></head><body>Prerendered content</body></html>';
+    const fetchMock = vi.fn(async (input: Request | string) => {
+      const requestUrl = typeof input === 'string' ? input : input instanceof Request ? input.url : String(input);
+      if (requestUrl.includes('/prerendered/index.html')) {
+        return new Response(prerenderHtml, {
+          status: 200,
+          headers: { 'content-type': 'text/html' },
+        });
+      }
+      return new Response('Not Found', { status: 404 });
+    });
+
+    const env = createMockEnv({
+      ASSETS: { fetch: fetchMock } as unknown as Env['ASSETS'],
+    });
+
+    const request = new Request('https://example.com/', {
+      headers: { 'user-agent': 'Mozilla/5.0' },
+    });
+    const response = await runFetch(request, env);
+
+    expect(response.status).toBe(200);
+    expect(fetchMock).toHaveBeenCalled();
+    const text = await response.text();
+    expect(text).toContain('Prerendered content');
+    expect(text).toContain('window.__JUSTEVERY_ENV__');
+    expect(response.headers.get('x-prerender-route')).toBe('/');
+    expect(response.headers.get('x-prerender-asset')).toBe('/prerendered/index.html');
   });
 
   it('returns 401 when Authorization header is missing for /api/session', async () => {
@@ -313,6 +344,69 @@ describe('Worker routes', () => {
     expect(text).toContain('https://auth.example.com');
     const cacheControl = response.headers.get('cache-control');
     expect(cacheControl).toBe('no-store, max-age=0');
+  });
+
+  it('landing page fallback includes runtime shim and Expo bundle as classic script', async () => {
+    const indexHtml = `<!DOCTYPE html>
+<html><head><title>Test</title></head>
+<body><script src="/_expo/static/js/web/index-abc123.js" defer></script></body>
+</html>`;
+
+    const fetchMock = vi.fn(async (input: Request | string) => {
+      const requestUrl = typeof input === 'string' ? input : input instanceof Request ? input.url : String(input);
+
+      // Simulate missing prerendered asset to trigger landing page fallback
+      if (requestUrl.includes('/prerendered/')) {
+        return new Response('Not Found', { status: 404 });
+      }
+
+      // Return index.html for bundle path resolution (called by resolveExpoBundlePath)
+      if (requestUrl.endsWith('/index.html')) {
+        return new Response(indexHtml, {
+          status: 200,
+          headers: { 'content-type': 'text/html' },
+        });
+      }
+
+      return new Response('Not Found', { status: 404 });
+    });
+
+    const env = createMockEnv({
+      ASSETS: { fetch: fetchMock } as unknown as Env['ASSETS'],
+    });
+
+    // Request root path which tries prerender first, then falls back to landing page
+    const request = new Request('https://example.com/');
+    const response = await runFetch(request, env);
+
+    expect(response.status).toBe(200);
+    const html = await response.text();
+
+    // Verify runtime shim is present
+    expect(html).toContain('id="justevery-runtime-shim"');
+    expect(html).toContain('window.nativePerformanceNow');
+    expect(html).toContain('window.__JUSTEVERY_IMPORT_META_ENV__');
+
+    // Verify bundle script is present as classic script (no type="module")
+    expect(html).toContain('src="/_expo/static/js/web/index-abc123.js"');
+    expect(html).toContain('defer');
+    expect(html).not.toContain('type="module"');
+  });
+
+  it('landing page includes runtime shim but no bundle when ASSETS unavailable', async () => {
+    const env = createMockEnv({ ASSETS: undefined });
+    const request = new Request('https://example.com/');
+    const response = await runFetch(request, env);
+
+    expect(response.status).toBe(200);
+    const html = await response.text();
+
+    // Verify runtime shim is present
+    expect(html).toContain('id="justevery-runtime-shim"');
+    expect(html).toContain('window.nativePerformanceNow');
+
+    // Verify no bundle script is included when ASSETS binding missing
+    expect(html).not.toContain('/_expo/static/js/web/');
   });
 
 });

@@ -491,9 +491,9 @@ const STATIC_ASSET_PREFIXES = ["/_expo/", "/assets/"];
 const STATIC_ASSET_PATHS = new Set(["/favicon.ico", "/index.html", "/manifest.json"]);
 const SPA_EXTRA_ROUTES = ["/callback", "/app", "/logout"];
 const PRERENDER_ROUTES: Record<string, string> = {
-  '/': '',
-  '/pricing': 'pricing',
-  '/contact': 'contact'
+  '/': 'index.html',
+  '/pricing': 'pricing.html',
+  '/contact': 'contact.html'
 };
 const MARKETING_ROUTE_PREFIX = "/marketing/";
 
@@ -571,7 +571,7 @@ function shouldServeAppShell(pathname: string, env: Env): boolean {
 
 async function serveStaticAsset(request: Request, env: Env): Promise<Response | null> {
   if (!env.ASSETS) {
-    return htmlResponse(landingPageHtml(env));
+    return htmlResponse(await landingPageHtml(env));
   }
 
   try {
@@ -617,14 +617,14 @@ function isBot(userAgent: string | null): boolean {
 
 async function servePrerenderedHtml(request: Request, env: Env, pathname: string): Promise<Response | null> {
   if (!env.ASSETS) {
-    return null;
+    return htmlResponse(await landingPageHtml(env));
   }
   const assetSuffix = PRERENDER_ROUTES[pathname];
   if (assetSuffix === undefined) {
     return null;
   }
 
-  const assetPath = assetSuffix ? `/prerendered/${assetSuffix}` : '/prerendered/';
+  const assetPath = `/prerendered/${assetSuffix}`;
   const assetUrl = new URL(assetPath, request.url).toString();
   const prerenderResponse = await env.ASSETS.fetch(assetUrl);
   if (!prerenderResponse || !prerenderResponse.ok) {
@@ -633,7 +633,7 @@ async function servePrerenderedHtml(request: Request, env: Env, pathname: string
       assetPath,
       status: prerenderResponse?.status
     });
-    return null;
+    return htmlResponse(await landingPageHtml(env));
   }
 
   let html = await prerenderResponse.text();
@@ -676,7 +676,7 @@ async function serveAppShell(request: Request, env: Env): Promise<Response | nul
   try {
     const response = await env.ASSETS.fetch(assetRequest);
     if (response.status >= 400) {
-      return htmlResponse(landingPageHtml(env));
+      return htmlResponse(await landingPageHtml(env));
     }
 
     const headers = new Headers(response.headers);
@@ -705,7 +705,7 @@ async function serveAppShell(request: Request, env: Env): Promise<Response | nul
     }
   } catch (error) {
     console.warn("Failed to serve app shell", error);
-    return htmlResponse(landingPageHtml(env));
+    return htmlResponse(await landingPageHtml(env));
   }
 }
 
@@ -1894,10 +1894,51 @@ function generateSessionId(): string {
   return `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}`;
 }
 
-function landingPageHtml(env: Env): string {
+async function resolveExpoBundlePath(env: Env): Promise<string | null> {
+  if (!env.ASSETS) {
+    return null;
+  }
+
+  try {
+    const indexResponse = await env.ASSETS.fetch(new Request('https://placeholder/index.html'));
+    if (!indexResponse.ok) {
+      return null;
+    }
+
+    const html = await indexResponse.text();
+    const scriptMatch = html.match(/<script[^>]+src="([^"]+\.js)"[^>]*>/);
+    if (scriptMatch && scriptMatch[1]) {
+      return scriptMatch[1];
+    }
+  } catch (error) {
+    console.warn('Failed to resolve Expo bundle path', error);
+  }
+
+  return null;
+}
+
+async function landingPageHtml(env: Env): Promise<string> {
   const appUrl = env.APP_BASE_URL ?? "/app";
   const loginUrl = appUrl;
   const landingUrl = env.PROJECT_DOMAIN ?? "https://example.com";
+  const bundlePath = await resolveExpoBundlePath(env);
+
+  const runtimeShim = `<script id="justevery-runtime-shim">(function(){
+      if (typeof globalThis === 'undefined') { return; }
+      var target = globalThis;
+      if (typeof target.nativePerformanceNow !== 'function') {
+        var perf = target.performance && target.performance.now ? target.performance : { now: function () { return Date.now(); } };
+        target.nativePerformanceNow = perf.now.bind(perf);
+      }
+      if (!target.__JUSTEVERY_IMPORT_META_ENV__) {
+        target.__JUSTEVERY_IMPORT_META_ENV__ = { MODE: 'production' };
+      }
+    })();</script>`;
+
+  const bundleScript = bundlePath
+    ? `<script src="${bundlePath}" defer></script>`
+    : '';
+
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -1914,6 +1955,7 @@ function landingPageHtml(env: Env): string {
     a.button:hover { transform: translateY(-2px); box-shadow: 0 24px 45px rgba(29,78,216,0.4); }
     footer { margin-top: 1.5rem; font-size: 0.85rem; color: rgba(15,23,42,0.6); }
   </style>
+  ${runtimeShim}
 </head>
 <body>
 <main>
@@ -1922,6 +1964,7 @@ function landingPageHtml(env: Env): string {
   <a class="button" href="${loginUrl}">Open the app →</a>
   <footer>Need the dashboard? Jump to <a href="${appUrl}">${appUrl}</a> or visit <a href="${landingUrl}">${landingUrl}</a>.</footer>
 </main>
+${bundleScript}
 </body>
 </html>`;
 }

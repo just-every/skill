@@ -24,15 +24,11 @@ const routes = [
 const expoScriptPattern = /<script([^>]*)src="\/_expo\/static\/js\/web\/[^\"]+"([^>]*)><\/script>/i;
 const RUNTIME_SHIM_ID = 'justevery-runtime-shim';
 
-const ensureModuleScripts = (html: string): string => {
-  return html.replace(/<script(?![^>]*type=)([^>]*)src="\/_expo\/static\/js\/web\/([^\"]+)"([^>]*)>/g, '<script type="module"$1 src="/_expo/static/js/web/$2"$3>');
-};
-
 const injectRuntimeShim = (html: string): string => {
   if (html.includes(`id="${RUNTIME_SHIM_ID}"`)) {
     return html;
   }
-  const shim = `\n    <script id="${RUNTIME_SHIM_ID}">(function(){\n      if (typeof window === 'undefined') { return; }\n      if (typeof window.nativePerformanceNow !== 'function') {\n        var perf = window.performance && window.performance.now ? window.performance : { now: function () { return Date.now(); } };\n        window.nativePerformanceNow = perf.now.bind(perf);\n      }\n      if (!window.__JUSTEVERY_IMPORT_META_ENV__) {\n        window.__JUSTEVERY_IMPORT_META_ENV__ = { MODE: 'production' };\n      }\n    })();</script>`;
+  const shim = `\n    <script id="${RUNTIME_SHIM_ID}">(function(){\n      if (typeof globalThis === 'undefined') { return; }\n      var target = globalThis;\n      if (typeof target.nativePerformanceNow !== 'function') {\n        var perf = target.performance && target.performance.now ? target.performance : { now: function () { return Date.now(); } };\n        target.nativePerformanceNow = perf.now.bind(perf);\n      }\n      if (!target.__JUSTEVERY_IMPORT_META_ENV__) {\n        target.__JUSTEVERY_IMPORT_META_ENV__ = { MODE: 'production' };\n      }\n    })();</script>`;
   if (html.includes('</head>')) {
     return html.replace('</head>', `${shim}\n  </head>`);
   }
@@ -41,8 +37,7 @@ const injectRuntimeShim = (html: string): string => {
 
 const patchIndexHtml = async (filePath: string): Promise<string> => {
   const html = await fs.readFile(filePath, 'utf8');
-  const withModule = ensureModuleScripts(html);
-  const withShim = injectRuntimeShim(withModule);
+  const withShim = injectRuntimeShim(html);
   if (withShim !== html) {
     await fs.writeFile(filePath, withShim, 'utf8');
   }

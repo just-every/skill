@@ -1,6 +1,6 @@
 import { promises as fs } from 'node:fs';
 import { resolve } from 'node:path';
-import { parse, stringify } from 'dotenv';
+import { parse } from 'dotenv';
 import type { StripeProvisionResult } from '../providers/stripe.js';
 
 /**

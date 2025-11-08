@@ -50,7 +50,9 @@ const GeneratedEnvSchema = z.object({
   EXPO_PUBLIC_WORKER_ORIGIN_LOCAL: z.string().optional(),
   EXPO_PUBLIC_LOGTO_APP_ID: z.string().optional(),
   EXPO_PUBLIC_LOGTO_ENDPOINT: z.string().optional(),
-  EXPO_PUBLIC_API_RESOURCE: z.string().optional()
+  EXPO_PUBLIC_API_RESOURCE: z.string().optional(),
+  LOGTO_TOKEN: z.string().optional(),
+  D1_DATABASE_NAME: z.string().optional()
 });
 
 export type BaseEnv = z.infer<typeof BaseEnvSchema>;

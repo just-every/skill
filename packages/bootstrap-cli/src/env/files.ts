@@ -108,7 +108,7 @@ export function buildGeneratedFiles(options: GenerateFilesOptions): GenerateFile
   const stripePriceIds = stripeResult?.products
     ? stripeResult.products.flatMap((p) => p.priceIds).join(',')
     : env.STRIPE_PRICE_IDS ?? '';
-  const stripeWebhookUrl = stripeResult?.webhook?.url ?? env.STRIPE_WEBHOOK_URL ?? '';
+  const stripeWebhookUrl = stripeResult?.webhook?.webhookUrl ?? env.STRIPE_WEBHOOK_URL ?? '';
 
   pushWeb(webEntries, 'STRIPE_WEBHOOK_SECRET', stripeWebhookSecret);
   pushWeb(webEntries, 'STRIPE_WEBHOOK_URL', stripeWebhookUrl);
@@ -145,11 +145,11 @@ export function buildGeneratedFiles(options: GenerateFilesOptions): GenerateFile
   };
 }
 
-function pushWeb(target: Array<[string, string]>, key: string, value: string): void {
+function pushWeb(target: Array<[string, string]>, key: string, value?: string): void {
   target.push([key, value ?? '']);
 }
 
-function pushWorker(target: Array<[string, string]>, key: string, value: string): void {
+function pushWorker(target: Array<[string, string]>, key: string, value?: string): void {
   target.push([key, value ?? '']);
 }
 

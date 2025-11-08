@@ -135,6 +135,7 @@ export interface ProvisionedProduct {
 export interface ProvisionedWebhook {
   webhookId: string;
   webhookSecret: string;
+  webhookUrl: string;
 }
 
 export interface StripeProvisionResult {
@@ -469,7 +470,8 @@ export async function executeStripePlan(
           logger(`${prefix} Would update webhook events for ${options.webhookUrl}`);
           provisionedWebhook = {
             webhookId: existing.id,
-            webhookSecret: 'whsec_dry_run_secret'
+            webhookSecret: 'whsec_dry_run_secret',
+            webhookUrl: options.webhookUrl
           };
         } else {
           logger(`${prefix} Updating webhook events for ${options.webhookUrl}`);
@@ -484,14 +486,16 @@ export async function executeStripePlan(
           // Note: webhook secret cannot be retrieved after creation
           provisionedWebhook = {
             webhookId: existing.id,
-            webhookSecret: env.STRIPE_WEBHOOK_SECRET // Use existing secret
+            webhookSecret: env.STRIPE_WEBHOOK_SECRET,
+            webhookUrl: options.webhookUrl
           };
         }
       } else {
         logger(`${prefix} Webhook endpoint exists and matches (${existing.id})`);
         provisionedWebhook = {
           webhookId: existing.id,
-          webhookSecret: env.STRIPE_WEBHOOK_SECRET
+          webhookSecret: env.STRIPE_WEBHOOK_SECRET,
+          webhookUrl: options.webhookUrl
         };
       }
 
@@ -509,7 +513,8 @@ export async function executeStripePlan(
         logger(`${prefix} Would create webhook endpoint: ${options.webhookUrl}`);
         provisionedWebhook = {
           webhookId: 'we_dry_run_id',
-          webhookSecret: 'whsec_dry_run_secret'
+          webhookSecret: 'whsec_dry_run_secret',
+          webhookUrl: options.webhookUrl
         };
       } else {
         logger(`${prefix} Creating webhook endpoint: ${options.webhookUrl}`);
