@@ -54,8 +54,13 @@ The repo now uses a single secret (`ENV_BLOB`) that contains your entire `.env`.
 ./scripts/sync-env-to-github.sh          # reads $HOME/.env by default
 ```
 
-Need a one-off blob for testing? Run `./scripts/generate-env-blob.sh .env.production`
+Need a one-off blob for testing? Run `./scripts/generate-env-blob.sh .env`
 and paste the output into `gh secret set ENV_BLOB`.
+
+**Initial bootstrap shortcut:** `pnpm bootstrap:deploy:new` runs the full bootstrap
+pipeline and immediately publishes a refreshed `ENV_BLOB` secret to the
+`production` environment (requires `gh auth login` or a `GH_TOKEN`). After that,
+CI’s `deploy.yml` handles all incremental deploys.
 
 ### Workflows
 

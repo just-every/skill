@@ -31,14 +31,14 @@ credentials or bootstrap new infrastructure IDs.
 
 ## Packing a New Blob
 
-1. Ensure your local `.env.production` (or preferred file) contains the keys above.
-2. Convert it to a single-line base64 string:
+1. Run `pnpm bootstrap:env` or `pnpm bootstrap:deploy` so `.env.local.generated` is up to date.
+2. Generate a new blob that automatically merges `.env` + `.env.local.generated`:
 
 ```bash
-base64 < .env.production | tr -d "\n"
+./scripts/generate-env-blob.sh .env
 ```
 
-3. Update the GitHub secret:
+3. Update the GitHub secret (use the helper below to avoid clipboard juggling):
 
 ```bash
 gh secret set ENV_BLOB --repo just-every/project --body "$(base64 < .env.production | tr -d "\n")"
@@ -50,12 +50,15 @@ Use the provided helper to avoid copy/paste mistakes:
 
 ```bash
 # Defaults to .env.production if present, otherwise .env
-./scripts/generate-env-blob.sh .env.production | pbcopy
+./scripts/generate-env-blob.sh .env | pbcopy
 
-# Example: refresh the repo secret
-./scripts/generate-env-blob.sh .env.production \
-  | gh secret set ENV_BLOB --repo just-every/project --body -
+# Or publish directly to the production environment secret via gh
+pnpm publish:env-blob
 ```
+
+`pnpm publish:env-blob` calls `scripts/publish-env-blob.sh`, which reruns the generator
+and executes `gh secret set ENV_BLOB --env production` (requires `gh auth login` or a
+valid `GH_TOKEN`).
 
 ## Preflight Checklist
 
