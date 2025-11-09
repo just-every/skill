@@ -465,39 +465,41 @@ export async function executeStripePlan(
     if (existing) {
       const needsUpdate = !arraysEqual(existing.enabled_events.sort(), requiredEvents.sort());
 
-      if (needsUpdate) {
-        if (dryRun) {
-          logger(`${prefix} Would update webhook events for ${options.webhookUrl}`);
-          provisionedWebhook = {
-            webhookId: existing.id,
-            webhookSecret: 'whsec_dry_run_secret',
-            webhookUrl: options.webhookUrl
-          };
+        const fallbackSecret = env.STRIPE_WEBHOOK_SECRET ?? 'whsec_missing_secret';
+
+        if (needsUpdate) {
+          if (dryRun) {
+            logger(`${prefix} Would update webhook events for ${options.webhookUrl}`);
+            provisionedWebhook = {
+              webhookId: existing.id,
+              webhookSecret: 'whsec_dry_run_secret',
+              webhookUrl: options.webhookUrl
+            };
+          } else {
+            logger(`${prefix} Updating webhook events for ${options.webhookUrl}`);
+            await stripe.webhookEndpoints.update(existing.id, {
+              enabled_events: requiredEvents,
+              metadata: {
+                idempotency_key: webhookKey,
+                project_id: env.PROJECT_ID
+              }
+            });
+            logger(chalk.green(`✓ Updated webhook: ${existing.id}`));
+            // Note: webhook secret cannot be retrieved after creation
+            provisionedWebhook = {
+              webhookId: existing.id,
+              webhookSecret: fallbackSecret,
+              webhookUrl: options.webhookUrl
+            };
+          }
         } else {
-          logger(`${prefix} Updating webhook events for ${options.webhookUrl}`);
-          await stripe.webhookEndpoints.update(existing.id, {
-            enabled_events: requiredEvents,
-            metadata: {
-              idempotency_key: webhookKey,
-              project_id: env.PROJECT_ID
-            }
-          });
-          logger(chalk.green(`✓ Updated webhook: ${existing.id}`));
-          // Note: webhook secret cannot be retrieved after creation
+          logger(`${prefix} Webhook endpoint exists and matches (${existing.id})`);
           provisionedWebhook = {
             webhookId: existing.id,
-            webhookSecret: env.STRIPE_WEBHOOK_SECRET,
+            webhookSecret: fallbackSecret,
             webhookUrl: options.webhookUrl
           };
         }
-      } else {
-        logger(`${prefix} Webhook endpoint exists and matches (${existing.id})`);
-        provisionedWebhook = {
-          webhookId: existing.id,
-          webhookSecret: env.STRIPE_WEBHOOK_SECRET,
-          webhookUrl: options.webhookUrl
-        };
-      }
 
       // Detect duplicates
       const duplicates = existingEndpoints.data.filter(
@@ -528,7 +530,8 @@ export async function executeStripePlan(
         });
         provisionedWebhook = {
           webhookId: created.id,
-          webhookSecret: created.secret ?? 'whsec_missing_secret'
+          webhookSecret: created.secret ?? 'whsec_missing_secret',
+          webhookUrl: options.webhookUrl
         };
         logger(chalk.green(`✓ Created webhook: ${created.id}`));
       }

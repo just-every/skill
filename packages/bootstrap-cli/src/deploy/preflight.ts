@@ -18,7 +18,9 @@ const authHint = [
 
 function wrapError(message: string, cause: unknown): Error {
   if (cause instanceof Error) {
-    return new Error(`${message}\n${cause.message}`, { cause });
+    const error = new Error(`${message}\n${cause.message}`);
+    (error as Error & { cause?: unknown }).cause = cause;
+    return error;
   }
   return new Error(message);
 }

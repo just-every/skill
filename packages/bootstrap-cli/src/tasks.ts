@@ -1,4 +1,4 @@
-import { Listr, type ListrTask } from 'listr2';
+import { Listr, type ListrTask, type ListrTaskWrapper } from 'listr2';
 import { existsSync } from 'node:fs';
 import { dirname, relative, resolve } from 'node:path';
 import { execa } from 'execa';
@@ -43,6 +43,8 @@ interface BootstrapTaskContext {
   stripeResult?: StripeProvisionResult;
 }
 
+type BootstrapTaskWrapper = ListrTaskWrapper<BootstrapTaskContext, any, any>;
+
 interface PipelineOptions {
   cwd?: string;
   dryRun?: boolean;
@@ -53,6 +55,8 @@ interface EnvGenerateContext {
   stripeResult?: StripeProvisionResult;
   fileResults?: FileWriteResult[];
 }
+
+type EnvGenerateTaskWrapper = ListrTaskWrapper<EnvGenerateContext, any, any>;
 
 interface EnvGenerateOptions {
   cwd?: string;
@@ -65,6 +69,8 @@ interface DeployContext {
   wranglerResult?: FileWriteResult;
   deployResult?: { command: string; dryRun: boolean };
 }
+
+type DeployTaskWrapper = ListrTaskWrapper<DeployContext, any, any>;
 
 interface DeployOptions {
   cwd?: string;
@@ -98,14 +104,14 @@ function baseTasks(cwd: string): ListrTask<BootstrapTaskContext>[] {
   return [
     {
       title: 'Load environment',
-      task: (ctx, task) => {
+      task: (ctx: BootstrapTaskContext, task: BootstrapTaskWrapper) => {
         ctx.envResult = loadBootstrapEnvironment({ cwd });
         task.output = ctx.envResult.report.summary;
       }
     },
     {
       title: 'Detect Cloudflare capabilities',
-      task: async (ctx, task) => {
+      task: async (ctx: BootstrapTaskContext, task: BootstrapTaskWrapper) => {
         if (!ctx.envResult) {
           throw new Error('Environment not loaded');
         }
@@ -137,7 +143,7 @@ function baseTasks(cwd: string): ListrTask<BootstrapTaskContext>[] {
     },
     {
       title: 'Generate Cloudflare plan',
-      task: (ctx, task) => {
+      task: (ctx: BootstrapTaskContext, task: BootstrapTaskWrapper) => {
         if (!ctx.envResult) {
           throw new Error('Environment not loaded');
         }
@@ -150,7 +156,7 @@ function baseTasks(cwd: string): ListrTask<BootstrapTaskContext>[] {
     },
     {
       title: 'Generate Stripe plan',
-      task: async (ctx, task) => {
+      task: async (ctx: BootstrapTaskContext, task: BootstrapTaskWrapper) => {
         if (!ctx.envResult) {
           throw new Error('Environment not loaded');
         }
@@ -182,8 +188,7 @@ export function createPreflightTasks(options: PipelineOptions = {}): Listr<Boots
   return new Listr<BootstrapTaskContext>(baseTasks(cwd), {
     ctx: {},
     rendererOptions: {
-      collapseSubtasks: false,
-      showTimer: true
+      collapseSubtasks: false
     }
   });
 }
@@ -195,7 +200,7 @@ export function createApplyTasks(options: PipelineOptions = {}): Listr<Bootstrap
     ...baseTasks(cwd),
     {
       title: dryRun ? 'Preview Cloudflare actions' : 'Apply Cloudflare actions',
-      task: async (ctx, task) => {
+      task: async (ctx: BootstrapTaskContext, task: BootstrapTaskWrapper) => {
         if (!ctx.cloudflarePlan) {
           throw new Error('Cloudflare plan missing');
         }
@@ -217,7 +222,7 @@ export function createApplyTasks(options: PipelineOptions = {}): Listr<Bootstrap
     },
     {
       title: dryRun ? 'Preview Stripe provisioning' : 'Provision Stripe resources',
-      skip: (ctx) => {
+      skip: (ctx: BootstrapTaskContext) => {
         const env = ctx.envResult?.env;
         if (!env?.STRIPE_PRODUCTS || env.STRIPE_PRODUCTS.trim() === '') {
           return 'No STRIPE_PRODUCTS configured';
@@ -225,17 +230,14 @@ export function createApplyTasks(options: PipelineOptions = {}): Listr<Bootstrap
         if (!env?.STRIPE_SECRET_KEY || env.STRIPE_SECRET_KEY.trim() === '') {
           return 'STRIPE_SECRET_KEY not configured';
         }
-        if (!env?.STRIPE_SECRET_KEY || env.STRIPE_SECRET_KEY.trim() === '') {
-          return 'STRIPE_SECRET_KEY not configured';
-        }
         return false;
       },
-      task: async (ctx, task) => {
+      task: async (ctx: BootstrapTaskContext, task: BootstrapTaskWrapper) => {
         if (!ctx.envResult) {
           throw new Error('Environment not loaded');
         }
         const env = ctx.envResult.env;
-          const stripe = await createStripeClient(env.STRIPE_SECRET_KEY);
+        const stripe = await createStripeClient(env.STRIPE_SECRET_KEY);
         const webhookUrl = env.STRIPE_WEBHOOK_URL ?? (env.PROJECT_DOMAIN ? `${env.PROJECT_DOMAIN}/api/webhooks/stripe` : undefined);
 
         const lines: string[] = [];
@@ -248,10 +250,16 @@ export function createApplyTasks(options: PipelineOptions = {}): Listr<Bootstrap
         });
         task.output = lines.join('\n');
         if (!dryRun && ctx.stripeResult) {
-          const productIds = ctx.stripeResult.products.map((p) => p.productId).join(',');
-          const priceIds = ctx.stripeResult.products.flatMap((p) => p.priceIds).join(',');
+          const productIds = ctx.stripeResult.products
+            .map((p) => p.productId)
+            .join(',');
+          const priceIds = ctx.stripeResult.products
+            .flatMap((p) => p.priceIds)
+            .join(',');
+          const webhookSecret =
+            ctx.stripeResult.webhook?.webhookSecret ?? env.STRIPE_WEBHOOK_SECRET ?? 'whsec_missing_secret';
           const stripeUpdates = {
-            STRIPE_WEBHOOK_SECRET: ctx.stripeResult.webhook?.webhookSecret,
+            STRIPE_WEBHOOK_SECRET: webhookSecret,
             STRIPE_PRODUCT_IDS: productIds,
             STRIPE_PRICE_IDS: priceIds,
             STRIPE_WEBHOOK_URL: webhookUrl
@@ -263,7 +271,7 @@ export function createApplyTasks(options: PipelineOptions = {}): Listr<Bootstrap
     {
       title: 'Write generated env files',
       enabled: () => !dryRun,
-      task: async (ctx, task) => {
+      task: async (ctx: BootstrapTaskContext, task: BootstrapTaskWrapper) => {
         if (!ctx.envResult) {
           throw new Error('Environment not loaded');
         }
@@ -280,8 +288,7 @@ export function createApplyTasks(options: PipelineOptions = {}): Listr<Bootstrap
   return new Listr<BootstrapTaskContext>(tasks, {
     ctx: {},
     rendererOptions: {
-      collapseSubtasks: false,
-      showTimer: true
+      collapseSubtasks: false
     }
   });
 }
@@ -294,7 +301,7 @@ export function createEnvGenerateTasks(options: EnvGenerateOptions = {}): Listr<
     [
       {
         title: 'Load environment',
-        task: (ctx, task) => {
+        task: (ctx: EnvGenerateContext, task: EnvGenerateTaskWrapper) => {
           ctx.envResult = loadBootstrapEnvironment({ cwd });
           task.output = ctx.envResult.report.summary;
         }
@@ -308,7 +315,7 @@ export function createEnvGenerateTasks(options: EnvGenerateOptions = {}): Listr<
           }
           return false;
         },
-        task: async (ctx, task) => {
+        task: async (ctx: EnvGenerateContext, task: EnvGenerateTaskWrapper) => {
           if (!ctx.envResult) {
             throw new Error('Environment not loaded');
           }
@@ -327,10 +334,16 @@ export function createEnvGenerateTasks(options: EnvGenerateOptions = {}): Listr<
           });
           task.output = lines.join('\n') || 'Stripe provisioned';
           if (!checkOnly && ctx.stripeResult) {
-            const productIds = ctx.stripeResult.products.map((p) => p.productId).join(',');
-            const priceIds = ctx.stripeResult.products.flatMap((p) => p.priceIds).join(',');
+            const productIds = ctx.stripeResult.products
+              .map((p) => p.productId)
+              .join(',');
+            const priceIds = ctx.stripeResult.products
+              .flatMap((p) => p.priceIds)
+              .join(',');
+            const webhookSecret =
+              ctx.stripeResult.webhook?.webhookSecret ?? env.STRIPE_WEBHOOK_SECRET ?? 'whsec_missing_secret';
             const stripeUpdates = {
-              STRIPE_WEBHOOK_SECRET: ctx.stripeResult.webhook?.webhookSecret,
+              STRIPE_WEBHOOK_SECRET: webhookSecret,
               STRIPE_PRODUCT_IDS: productIds,
               STRIPE_PRICE_IDS: priceIds,
               STRIPE_WEBHOOK_URL: webhookUrl
@@ -341,7 +354,7 @@ export function createEnvGenerateTasks(options: EnvGenerateOptions = {}): Listr<
       },
       {
         title: checkOnly ? 'Check env files' : 'Write env files',
-        task: async (ctx, task) => {
+        task: async (ctx: EnvGenerateContext, task: EnvGenerateTaskWrapper) => {
           if (!ctx.envResult) {
             throw new Error('Environment not loaded');
           }
@@ -368,8 +381,7 @@ export function createEnvGenerateTasks(options: EnvGenerateOptions = {}): Listr<
     {
       ctx: {},
       rendererOptions: {
-        collapseSubtasks: false,
-        showTimer: true
+        collapseSubtasks: false
       }
     }
   );
@@ -428,7 +440,7 @@ export function createDeployTasks(options: DeployOptions = {}): Listr<DeployCont
     [
     {
       title: 'Load environment',
-      task: (ctx, task) => {
+      task: (ctx: DeployContext, task: DeployTaskWrapper) => {
         ctx.envResult = loadBootstrapEnvironment({ cwd });
         task.output = ctx.envResult.report.summary;
       }
@@ -595,8 +607,7 @@ export function createDeployTasks(options: DeployOptions = {}): Listr<DeployCont
     {
       ctx: {},
       rendererOptions: {
-        collapseSubtasks: false,
-        showTimer: true
+        collapseSubtasks: false
       }
     }
   );
@@ -791,7 +802,7 @@ export function createSmokeTasks(options: SmokeOptions = {}): Listr<SmokeContext
     [
       {
         title: 'Load environment',
-        task: (ctx, task) => {
+        task: (ctx: SmokeContext, task: ListrTaskWrapper<SmokeContext, any, any>) => {
           ctx.envResult = loadBootstrapEnvironment({ cwd });
           task.output = ctx.envResult.report.summary;
         }
@@ -843,8 +854,7 @@ export function createSmokeTasks(options: SmokeOptions = {}): Listr<SmokeContext
     {
       ctx: {},
       rendererOptions: {
-        collapseSubtasks: false,
-        showTimer: true
+        collapseSubtasks: false
       }
     }
   );

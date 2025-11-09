@@ -7,7 +7,7 @@ export type SmokeMode = 'full' | 'minimal';
 
 export interface SmokeCheckOptions {
   baseUrl: string;
-  routes: string[];
+  routes?: string[];
   bearerToken?: string | null;
   outputRoot?: string;
   stamp?: string;
@@ -386,9 +386,3 @@ function formatTimestamp(date = new Date()): string {
     pad(date.getSeconds())
   ].join('');
 }
-
-export type {
-  SmokeCheckOptions as SmokeCheckConfig,
-  SmokeCheckReport,
-  SmokeCheckEntry
-};

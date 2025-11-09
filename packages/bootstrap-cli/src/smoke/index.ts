@@ -1,4 +1,4 @@
-import { runSmokeChecks, type SmokeCheckReport, type SmokeCheckConfig } from './check.js';
+import { runSmokeChecks, type SmokeCheckReport, type SmokeCheckOptions } from './check.js';
 import { captureSmokeScreens, type SmokeScreensOptions, type SmokeScreensResult } from './screens.js';
 
 export interface SmokeCommandOptions {
@@ -25,7 +25,7 @@ export interface SmokeCommandResult {
 export async function runSmoke(options: SmokeCommandOptions): Promise<SmokeCommandResult> {
   const routes = options.routes ?? undefined;
 
-  const checkConfig: SmokeCheckConfig = {
+  const checkConfig: SmokeCheckOptions = {
     baseUrl: options.baseUrl,
     routes,
     bearerToken: options.bearerToken,
