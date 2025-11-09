@@ -51,6 +51,10 @@ const memoryCache = new MemoryCache();
  */
 export function createSessionVerifier(options: SessionVerifierOptions) {
   const { loginOrigin, cacheTtl = 300, cache } = options;
+  const betterAuthBase = resolveBetterAuthBaseUrl(options);
+  const sessionEndpoint = options.sessionEndpoint
+    ? resolveSessionUrl(options.sessionEndpoint, betterAuthBase)
+    : `${betterAuthBase}/session`;
 
   return async function verifySession(request: Request): Promise<VerifySessionResult> {
     // Extract cookie header
@@ -75,12 +79,10 @@ export function createSessionVerifier(options: SessionVerifierOptions) {
       return { ok: true, session: cached };
     }
 
-    // Fetch from login worker
-    const sessionUrl = `${loginOrigin}/api/auth/session`;
-
+    // Fetch session via Better Auth API
     let response: Response;
     try {
-      response = await fetch(sessionUrl, {
+      response = await fetch(sessionEndpoint, {
         method: 'GET',
         headers: {
           cookie: cookieHeader,
@@ -192,6 +194,34 @@ async function setCachedSession(
     },
   });
   await cache.put(url, response);
+}
+
+function resolveBetterAuthBaseUrl(options: SessionVerifierOptions): string {
+  const fallback = `${options.loginOrigin}/api/auth`;
+  const candidate = (options.betterAuthUrl ?? fallback).trim();
+  return trimTrailingSlash(candidate || fallback);
+}
+
+function resolveSessionUrl(endpoint: string, base: string): string {
+  const trimmed = endpoint.trim();
+  if (!trimmed) {
+    return `${trimTrailingSlash(base)}/session`;
+  }
+
+  try {
+    const url = new URL(trimmed);
+    return trimTrailingSlash(url.toString());
+  } catch {
+    const baseNormalized = trimTrailingSlash(base);
+    if (trimmed.startsWith('/')) {
+      return `${baseNormalized}${trimmed}`;
+    }
+    return `${baseNormalized}/${trimmed}`;
+  }
+}
+
+function trimTrailingSlash(value: string): string {
+  return value.replace(/\/+$/, '');
 }
 
 function hydrateSession(payload: Session): NonNullable<Session> {

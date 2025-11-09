@@ -33,6 +33,16 @@ export type SessionVerifierOptions = {
   loginOrigin: string;
 
   /**
+   * Optional override for the Better Auth API base (defaults to `${loginOrigin}/api/auth`).
+   */
+  betterAuthUrl?: string;
+
+  /**
+   * Optional override for the session endpoint (defaults to `${betterAuthUrl}/session`).
+   */
+  sessionEndpoint?: string;
+
+  /**
    * Optional cache TTL in seconds (default: 300 = 5 minutes)
    */
   cacheTtl?: number;

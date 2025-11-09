@@ -165,6 +165,53 @@ describe('Better Auth session verification', () => {
     });
   });
 
+  it('respects a custom Better Auth URL when verifying the session', async () => {
+    const customAuthUrl = 'https://login.justevery.com/custom-auth';
+    const env = createMockEnv({ BETTER_AUTH_URL: customAuthUrl });
+
+    const mockSession = {
+      session: {
+        id: 'sess_custom',
+        createdAt: new Date('2025-02-01T00:00:00Z'),
+        updatedAt: new Date('2025-02-01T00:00:00Z'),
+        expiresAt: new Date('2025-02-08T00:00:00Z'),
+        token: 'token_custom',
+        userId: 'user_custom',
+      },
+      user: {
+        id: 'user_custom',
+        email: 'custom@example.com',
+        emailVerified: true,
+        name: 'Custom User',
+        createdAt: new Date('2024-12-01T00:00:00Z'),
+        updatedAt: new Date('2025-02-01T00:00:00Z'),
+      },
+    };
+
+    mockFetch.mockResolvedValue(
+      new Response(JSON.stringify(mockSession), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      })
+    );
+
+    const request = new Request('https://example.com/api/session', {
+      headers: { Cookie: 'better-auth.session_token=custom_token' },
+    });
+
+    await runFetch(request, env);
+
+    expect(mockFetch).toHaveBeenCalledWith(
+      `${customAuthUrl.replace(/\/+$/, '')}/session`,
+      expect.objectContaining({
+        method: 'GET',
+        headers: expect.objectContaining({
+          cookie: 'better-auth.session_token=custom_token',
+        }),
+      })
+    );
+  });
+
   it('returns 401 when login worker returns unauthorized', async () => {
     const env = createMockEnv();
 

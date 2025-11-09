@@ -58,6 +58,7 @@ export async function authenticateRequest(request: Request, env: Env): Promise<A
   // Create session verifier
   const verifySession = createSessionVerifier({
     loginOrigin: env.LOGIN_ORIGIN,
+    betterAuthUrl: env.BETTER_AUTH_URL,
     cacheTtl: 300, // 5 minutes
     // Use Cloudflare's Cache API if available, otherwise falls back to in-memory
     cache: typeof caches !== 'undefined' && 'default' in caches ? (caches as any).default : undefined,

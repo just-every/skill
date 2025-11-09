@@ -15,6 +15,7 @@ export interface Env {
   DB?: D1Database;
   STORAGE?: R2Bucket;
   LOGIN_ORIGIN: string;
+  BETTER_AUTH_URL?: string;
   APP_BASE_URL?: string;
   PROJECT_DOMAIN?: string;
   STRIPE_PRODUCTS?: string;
