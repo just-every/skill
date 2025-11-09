@@ -25,7 +25,8 @@
     "smoke": "pnpm bootstrap:smoke",
     "smoke:local": "node scripts/smoke-local.cjs",
     "validate:bootstrap": "pnpm bootstrap:preflight -- --check && pnpm bootstrap:env -- --check",
-    "test:e2e": "playwright test --config tests/e2e/playwright.config.ts"
+    "test:e2e": "playwright test --config tests/e2e/playwright.config.ts",
+    "version:packages": "echo 'No version bump required'"
   },
   "engines": {
     "node": ">=18.18"
