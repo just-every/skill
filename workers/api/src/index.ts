@@ -16,6 +16,8 @@ export interface Env {
   STORAGE?: R2Bucket;
   LOGIN_ORIGIN: string;
   BETTER_AUTH_URL?: string;
+  LOGIN_SERVICE?: Fetcher;
+  SESSION_COOKIE_DOMAIN?: string;
   APP_BASE_URL?: string;
   PROJECT_DOMAIN?: string;
   STRIPE_PRODUCTS?: string;
@@ -899,6 +901,8 @@ const Worker: ExportedHandler<Env> = {
         return htmlResponse(workerShellHtml(env));
       case "/api/session":
         return handleSessionApi(request, env);
+      case "/api/session/bootstrap":
+        return handleSessionBootstrap(request, env);
       case "/api/me":
         return handleMe(request, env);
       case "/api/assets/list":
@@ -946,9 +950,12 @@ async function buildAccountSummaries(env: Env, allowFallback: boolean): Promise<
   if (fromDb !== null) {
     return fromDb;
   }
-  if (allowFallback) {
+
+  const shouldFallback = allowFallback || !env.DB || hasRecentDbError();
+  if (shouldFallback) {
     return fallbackCompanies();
   }
+
   return null;
 }
 
@@ -957,9 +964,12 @@ async function resolveAccountBySlug(env: Env, slug: string, allowFallback: boole
   if (fromDb) {
     return fromDb;
   }
-  if (allowFallback) {
+
+  const shouldFallback = allowFallback || !env.DB || hasRecentDbError();
+  if (shouldFallback) {
     return fallbackCompanies().find((account) => account.slug === slug);
   }
+
   return undefined;
 }
 
@@ -1048,6 +1058,34 @@ function normaliseHexColor(input?: string): string | null {
   return normalised.toLowerCase();
 }
 
+function buildSessionCookie(token: string, env: Env, expiresAt?: string): string | null {
+  const trimmed = token.trim();
+  if (!trimmed) {
+    return null;
+  }
+  const parts = [
+    `better-auth.session_token=${encodeURIComponent(trimmed)}`,
+    'Path=/',
+    'Secure',
+    'HttpOnly',
+    'SameSite=None',
+  ];
+
+  const domain = env.SESSION_COOKIE_DOMAIN?.trim();
+  if (domain) {
+    parts.push(`Domain=${domain}`);
+  }
+
+  if (expiresAt) {
+    const expires = new Date(expiresAt);
+    if (!Number.isNaN(expires.getTime())) {
+      parts.push(`Expires=${expires.toUTCString()}`);
+    }
+  }
+
+  return parts.join('; ');
+}
+
 function normalisePublicUrl(value?: string): string | null {
   if (!value) return null;
   try {
@@ -1068,6 +1106,77 @@ async function handleSessionApi(request: Request, env: Env): Promise<Response> {
   }
 
   return sessionSuccessResponse(auth.session);
+}
+
+type SessionSnapshot = {
+  session?: {
+    expiresAt?: string;
+    token?: string;
+    [key: string]: unknown;
+  };
+  user?: Record<string, unknown> | null;
+  [key: string]: unknown;
+};
+
+async function handleSessionBootstrap(request: Request, env: Env): Promise<Response> {
+  if (request.method !== 'POST') {
+    return jsonResponse({ error: 'method_not_allowed' }, 405);
+  }
+
+  let payload: unknown;
+  try {
+    payload = await request.json();
+  } catch {
+    return jsonResponse({ error: 'invalid_json' }, 400);
+  }
+
+  const token = typeof payload === 'object' && payload && 'token' in payload
+    ? String((payload as { token?: string }).token ?? '').trim()
+    : '';
+
+  if (!token) {
+    return jsonResponse({ error: 'invalid_token' }, 400);
+  }
+
+  const snapshot = typeof payload === 'object' && payload && 'session' in payload
+    ? (payload as { session?: SessionSnapshot }).session
+    : undefined;
+
+  let expiresAt: string | undefined;
+  if (isSessionSnapshot(snapshot)) {
+    expiresAt = snapshot.session?.expiresAt;
+  } else {
+    const probeRequest = new Request(request.url, {
+      headers: {
+        cookie: `better-auth.session_token=${encodeURIComponent(token)}`,
+      },
+    });
+
+    const authResult = await authenticateRequest(probeRequest, env);
+    if (!authResult.ok) {
+      return authFailureResponse(authResult);
+    }
+    expiresAt = authResult.session.expiresAt;
+  }
+
+  const headers = new Headers({ 'Content-Type': 'application/json' });
+  const sessionCookie = buildSessionCookie(token, env, expiresAt);
+  if (sessionCookie) {
+    headers.append('Set-Cookie', sessionCookie);
+  }
+
+  return new Response(JSON.stringify({ ok: true, cached: Boolean(snapshot) }), {
+    status: 200,
+    headers,
+  });
+}
+
+function isSessionSnapshot(value: unknown): value is SessionSnapshot {
+  if (!value || typeof value !== 'object') {
+    return false;
+  }
+  const session = (value as SessionSnapshot).session;
+  return Boolean(session && typeof session === 'object');
 }
 
 async function handleMarketingAsset(request: Request, env: Env, pathname: string): Promise<Response> {

@@ -1,6 +1,10 @@
-import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { SessionClient, SessionClientError, type SessionPayload } from '@justevery/auth-client';
-import { DEFAULT_LOGIN_ORIGIN } from '@justevery/config/auth';
+import {
+  DEFAULT_LOGIN_ORIGIN,
+  ensureBetterAuthBaseUrl,
+  ensureSessionEndpoint,
+} from '@justevery/config/auth';
 
 export type AuthStatus = 'checking' | 'authenticated' | 'unauthenticated';
 
@@ -32,8 +36,9 @@ export const AuthProvider = ({
   sessionEndpoint,
 }: AuthProviderProps) => {
   const sanitizedLoginOrigin = trimTrailingSlash(loginOrigin) || DEFAULT_LOGIN_ORIGIN;
-  const resolvedApiBase = trimTrailingSlash(betterAuthBaseUrl ?? `${sanitizedLoginOrigin}/api/auth`);
-  const resolvedSessionEndpoint = sessionEndpoint ?? `${resolvedApiBase}/session`;
+  const resolvedApiBase = ensureBetterAuthBaseUrl(betterAuthBaseUrl, sanitizedLoginOrigin);
+  const resolvedSessionEndpoint = ensureSessionEndpoint(sessionEndpoint, resolvedApiBase);
+  const lastSyncedTokenRef = useRef<string | null>(null);
 
   const client = useMemo(() => new SessionClient({ baseUrl: resolvedApiBase }), [resolvedApiBase]);
 
@@ -41,17 +46,40 @@ export const AuthProvider = ({
     () => ({ status: 'checking', session: null })
   );
 
+  const syncWorkerSession = useCallback(async (token?: string | null, snapshot?: SessionPayload | null) => {
+    if (!token || lastSyncedTokenRef.current === token) {
+      return;
+    }
+    try {
+      const response = await fetch('/api/session/bootstrap', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ token, session: snapshot ?? undefined }),
+      });
+      if (response.ok) {
+        lastSyncedTokenRef.current = token;
+      }
+    } catch (error) {
+      console.warn('Failed to sync worker session', error);
+    }
+  }, []);
+
   const resolveSession = useCallback(async (): Promise<SessionPayload | null> => {
     try {
       const payload = await client.getSession();
-      return hasActiveSession(payload) ? payload : null;
+      if (hasActiveSession(payload)) {
+        void syncWorkerSession(payload.session?.token as string | undefined, payload);
+        return payload;
+      }
+      return null;
     } catch (error) {
       if (!(error instanceof SessionClientError && error.status === 401)) {
         console.warn('Failed to fetch session', error);
       }
       return null;
     }
-  }, [client]);
+  }, [client, syncWorkerSession]);
 
   const refresh = useCallback(async () => {
     const payload = await resolveSession();
@@ -78,6 +106,7 @@ export const AuthProvider = ({
     async (options?: { returnUrl?: string }) => {
       await client.signOut(options?.returnUrl);
       setState({ status: 'unauthenticated', session: null });
+      lastSyncedTokenRef.current = null;
     },
     [client]
   );

@@ -1,5 +1,9 @@
 import * as React from 'react';
-import { DEFAULT_LOGIN_ORIGIN } from '@justevery/config/auth';
+import {
+  DEFAULT_LOGIN_ORIGIN,
+  ensureBetterAuthBaseUrl,
+  ensureSessionEndpoint,
+} from '@justevery/config/auth';
 
 type InjectedEnvPayload = {
   loginOrigin?: string | null;
@@ -53,30 +57,19 @@ const getInjectedEnv = (): InjectedEnvPayload | undefined => {
   return candidate;
 };
 
-const normalise = (value?: string | null, fallback?: string): string => {
-  const trimmed = typeof value === 'string' ? value.trim() : '';
-  if (!trimmed) {
-    return fallback ?? DEFAULT_LOGIN_ORIGIN;
-  }
-  return trimmed.replace(/\/+$/, '');
-};
-
 const buildClientEnv = (injected?: InjectedEnvPayload): ClientEnv => {
-  const loginOrigin = normalise(
-    injected?.loginOrigin ?? staticEnv.loginOrigin,
-    DEFAULT_LOGIN_ORIGIN
-  );
-  const betterAuthBaseUrl = normalise(
+  const loginOrigin = resolveLoginOrigin(injected?.loginOrigin ?? staticEnv.loginOrigin);
+  const betterAuthBaseUrl = ensureBetterAuthBaseUrl(
     injected?.betterAuthBaseUrl ?? staticEnv.betterAuthBaseUrl,
-    `${loginOrigin}/api/auth`
+    loginOrigin
   );
-  const sessionEndpoint = normalise(
+  const sessionEndpoint = ensureSessionEndpoint(
     injected?.sessionEndpoint ?? staticEnv.sessionEndpoint,
-    `${betterAuthBaseUrl}/session`
+    betterAuthBaseUrl
   );
 
-  const overrideWorker = injected?.workerOrigin ?? staticEnv.workerOrigin;
-  const overrideWorkerLocal = injected?.workerOriginLocal ?? staticEnv.workerOriginLocal;
+  const overrideWorker = trimValue(injected?.workerOrigin ?? staticEnv.workerOrigin);
+  const overrideWorkerLocal = trimValue(injected?.workerOriginLocal ?? staticEnv.workerOriginLocal);
   const workerOrigin = resolveWorkerOrigin(overrideWorker, overrideWorkerLocal);
 
   return {
@@ -167,4 +160,35 @@ function resolveWorkerOrigin(remote?: string | null, local?: string | null): str
   }
 
   return trimmedRemote ?? window.location.origin;
+}
+
+function resolveLoginOrigin(value?: string | null): string {
+  const candidate = typeof value === 'string' ? value.trim() : '';
+  if (!candidate) {
+    return DEFAULT_LOGIN_ORIGIN;
+  }
+  try {
+    const url = new URL(candidate);
+    return trimTrailingSlash(url.toString());
+  } catch {
+    try {
+      const sanitized = candidate.replace(/^\/+/, '');
+      const url = new URL(`https://${sanitized}`);
+      return trimTrailingSlash(url.toString());
+    } catch {
+      return DEFAULT_LOGIN_ORIGIN;
+    }
+  }
+}
+
+function trimTrailingSlash(value: string): string {
+  return value.replace(/\/+$/, '');
+}
+
+function trimValue(value?: string | null): string | undefined {
+  if (typeof value !== 'string') {
+    return undefined;
+  }
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
 }

@@ -62,6 +62,7 @@ export async function authenticateRequest(request: Request, env: Env): Promise<A
     cacheTtl: 300, // 5 minutes
     // Use Cloudflare's Cache API if available, otherwise falls back to in-memory
     cache: typeof caches !== 'undefined' && 'default' in caches ? (caches as any).default : undefined,
+    fetchImpl: resolveLoginFetcher(env),
   });
 
   // Verify session
@@ -199,4 +200,12 @@ export function authFailureResponse(failure: AuthFailure): Response {
       headers: { 'Content-Type': 'application/json; charset=UTF-8' },
     }
   );
+}
+
+function resolveLoginFetcher(env: Env): typeof fetch | undefined {
+  const service = env.LOGIN_SERVICE;
+  if (service && typeof service.fetch === 'function') {
+    return service.fetch.bind(service);
+  }
+  return undefined;
 }

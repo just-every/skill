@@ -45,6 +45,7 @@ function createMockEnv(overrides: Partial<Env> = {}): Env {
     STRIPE_PRODUCTS: '[]',
     ASSETS: assetsFetcher as unknown as Env['ASSETS'],
     EXPO_PUBLIC_WORKER_ORIGIN: 'https://app.example.com',
+    SESSION_COOKIE_DOMAIN: '.app.example.com',
   };
 
   const storage = hasStorageOverride ? overrides.STORAGE : defaultStorage;
@@ -233,6 +234,66 @@ describe('Better Auth session verification', () => {
       expiresAt: null,
       emailAddress: null,
     });
+  });
+
+  it('sets a session cookie when /api/session/bootstrap succeeds', async () => {
+    const env = createMockEnv();
+
+    const mockSession = {
+      session: {
+        id: 'sess_bootstrap',
+        createdAt: new Date('2025-01-01T00:00:00Z'),
+        updatedAt: new Date('2025-01-01T00:00:00Z'),
+        expiresAt: new Date('2025-01-08T00:00:00Z'),
+        token: 'token_bootstrap',
+        userId: 'user_bootstrap',
+      },
+      user: {
+        id: 'user_bootstrap',
+        email: 'bootstrap@example.com',
+        emailVerified: true,
+        name: 'Bootstrap User',
+        createdAt: new Date('2024-12-01T00:00:00Z'),
+        updatedAt: new Date('2025-01-01T00:00:00Z'),
+      },
+    };
+
+    mockFetch.mockResolvedValue(
+      new Response(JSON.stringify(mockSession), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      })
+    );
+
+    const request = new Request('https://example.com/api/session/bootstrap', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token: 'token_bootstrap' }),
+    });
+
+    const response = await runFetch(request, env);
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ ok: true, cached: false });
+    const cookie = response.headers.get('set-cookie');
+    expect(cookie).toContain('better-auth.session_token=token_bootstrap');
+    expect(cookie).toContain('Domain=.app.example.com');
+    expect(mockFetch).toHaveBeenCalled();
+  });
+
+  it('rejects bootstrap requests without a token', async () => {
+    const env = createMockEnv();
+
+    const request = new Request('https://example.com/api/session/bootstrap', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({}),
+    });
+
+    const response = await runFetch(request, env);
+
+    expect(response.status).toBe(400);
+    expect(mockFetch).not.toHaveBeenCalled();
   });
 
   it('returns 502 when login worker is unreachable', async () => {

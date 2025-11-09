@@ -7,10 +7,35 @@ const resolveWorkerUrl = (origin?: string, path?: string) => {
   if (!path) {
     return origin ?? '';
   }
-  if (!origin && typeof window !== 'undefined') {
+
+  const normalizedOrigin = normaliseWorkerOrigin(origin);
+
+  if (!normalizedOrigin && typeof window !== 'undefined') {
     return new URL(path, window.location.origin).toString();
   }
-  return new URL(path, origin ?? 'http://127.0.0.1:8787').toString();
+
+  return new URL(path, normalizedOrigin ?? 'http://127.0.0.1:8787').toString();
+};
+
+const normaliseWorkerOrigin = (origin?: string): string | undefined => {
+  if (typeof origin !== 'string') {
+    return undefined;
+  }
+  const trimmed = origin.trim();
+  if (!trimmed) {
+    return undefined;
+  }
+
+  if (typeof window === 'undefined') {
+    return trimmed;
+  }
+
+  const isLocalHost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+  if (!isLocalHost && window.location.protocol === 'https:' && trimmed.startsWith('http://')) {
+    return window.location.origin;
+  }
+
+  return trimmed;
 };
 
 export const useApiClient = () => {

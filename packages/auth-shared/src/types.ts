@@ -51,6 +51,11 @@ export type SessionVerifierOptions = {
    * Optional cache instance (in-memory or caches.default)
    */
   cache?: Cache;
+
+  /**
+   * Optional custom fetch implementation (e.g., Cloudflare Service Binding).
+   */
+  fetchImpl?: typeof fetch;
 };
 
 /**

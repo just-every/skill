@@ -3,6 +3,7 @@ export interface SessionRecord {
   userId?: string;
   expiresAt?: string;
   issuedAt?: string;
+  token?: string;
   [key: string]: unknown;
 }
 

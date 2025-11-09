@@ -15,6 +15,7 @@ directory = "../../apps/web/dist"
 [vars]
 # --- Authentication ---
 LOGIN_ORIGIN = "https://login.justevery.com"
+SESSION_COOKIE_DOMAIN = "{{SESSION_COOKIE_DOMAIN}}"
 
 # --- Application URLs ---
 PROJECT_DOMAIN = "{{PROJECT_DOMAIN}}"
@@ -42,3 +43,11 @@ custom_domain = true
 
 [observability]
 enabled = false
+
+[limits]
+cpu_ms = 5000
+
+[[services]]
+binding = "LOGIN_SERVICE"
+service = "login"
+environment = "production"

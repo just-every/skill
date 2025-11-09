@@ -138,8 +138,7 @@ export class SessionClient {
   }
 
   private resolveUrl(path: string, searchParams?: Record<string, string | number | boolean | undefined>): string {
-    const normalizedPath = path.startsWith('/') ? path : `/${path}`;
-    const url = new URL(normalizedPath, this.baseUrl);
+    const url = buildRelativeUrl(path, this.baseUrl);
     if (searchParams) {
       for (const [key, value] of Object.entries(searchParams)) {
         if (value === undefined) continue;
@@ -153,6 +152,15 @@ export class SessionClient {
 function normaliseBaseUrl(value: string): string {
   const trimmed = value.trim().replace(/\/+$/, '');
   return trimmed.endsWith('/api/auth') ? trimmed : `${trimmed}/api/auth`;
+}
+
+function buildRelativeUrl(path: string, base: string): URL {
+  if (path.startsWith('http://') || path.startsWith('https://')) {
+    return new URL(path);
+  }
+  const normalizedBase = base.endsWith('/') ? base : `${base}/`;
+  const relativePath = path.replace(/^\/+/, '');
+  return new URL(relativePath, normalizedBase);
 }
 
 async function parsePayload(response: Response): Promise<unknown> {

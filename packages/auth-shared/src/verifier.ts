@@ -1,5 +1,8 @@
 import type { Session, SessionVerifierOptions, VerifySessionResult } from './types';
 
+const ABSOLUTE_URL_PATTERN = /^https?:\/\//i;
+const DEFAULT_API_PATH = '/api/auth';
+
 /**
  * In-memory cache fallback
  */
@@ -51,6 +54,7 @@ const memoryCache = new MemoryCache();
  */
 export function createSessionVerifier(options: SessionVerifierOptions) {
   const { loginOrigin, cacheTtl = 300, cache } = options;
+  const fetchImpl = options.fetchImpl ?? fetch;
   const betterAuthBase = resolveBetterAuthBaseUrl(options);
   const sessionEndpoint = options.sessionEndpoint
     ? resolveSessionUrl(options.sessionEndpoint, betterAuthBase)
@@ -82,7 +86,7 @@ export function createSessionVerifier(options: SessionVerifierOptions) {
     // Fetch session via Better Auth API
     let response: Response;
     try {
-      response = await fetch(sessionEndpoint, {
+      response = await fetchImpl(sessionEndpoint, {
         method: 'GET',
         headers: {
           cookie: cookieHeader,
@@ -197,27 +201,54 @@ async function setCachedSession(
 }
 
 function resolveBetterAuthBaseUrl(options: SessionVerifierOptions): string {
-  const fallback = `${options.loginOrigin}/api/auth`;
-  const candidate = (options.betterAuthUrl ?? fallback).trim();
-  return trimTrailingSlash(candidate || fallback);
-}
-
-function resolveSessionUrl(endpoint: string, base: string): string {
-  const trimmed = endpoint.trim();
-  if (!trimmed) {
-    return `${trimTrailingSlash(base)}/session`;
+  const loginOrigin = trimTrailingSlash(options.loginOrigin);
+  const fallback = `${loginOrigin}${DEFAULT_API_PATH}`;
+  const raw = options.betterAuthUrl?.trim();
+  if (!raw) {
+    return fallback;
   }
 
   try {
-    const url = new URL(trimmed);
+    const url = ABSOLUTE_URL_PATTERN.test(raw)
+      ? new URL(raw)
+      : new URL(raw, loginOrigin);
+    if (url.pathname === '/' || url.pathname === '') {
+      url.pathname = DEFAULT_API_PATH;
+    }
+    url.search = '';
+    url.hash = '';
     return trimTrailingSlash(url.toString());
   } catch {
-    const baseNormalized = trimTrailingSlash(base);
-    if (trimmed.startsWith('/')) {
-      return `${baseNormalized}${trimmed}`;
-    }
-    return `${baseNormalized}/${trimmed}`;
+    return fallback;
   }
+}
+
+function resolveSessionUrl(endpoint: string, base: string): string {
+  const baseNormalized = trimTrailingSlash(base);
+  const fallback = `${baseNormalized}/session`;
+  const trimmed = endpoint.trim();
+  if (!trimmed) {
+    return fallback;
+  }
+
+  if (ABSOLUTE_URL_PATTERN.test(trimmed)) {
+    try {
+      const absolute = new URL(trimmed);
+      const baseUrl = new URL(baseNormalized);
+      if (absolute.origin === baseUrl.origin && absolute.pathname.replace(/\/+$/, '') === '/session') {
+        return fallback;
+      }
+      return trimTrailingSlash(absolute.toString());
+    } catch {
+      return fallback;
+    }
+  }
+
+  const relative = trimmed.replace(/^\/+/, '');
+  if (!relative) {
+    return fallback;
+  }
+  return `${baseNormalized}/${relative}`;
 }
 
 function trimTrailingSlash(value: string): string {

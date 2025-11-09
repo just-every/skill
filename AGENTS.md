@@ -38,3 +38,9 @@ This repository is the canonical justevery starter stack; future products should
 - Shared credentials live in `~/.env`; source it (`set -a; source ~/.env; set +a`) before running remote validation or CI-like scripts so required env vars exist.
 - For local auth testing, create `workers/api/.dev.vars` with the same bindings used in production (D1, R2, BETTER_AUTH_URL, etc.). Wrangler loads these automatically during `npm run dev:worker` and keeps state under `.wrangler/state/`.
 - Use `wrangler dev --remote` when you need Cloudflare's edge runtime (JWT verification with real Better Auth tenant) while retaining hot reload.
+- Session verification uses the `LOGIN_SERVICE` service binding (points to the
+  `login` worker). Always include this binding when cloning/creating new
+  environments; otherwise worker-to-worker requests will time out.
+- Better Auth now scopes `better-auth.session_token` to `/api/*`. All browsers
+  must call the Worker’s `/api` routes (or a server-side proxy) to send the
+  cookie—calling out to other origins/paths will never include it.
