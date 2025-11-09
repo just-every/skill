@@ -8,7 +8,7 @@ const baseURL =
 const loginOrigin = process.env.LOGIN_ORIGIN ?? 'https://login.justevery.com';
 
 test('Better Auth login UI renders', async ({ page }) => {
-  await page.goto(new URL('/ui/login', loginOrigin).toString(), { waitUntil: 'domcontentloaded' });
+  await page.goto(new URL('/', loginOrigin).toString(), { waitUntil: 'domcontentloaded' });
   await expect(page.getByRole('heading', { name: /welcome back/i })).toBeVisible();
 });
 

@@ -87,7 +87,7 @@ export const AuthProvider = ({
       if (typeof window === 'undefined') {
         return;
       }
-      const loginUrl = new URL('/ui/login', sanitizedLoginOrigin);
+      const loginUrl = new URL('/', sanitizedLoginOrigin);
       const target = options?.returnPath ?? resolveCurrentPath();
       loginUrl.searchParams.set('return', resolveReturnUrl(target));
       window.location.assign(loginUrl.toString());
