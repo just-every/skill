@@ -44,3 +44,7 @@ This repository is the canonical justevery starter stack; future products should
 - Better Auth now scopes `better-auth.session_token` to `/api/*`. All browsers
   must call the Worker’s `/api` routes (or a server-side proxy) to send the
   cookie—calling out to other origins/paths will never include it.
+- Placeholder/mock data must never be served on production domains. Keep
+  `ALLOW_PLACEHOLDER_DATA` unset in prod and treat any Cloudflare D1 issues as
+  blockers that require migrations or DB fixes rather than falling back to
+  seeded data.
