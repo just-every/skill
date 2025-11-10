@@ -5,12 +5,20 @@
     "module": "commonjs",
     "jsx": "react-jsx",
     "paths": {
-      "react-native": ["scripts/prerender-react-native-shim.ts"]
+      "react-native": ["scripts/prerender-react-native-shim.ts"],
+      "react-native/Libraries/Utilities/codegenNativeComponent": [
+        "scripts/shims/react-native-codegen-native-component.ts"
+      ],
+      "react-native-web/Libraries/Utilities/codegenNativeComponent": [
+        "scripts/shims/react-native-codegen-native-component.ts"
+      ]
     }
   },
   "include": [
     "scripts/prerender.tsx",
-    "scripts/prerender-react-native-shim.ts"
+    "scripts/prerender-react-native-shim.ts",
+    "scripts/shims/**/*.ts",
+    "scripts/types/**/*.d.ts"
   ],
   "exclude": ["../node_modules"]
 }

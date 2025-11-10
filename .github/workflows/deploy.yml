@@ -102,6 +102,11 @@ jobs:
           cache: 'pnpm'
       - run: pnpm install --frozen-lockfile
 
+      - name: Verify Expo web build & prerender
+        env:
+          EXPO_NO_INTERACTIVE: '1'
+        run: pnpm --filter @justevery/web run build
+
       - name: Render Wrangler config (dry run)
         run: pnpm bootstrap:deploy -- --dry-run
 

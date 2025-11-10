@@ -4,7 +4,17 @@ import path from 'node:path';
 import React from 'react';
 import ReactDOMServer from 'react-dom/server';
 import moduleAlias from 'module-alias';
-moduleAlias.addAlias('react-native', 'react-native-web');
+
+const codegenShimPath = path.resolve(
+  __dirname,
+  'shims/react-native-codegen-native-component.ts',
+);
+
+moduleAlias.addAliases({
+  'react-native/Libraries/Utilities/codegenNativeComponent': codegenShimPath,
+  'react-native-web/Libraries/Utilities/codegenNativeComponent': codegenShimPath,
+});
+moduleAlias.addAlias(/^react-native$/, 'react-native-web');
 
 import { AppRegistry } from 'react-native-web';
 import Layout from '../src/components/Layout';
