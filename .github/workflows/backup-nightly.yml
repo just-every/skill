@@ -10,6 +10,7 @@ permissions:
 
 jobs:
   backup:
+    environment: production
     runs-on: ubuntu-latest
     env:
       ENV_BLOB: ${{ secrets.ENV_BLOB || '' }}

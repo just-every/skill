@@ -40,7 +40,6 @@ const Layout = ({ children }: LayoutProps) => {
         <Container className="flex flex-row flex-wrap items-center justify-between gap-3 py-4">
           <Pressable onPress={() => navigate('/')} accessibilityRole="link" className="flex-row items-center gap-3">
             <Logo size={28} />
-            <Text className="text-xl font-bold text-ink">justevery</Text>
           </Pressable>
           <View className="flex flex-row flex-wrap items-center gap-4 md:gap-6">
             {NAV_ITEMS.map((item) => {
