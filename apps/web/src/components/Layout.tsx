@@ -5,6 +5,7 @@ import { useRouterContext } from '../router/RouterProvider';
 import { cn } from '../lib/cn';
 import { Button } from './ui';
 import { Logo } from './Logo';
+import { Container } from './Container';
 
 type LayoutProps = {
   readonly children?: React.ReactNode;
@@ -35,8 +36,8 @@ const Layout = ({ children }: LayoutProps) => {
 
   return (
     <View className="min-h-screen flex-1 bg-surface">
-      <View className="border-b border-slate-200 bg-white py-4">
-        <View className="mx-auto flex w-full max-w-5xl flex-row items-center justify-between px-6">
+      <View className="border-b border-slate-200 bg-white">
+        <Container className="flex flex-row flex-wrap items-center justify-between gap-3 py-4">
           <Pressable onPress={() => navigate('/')} accessibilityRole="link" className="flex-row items-center gap-3">
             <Logo size={28} />
             <Text className="text-xl font-bold text-ink">justevery</Text>
@@ -46,7 +47,12 @@ const Layout = ({ children }: LayoutProps) => {
               const isActive = activePath === item.href || (item.href !== '/' && activePath.startsWith(item.href));
 
               return (
-                <Pressable key={item.href} onPress={() => navigate(item.href)} className="py-1" accessibilityRole="link">
+                <Pressable
+                  key={item.href}
+                  onPress={() => navigate(item.href)}
+                  accessibilityRole="link"
+                  className="py-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-offset-2 focus-visible:ring-offset-white focus-visible:rounded-full"
+                >
                   <Text className={cn('text-base font-medium text-slate-500', isActive && 'text-ink font-semibold')}>
                     {item.label}
                   </Text>
@@ -57,16 +63,18 @@ const Layout = ({ children }: LayoutProps) => {
           <Button variant="ghost" size="sm" className="border-slate-200 text-ink" onPress={() => navigate('/app')}>
             Open app
           </Button>
-        </View>
+        </Container>
       </View>
 
       <ScrollView className="flex-1">
-        <View className="mx-auto w-full max-w-5xl px-4 py-8 md:px-6">{children}</View>
+        <Container className="py-10">{children}</Container>
       </ScrollView>
-      <View className="border-t border-slate-200 bg-white py-6">
-        <Text className="text-center text-xs text-slate-400">
-          © {new Date().getFullYear()} justevery starter stack. All rights reserved.
-        </Text>
+      <View className="border-t border-slate-200 bg-white">
+        <Container className="py-6">
+          <Text className="text-center text-xs text-slate-400">
+            © {new Date().getFullYear()} justevery starter stack. All rights reserved.
+          </Text>
+        </Container>
       </View>
     </View>
   );
