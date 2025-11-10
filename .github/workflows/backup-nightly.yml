@@ -40,7 +40,7 @@ jobs:
       - run: pnpm install --frozen-lockfile
 
       - name: Render Wrangler config (bootstrap dry-run)
-        run: pnpm bootstrap:deploy -- --dry-run --check
+        run: pnpm bootstrap:deploy -- --dry-run
 
       - name: Export D1 backup (remote)
         run: |
