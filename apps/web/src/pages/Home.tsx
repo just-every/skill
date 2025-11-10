@@ -83,7 +83,8 @@ const Home = () => {
             Launch front door, auth, and billing on day one.
           </Typography>
           <Typography variant="body" className="text-white/80 max-w-2xl">
-            Scaffold a Cloudflare-native SaaS starter complete with Worker APIs, Better Auth-managed login, and Stripe-ready pricing journeys.
+            Scaffold a Cloudflare-native SaaS starter complete with Worker APIs, Better Auth-managed login, Stripe-ready pricing journeys,
+            and now a single push-to-deploy flow that mirrors local prerenders exactly.
           </Typography>
         </CardHeader>
 
