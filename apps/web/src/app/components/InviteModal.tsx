@@ -1,7 +1,9 @@
 import React, { useState } from 'react';
-import { Modal, Pressable, Text, TextInput, View } from 'react-native';
+import { Modal, Pressable, Text, View } from 'react-native';
 
 import type { InviteDraft } from '../../app/types';
+import { Alert, Button, Input } from '../../components/ui';
+import { cn } from '../../lib/cn';
 
 type InviteModalProps = {
   readonly visible: boolean;
@@ -27,65 +29,38 @@ export const InviteModal = ({ visible, onClose, onSubmit }: InviteModalProps) =>
 
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
-      <View
-        style={{
-          flex: 1,
-          backgroundColor: 'rgba(15,23,42,0.6)',
-          alignItems: 'center',
-          justifyContent: 'center',
-          padding: 24
-        }}
-      >
-        <View
-          style={{
-            width: '100%',
-            maxWidth: 480,
-            backgroundColor: '#ffffff',
-            borderRadius: 24,
-            padding: 24,
-            gap: 16
-          }}
-        >
-          <View style={{ gap: 4 }}>
-            <Text style={{ fontSize: 22, fontWeight: '700', color: '#0f172a' }}>Invite teammate</Text>
-            <Text style={{ color: '#475569' }}>
+      <View className="flex-1 items-center justify-center bg-slate-900/60 p-4">
+        <View className="w-full max-w-md space-y-5 rounded-3xl bg-white p-6">
+          <View className="space-y-1">
+            <Text className="text-2xl font-bold text-ink">Invite teammate</Text>
+            <Text className="text-base text-slate-600">
               Invitations are emailed through the Better Auth worker after backend wiring. For now the UI captures intent.
             </Text>
           </View>
 
-          <TextInput
-            placeholder="Full name"
-            value={draft.name}
-            onChangeText={(text) => handleField('name', text)}
-            style={inputStyles}
-          />
-          <TextInput
+          <Input placeholder="Full name" value={draft.name} onChangeText={(text) => handleField('name', text)} />
+          <Input
             placeholder="email@example.com"
             value={draft.email}
             keyboardType="email-address"
             onChangeText={(text) => handleField('email', text)}
-            style={inputStyles}
           />
 
-          <View style={{ gap: 8 }}>
-            <Text style={{ color: '#0f172a', fontWeight: '600' }}>Role</Text>
-            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+          <View className="space-y-2">
+            <Text className="text-sm font-semibold text-ink">Role</Text>
+            <View className="flex flex-wrap gap-2">
               {roles.map((role) => {
                 const selected = role === draft.role;
                 return (
                   <Pressable
                     key={role}
                     onPress={() => handleField('role', role)}
-                    style={{
-                      paddingVertical: 6,
-                      paddingHorizontal: 12,
-                      borderRadius: 999,
-                      borderWidth: 1,
-                      borderColor: selected ? '#0f172a' : '#cbd5f5',
-                      backgroundColor: selected ? 'rgba(15,23,42,0.08)' : '#fff'
-                    }}
+                    className={cn(
+                      'rounded-full border px-4 py-1.5',
+                      selected ? 'border-ink bg-slate-900/5 text-ink' : 'border-slate-200'
+                    )}
                   >
-                    <Text style={{ color: selected ? '#0f172a' : '#475569', fontWeight: '600' }}>{role}</Text>
+                    <Text className={cn('text-sm font-semibold', selected ? 'text-ink' : 'text-slate-600')}>{role}</Text>
                   </Pressable>
                 );
               })}
@@ -93,50 +68,21 @@ export const InviteModal = ({ visible, onClose, onSubmit }: InviteModalProps) =>
           </View>
 
           {submitted ? (
-            <View style={{ backgroundColor: '#ecfccb', padding: 12, borderRadius: 12 }}>
-              <Text style={{ color: '#365314' }}>
-                Thanks! The invite endpoint still relies on the upcoming Worker migrations.
-              </Text>
-            </View>
+            <Alert variant="success" title="Thanks!" description="The invite endpoint still relies on the upcoming Worker migrations." />
           ) : null}
 
-          <View style={{ flexDirection: 'row', justifyContent: 'flex-end', gap: 12 }}>
-            <Pressable onPress={onClose} style={secondaryButtonStyles}>
-              <Text style={{ color: '#0f172a', fontWeight: '600' }}>Cancel</Text>
-            </Pressable>
-            <Pressable onPress={handleSubmit} style={primaryButtonStyles}>
-              <Text style={{ color: '#0f172a', fontWeight: '700' }}>Send invite</Text>
-            </Pressable>
+          <View className="flex flex-row justify-end gap-3">
+            <Button variant="ghost" className="px-4 py-2" onPress={onClose}>
+              Cancel
+            </Button>
+            <Button className="px-4 py-2" onPress={handleSubmit}>
+              Send invite
+            </Button>
           </View>
         </View>
       </View>
     </Modal>
   );
 };
-
-const inputStyles = {
-  borderWidth: 1,
-  borderColor: '#e2e8f0',
-  borderRadius: 12,
-  paddingHorizontal: 16,
-  paddingVertical: 12,
-  fontSize: 16,
-  color: '#0f172a'
-} as const;
-
-const primaryButtonStyles = {
-  backgroundColor: '#38bdf8',
-  paddingHorizontal: 18,
-  paddingVertical: 10,
-  borderRadius: 12
-} as const;
-
-const secondaryButtonStyles = {
-  paddingHorizontal: 18,
-  paddingVertical: 10,
-  borderRadius: 12,
-  borderWidth: 1,
-  borderColor: '#cbd5f5'
-} as const;
 
 export default InviteModal;

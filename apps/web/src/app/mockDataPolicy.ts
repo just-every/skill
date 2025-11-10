@@ -1,8 +1,25 @@
 const LOCAL_HOSTS = new Set(['localhost', '127.0.0.1', '::1']);
-const envOverride =
-  typeof process !== 'undefined' && process.env.EXPO_PUBLIC_ALLOW_PLACEHOLDER_DATA
-    ? process.env.EXPO_PUBLIC_ALLOW_PLACEHOLDER_DATA.toLowerCase()
-    : undefined;
+const PLACEHOLDER_FLAG = 'EXPO_PUBLIC_ALLOW_PLACEHOLDER_DATA';
+
+const readMockDataOverride = (): 'true' | 'false' | undefined => {
+  if (typeof process === 'undefined' || !process.env) {
+    return undefined;
+  }
+  const raw = process.env[PLACEHOLDER_FLAG];
+  if (typeof raw !== 'string') {
+    return undefined;
+  }
+  const normalized = raw.trim().toLowerCase();
+  if (normalized === 'true') {
+    return 'true';
+  }
+  if (normalized === 'false') {
+    return 'false';
+  }
+  return undefined;
+};
+
+const envOverride = readMockDataOverride();
 
 export function shouldUseMockData(): boolean {
   if (envOverride === 'true') {

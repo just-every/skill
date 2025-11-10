@@ -1,7 +1,8 @@
 import React from 'react';
-import { Pressable, ScrollView, Text, View } from 'react-native';
+import { ScrollView, Text, View } from 'react-native';
 
 import { useRouterContext } from '../router/RouterProvider';
+import { Button } from '../components/ui';
 
 type PricingTier = {
   name: string;
@@ -43,55 +44,45 @@ const Pricing = () => {
   const { navigate } = useRouterContext();
 
   return (
-    <ScrollView contentContainerStyle={{ flexGrow: 1, gap: 32 }}>
-      <View style={{ gap: 12 }}>
-        <Text style={{ color: '#0f172a', fontSize: 36, fontWeight: '700' }}>Pricing preview</Text>
-        <Text style={{ color: '#475569', fontSize: 16 }}>
-          These tiers map to Stripe products seeded by the bootstrap CLI. Tailor products locally, then sync the
-          definitions to Stripe when you deploy.
-        </Text>
-      </View>
+    <ScrollView className="flex-1 bg-surface px-4 py-10">
+      <View className="mx-auto flex w-full max-w-6xl flex-col gap-10">
+        <View className="space-y-3">
+          <Text className="text-4xl font-bold text-ink">Pricing preview</Text>
+          <Text className="text-base text-slate-600">
+            These tiers map to Stripe products seeded by the bootstrap CLI. Tailor products locally, then sync the
+            definitions to Stripe when you deploy.
+          </Text>
+        </View>
 
-      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 20 }}>
-        {tiers.map((tier) => (
-          <View
-            key={tier.name}
-            style={{
-              flexBasis: '30%',
-              minWidth: 260,
-              flexGrow: 1,
-              backgroundColor: '#ffffff',
-              borderRadius: 24,
-              padding: 24,
-              borderWidth: 1,
-              borderColor: '#e2e8f0',
-              gap: 12
-            }}
-          >
-            <Text style={{ color: '#0f172a', fontSize: 22, fontWeight: '700' }}>{tier.name}</Text>
-            <Text style={{ color: '#38bdf8', fontSize: 28, fontWeight: '700' }}>{tier.price}</Text>
-            <Text style={{ color: '#475569', fontSize: 15, lineHeight: 22 }}>{tier.description}</Text>
-            <View style={{ gap: 8 }}>
-              {tier.features.map((feature) => (
-                <Text key={feature} style={{ color: '#64748b', fontSize: 14 }}>
-                  • {feature}
-                </Text>
-              ))}
-            </View>
-            <Pressable
-              onPress={() => navigate('/app')}
-              style={{
-                marginTop: 'auto',
-                backgroundColor: '#0f172a',
-                paddingVertical: 12,
-                borderRadius: 12,
-                alignItems: 'center'
-              }}
+        <View className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+          {tiers.map((tier) => (
+            <View
+              key={tier.name}
+              className="flex min-h-[360px] flex-col gap-6 rounded-3xl border border-slate-200 bg-white p-6 shadow-sm"
             >
-              <Text style={{ color: '#f8fafc', fontWeight: '600' }}>See it in action</Text>
-            </Pressable>
-          </View>
-        ))}
+              <View className="space-y-1">
+                <Text className="text-2xl font-bold text-ink">{tier.name}</Text>
+                <Text className="text-3xl font-bold text-accent">{tier.price}</Text>
+              </View>
+              <Text className="text-slate-600">{tier.description}</Text>
+              <View className="space-y-2">
+                {tier.features.map((feature) => (
+                  <View key={feature} className="flex-row items-start gap-2">
+                    <Text className="text-accent">•</Text>
+                    <Text className="text-sm text-slate-600">{feature}</Text>
+                  </View>
+                ))}
+              </View>
+              <Button
+                variant="secondary"
+                className="mt-auto w-full justify-center"
+                onPress={() => navigate('/app')}
+              >
+                See it in action
+              </Button>
+            </View>
+          ))}
+        </View>
       </View>
     </ScrollView>
   );

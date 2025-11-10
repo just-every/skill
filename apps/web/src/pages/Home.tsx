@@ -1,9 +1,10 @@
 import React, { useCallback } from 'react';
-import { Image, Platform, Pressable, ScrollView, Text, View } from 'react-native';
+import { Image, Platform, ScrollView, Text, View } from 'react-native';
 
 import { useAuth } from '../auth/AuthProvider';
 import { usePublicEnv } from '../runtimeEnv';
 import { useRouterContext } from '../router/RouterProvider';
+import { Button, Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui';
 
 const heroFeatures = [
   {
@@ -38,117 +39,61 @@ const Home = () => {
   }, [isAuthenticated, navigate, openHostedLogin]);
 
   return (
-    <ScrollView contentContainerStyle={{ flexGrow: 1, gap: 32 }}>
-      <View
-        style={{
-          backgroundColor: '#0f172a',
-          borderRadius: 32,
-          padding: 32,
-          gap: 24,
-          borderWidth: 1,
-          borderColor: 'rgba(56, 189, 248, 0.25)',
-        }}
-      >
-        <View style={{ gap: 12 }}>
-          <Text style={{ color: '#38bdf8', textTransform: 'uppercase', letterSpacing: 4 }}>justevery</Text>
-          <Text style={{ color: '#e2e8f0', fontSize: 36, fontWeight: '700', lineHeight: 42 }}>
-            Launch front door, auth, and billing on day one.
-          </Text>
-          <Text style={{ color: '#cbd5f5', fontSize: 16, lineHeight: 24 }}>
-            Scaffold a Cloudflare-native SaaS starter complete with Worker APIs, Better Auth-managed login, and Stripe-ready pricing journeys.
-          </Text>
-        </View>
+    <ScrollView className="flex-1 bg-surface px-4 py-8">
+      <View className="mx-auto flex w-full max-w-5xl flex-col gap-10">
+        <Card className="border-transparent bg-gradient-to-br from-ink via-ink to-brand-900 shadow-card">
+          <CardHeader>
+            <Text className="text-xs uppercase tracking-[0.4em] text-accent">justevery</Text>
+            <CardTitle className="text-4xl text-white">
+              Launch front door, auth, and billing on day one.
+            </CardTitle>
+            <CardDescription className="text-slate-200">
+              Scaffold a Cloudflare-native SaaS starter complete with Worker APIs, Better Auth-managed login, and Stripe-ready pricing journeys.
+            </CardDescription>
+          </CardHeader>
 
-        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 12 }}>
-          <Pressable
-            onPress={() => void handleOpenDashboard()}
-            style={{
-              backgroundColor: '#38bdf8',
-              borderRadius: 12,
-              paddingVertical: 14,
-              paddingHorizontal: 22,
-            }}
-          >
-            <Text style={{ color: '#0f172a', fontWeight: '700', fontSize: 16 }}>Open dashboard</Text>
-          </Pressable>
-          <Pressable
-            onPress={() => navigate('/pricing')}
-            style={{
-              borderRadius: 12,
-              paddingVertical: 14,
-              paddingHorizontal: 22,
-              borderWidth: 1,
-              borderColor: 'rgba(148, 163, 184, 0.5)',
-            }}
-          >
-            <Text style={{ color: '#e2e8f0', fontWeight: '600', fontSize: 16 }}>Preview pricing</Text>
-          </Pressable>
-        </View>
-
-        {Platform.OS === 'web' ? (
-          heroImage ? (
-            <Image
-              source={{ uri: heroImage }}
-              resizeMode="cover"
-              style={{
-                width: '100%',
-                maxWidth: 720,
-                height: 320,
-                borderRadius: 24,
-                borderWidth: 1,
-                borderColor: 'rgba(56,189,248,0.35)',
-                backgroundColor: 'rgba(15,23,42,0.6)',
-              }}
-            />
-          ) : (
-            <View
-              style={{
-                width: '100%',
-                maxWidth: 720,
-                height: 320,
-                borderRadius: 24,
-                borderWidth: 1,
-                borderColor: 'rgba(148,163,184,0.25)',
-                backgroundColor: 'rgba(15,23,42,0.4)',
-                alignItems: 'center',
-                justifyContent: 'center',
-                paddingHorizontal: 24,
-              }}
-            >
-              <Text style={{ color: '#94a3b8', textAlign: 'center' }}>
-                Upload `marketing/hero.png` to your Worker assets bucket or configure `EXPO_PUBLIC_WORKER_ORIGIN` to preview the marketing hero locally.
-              </Text>
+          <CardContent className="gap-4">
+            <View className="flex-row flex-wrap gap-3">
+              <Button onPress={() => void handleOpenDashboard()}>Open dashboard</Button>
+              <Button variant="ghost" onPress={() => navigate('/pricing')}>
+                Preview pricing
+              </Button>
             </View>
-          )
-        ) : null}
-      </View>
 
-      <View style={{ gap: 24 }}>
-        <Text style={{ color: '#0f172a', fontSize: 24, fontWeight: '700' }}>What’s in the starter</Text>
-        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 16 }}>
-          {heroFeatures.map((feature) => (
-            <View
-              key={feature.title}
-              style={{
-                flexBasis: '31%',
-                minWidth: 240,
-                flexGrow: 1,
-                backgroundColor: '#ffffff',
-                borderRadius: 20,
-                padding: 24,
-                gap: 8,
-                borderWidth: 1,
-                borderColor: '#e2e8f0',
-              }}
-            >
-              <Text style={{ fontSize: 18, fontWeight: '600', color: '#0f172a' }}>{feature.title}</Text>
-              <Text style={{ color: '#475569', lineHeight: 20 }}>{feature.description}</Text>
-            </View>
-          ))}
+            {Platform.OS === 'web' ? (
+              heroImage ? (
+                <Image
+                  source={{ uri: heroImage }}
+                  resizeMode="cover"
+                  className="h-80 w-full rounded-3xl border border-white/20"
+                />
+              ) : (
+                <View className="w-full items-center justify-center rounded-3xl border border-white/20 bg-white/10 p-6">
+                  <Text className="text-center text-slate-200">
+                    Upload `marketing/hero.png` to your Worker assets bucket or configure `EXPO_PUBLIC_WORKER_ORIGIN` to preview the marketing hero locally.
+                  </Text>
+                </View>
+              )
+            ) : null}
+          </CardContent>
+        </Card>
+
+        <View className="mt-10 gap-6">
+          <Text className="text-2xl font-bold text-ink">What’s in the starter</Text>
+          <View className="flex-row flex-wrap gap-4">
+            {heroFeatures.map((feature) => (
+              <Card key={feature.title} className="flex-1 min-w-[220px]">
+                <CardContent className="gap-2">
+                  <Text className="text-lg font-semibold text-ink">{feature.title}</Text>
+                  <Text className="text-sm leading-5 text-slate-500">{feature.description}</Text>
+                </CardContent>
+              </Card>
+            ))}
+          </View>
+          <Text className="text-xs uppercase tracking-[0.4em] text-slate-500">
+            Need a guided tour? Jump into the dashboard to exercise Better Auth-protected Worker APIs, or open the docs folder for infra walkthroughs.
+          </Text>
         </View>
-        <Text style={{ color: '#64748b', fontSize: 13 }}>
-          Need a guided tour? Jump into the dashboard to exercise Better Auth-protected Worker APIs, or open the docs folder for infra walkthroughs.
-        </Text>
       </View>
     </ScrollView>
   );

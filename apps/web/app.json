@@ -10,8 +10,10 @@
     ],
     "entryPoint": "./index.ts",
     "web": {
-      "bundler": "metro"
+      "bundler": "metro",
+      "favicon": "./public/img/justevery-favicon-32x32.png"
     },
+    "userInterfaceStyle": "automatic",
     "plugins": [
       "expo-secure-store"
     ]

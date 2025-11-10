@@ -1,96 +1,56 @@
 import React from 'react';
-import { Pressable, ScrollView, Text, View } from 'react-native';
+import { ScrollView, Text, View } from 'react-native';
 
 import type { Member } from '../types';
+import { Badge, Card, CardContent, CardDescription, CardHeader, CardTitle } from '../../components/ui';
 
 type TeamScreenProps = {
   readonly members?: Member[];
 };
 
-const roleColors: Record<Member['role'], string> = {
-  Owner: '#f97316',
-  Admin: '#38bdf8',
-  Billing: '#a855f7',
-  Viewer: '#94a3b8'
+const roleVariant: Record<Member['role'], 'default' | 'warning' | 'success' | 'muted'> = {
+  Owner: 'warning',
+  Admin: 'default',
+  Billing: 'success',
+  Viewer: 'muted'
 };
 
-const statusColors: Record<Member['status'], string> = {
-  active: '#16a34a',
-  invited: '#f97316',
-  suspended: '#dc2626'
+const statusVariant: Record<Member['status'], 'success' | 'warning' | 'danger'> = {
+  active: 'success',
+  invited: 'warning',
+  suspended: 'danger'
 };
 
 const TeamScreen = ({ members = [] }: TeamScreenProps) => {
   return (
-    <View style={{ backgroundColor: '#ffffff', borderRadius: 24, borderWidth: 1, borderColor: '#e2e8f0' }}>
-      <View
-        style={{
-          flexDirection: 'row',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-          padding: 24,
-          borderBottomWidth: 1,
-          borderBottomColor: '#e2e8f0'
-        }}
-      >
-        <View>
-          <Text style={{ color: '#0f172a', fontSize: 22, fontWeight: '700' }}>Team members</Text>
-          <Text style={{ color: '#94a3b8' }}>Roles and access are enforced once Worker endpoints ship.</Text>
+    <Card>
+      <CardHeader className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 pb-4">
+        <View className="space-y-1">
+          <CardTitle>Team members</CardTitle>
+          <CardDescription>Roles and access are enforced once Worker endpoints ship.</CardDescription>
         </View>
-        <View
-          style={{
-            backgroundColor: '#38bdf8',
-            paddingHorizontal: 18,
-            paddingVertical: 10,
-            borderRadius: 12
-          }}
-        >
-          <Text style={{ color: '#0f172a', fontWeight: '700' }}>Use Invite button in the shell</Text>
+        <View className="rounded-xl bg-sky-400/10 px-4 py-2">
+          <Text className="text-sm font-semibold text-sky-400">Use Invite button in the shell</Text>
         </View>
-      </View>
-
-      <ScrollView style={{ maxHeight: 480 }}>
-        {members.map((member) => (
-          <View
-            key={member.id}
-            style={{
-              paddingHorizontal: 24,
-              paddingVertical: 16,
-              borderBottomWidth: 1,
-              borderBottomColor: '#f1f5f9',
-              flexDirection: 'row',
-              justifyContent: 'space-between',
-              alignItems: 'center'
-            }}
-          >
-            <View>
-              <Text style={{ color: '#0f172a', fontWeight: '600' }}>{member.name}</Text>
-              <Text style={{ color: '#94a3b8' }}>{member.email}</Text>
+      </CardHeader>
+      <CardContent className="px-0 py-0">
+        <ScrollView className="max-h-[32rem]">
+          {members.map((member) => (
+            <View key={member.id} className="flex flex-row items-center justify-between border-b border-slate-100 px-6 py-4 last:border-b-0">
+              <View className="space-y-1">
+                <Text className="text-base font-semibold text-ink">{member.name}</Text>
+                <Text className="text-sm text-slate-500">{member.email}</Text>
+              </View>
+              <View className="flex flex-row gap-2">
+                <Badge variant={roleVariant[member.role]}>{member.role}</Badge>
+                <Badge variant={statusVariant[member.status]}>{member.status}</Badge>
+              </View>
             </View>
-            <View style={{ flexDirection: 'row', gap: 12 }}>
-              <Badge label={member.role} color={roleColors[member.role]} />
-              <Badge label={member.status} color={statusColors[member.status]} />
-            </View>
-          </View>
-        ))}
-      </ScrollView>
-    </View>
+          ))}
+        </ScrollView>
+      </CardContent>
+    </Card>
   );
 };
-
-const Badge = ({ label, color }: { label: string; color: string }) => (
-  <View
-    style={{
-      paddingHorizontal: 12,
-      paddingVertical: 6,
-      borderRadius: 999,
-      borderWidth: 1,
-      borderColor: `${color}55`,
-      backgroundColor: `${color}22`
-    }}
-  >
-    <Text style={{ color, fontWeight: '600' }}>{label}</Text>
-  </View>
-);
 
 export default TeamScreen;

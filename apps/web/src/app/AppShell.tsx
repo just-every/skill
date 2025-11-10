@@ -6,6 +6,9 @@ import { useCompanyStore } from '../state/companyStore';
 import type { Company, InviteDraft } from './types';
 import { useApiClient } from '../api/client';
 import InviteModal from './components/InviteModal';
+import { Button } from '../components/ui';
+import { Logo } from '../components/Logo';
+import { cn } from '../lib/cn';
 
 export type AppNavItem = {
   key: string;
@@ -57,154 +60,94 @@ const AppShell = ({ navItems, activeItem, onNavigate, companies, isLoadingCompan
   };
 
   return (
-    <View style={{ flex: 1, flexDirection: 'row', minHeight: '100vh', backgroundColor: '#f8fafc' }}>
-      <View
-        style={{
-          width: 240,
-          backgroundColor: '#ffffff',
-          borderRightWidth: 1,
-          borderRightColor: '#e2e8f0',
-          padding: 24,
-          gap: 24
-        }}
-      >
-        <Text style={{ fontSize: 20, fontWeight: '700', color: '#0f172a' }}>justevery</Text>
-        <View style={{ gap: 12 }}>
+    <View className="min-h-screen flex-row bg-surface">
+      <View className="hidden w-72 flex-col gap-8 border-r border-slate-200 bg-white p-6 lg:flex">
+        <View className="flex-row items-center gap-3">
+          <Logo size={30} />
+          <View>
+            <Text className="text-lg font-bold text-ink">justevery</Text>
+            <Text className="text-xs uppercase tracking-[0.2em] text-slate-400">app shell</Text>
+          </View>
+        </View>
+        <View className="flex flex-col gap-3">
           {navItems.map((item) => {
             const isActive = item.key === activeItem;
             return (
               <Pressable
                 key={item.key}
                 onPress={() => onNavigate(item.key)}
-                style={{
-                  paddingVertical: 10,
-                  paddingHorizontal: 12,
-                  borderRadius: 14,
-                  backgroundColor: isActive ? 'rgba(56,189,248,0.15)' : 'transparent'
-                }}
+                className={cn(
+                  'rounded-2xl p-4',
+                  isActive ? 'bg-brand-50 border border-brand-100' : 'border border-transparent'
+                )}
               >
-                <Text style={{ color: '#0f172a', fontWeight: '600', fontSize: 15 }}>
+                <Text className="text-base font-semibold text-ink">
                   {item.icon ? `${item.icon} ` : ''}
                   {item.label}
                 </Text>
-                <Text style={{ color: '#94a3b8', fontSize: 12 }}>{item.description}</Text>
+                <Text className="text-xs text-slate-500">{item.description}</Text>
               </Pressable>
             );
           })}
         </View>
       </View>
 
-      <View style={{ flex: 1, flexDirection: 'column' }}>
-        <View
-          style={{
-            borderBottomWidth: 1,
-            borderBottomColor: '#e2e8f0',
-            backgroundColor: '#ffffff'
-          }}
-        >
-          <View
-            style={{
-              paddingHorizontal: 32,
-              paddingVertical: 16,
-              flexDirection: 'row',
-              alignItems: 'center',
-              justifyContent: 'space-between'
-            }}
-          >
-            <View style={{ gap: 6 }}>
-              <Text style={{ color: '#0f172a', fontSize: 24, fontWeight: '700' }}>
+      <View className="flex-1 flex-col">
+        <View className="border-b border-slate-200 bg-white">
+          <View className="flex-row items-center justify-between px-6 py-4">
+            <View className="space-y-1">
+              <Text className="text-2xl font-bold text-ink">
                 {navItems.find((item) => item.key === activeItem)?.label ?? 'Overview'}
               </Text>
-              <Text style={{ color: '#94a3b8' }}>
+              <Text className="text-sm text-slate-500">
                 {navItems.find((item) => item.key === activeItem)?.description}
               </Text>
             </View>
 
-            <View style={{ flexDirection: 'row', gap: 16, alignItems: 'center' }}>
-              <View style={{ position: 'relative' }}>
+            <View className="flex-row items-center gap-3">
+              <View className="relative">
                 <Pressable
                   onPress={() => setShowSwitcher((prev) => !prev)}
-                  style={{
-                    borderWidth: 1,
-                    borderColor: '#cbd5f5',
-                    paddingHorizontal: 16,
-                    paddingVertical: 10,
-                    borderRadius: 14,
-                    minWidth: 180
-                  }}
+                  className="min-w-[180px] rounded-2xl border border-slate-200 px-4 py-2"
                 >
-                  <Text style={{ color: '#0f172a', fontWeight: '600' }}>
+                  <Text className="font-semibold text-ink">
                     {isLoadingCompanies ? 'Loading companies…' : activeCompany?.name ?? 'No companies'}
                   </Text>
-                  <Text style={{ color: '#94a3b8', fontSize: 12 }}>{activeCompany?.plan ?? 'Plan TBD'}</Text>
+                  <Text className="text-xs text-slate-500">{activeCompany?.plan ?? 'Plan TBD'}</Text>
                 </Pressable>
                 {showSwitcher ? (
-                  <View
-                    style={{
-                      position: 'absolute',
-                      top: '105%',
-                      left: 0,
-                      right: 0,
-                      backgroundColor: '#ffffff',
-                      borderRadius: 16,
-                      borderWidth: 1,
-                      borderColor: '#e2e8f0',
-                      padding: 12,
-                      gap: 8,
-                      zIndex: 10,
-                      shadowColor: '#0f172a',
-                      shadowOpacity: 0.1,
-                      shadowRadius: 12
-                    }}
-                  >
+                  <View className="absolute left-0 right-0 top-full z-20 mt-2 rounded-2xl border border-slate-200 bg-white p-3 shadow-card">
                     {companies.map((company) => (
                       <Pressable
                         key={company.id}
                         onPress={() => handleCompanyChange(company)}
-                        style={{
-                          padding: 8,
-                          borderRadius: 12,
-                          backgroundColor:
-                            company.id === activeCompany?.id ? 'rgba(56,189,248,0.15)' : 'transparent'
-                        }}
+                        className={cn(
+                          'rounded-xl px-3 py-2',
+                          company.id === activeCompany?.id && 'bg-brand-50'
+                        )}
                       >
-                        <Text style={{ color: '#0f172a', fontWeight: '600' }}>{company.name}</Text>
-                        <Text style={{ color: '#94a3b8', fontSize: 12 }}>{company.plan}</Text>
+                        <Text className="font-semibold text-ink">{company.name}</Text>
+                        <Text className="text-xs text-slate-500">{company.plan}</Text>
                       </Pressable>
                     ))}
                   </View>
                 ) : null}
               </View>
 
-              <Pressable
-                onPress={() => setOpenInvite(true)}
-                style={{
-                  backgroundColor: '#38bdf8',
-                  paddingHorizontal: 20,
-                  paddingVertical: 12,
-                  borderRadius: 14
-                }}
-              >
-                <Text style={{ color: '#0f172a', fontWeight: '700' }}>Invite teammates</Text>
-              </Pressable>
+              <Button size="sm" onPress={() => setOpenInvite(true)}>
+                Invite teammates
+              </Button>
 
-              <View
-                style={{
-                  width: 40,
-                  height: 40,
-                  borderRadius: 20,
-                  backgroundColor: '#0f172a',
-                  alignItems: 'center',
-                  justifyContent: 'center'
-                }}
-              >
-                <Text style={{ color: '#f8fafc', fontWeight: '700' }}>JP</Text>
+              <View className="h-10 w-10 items-center justify-center rounded-full bg-ink">
+                <Text className="font-semibold text-white">JP</Text>
               </View>
             </View>
           </View>
         </View>
 
-        <ScrollView contentContainerStyle={{ padding: 32, gap: 24, flexGrow: 1 }}>{children}</ScrollView>
+        <ScrollView className="flex-1">
+          <View className="flex-1 gap-6 px-4 py-6 md:px-8">{children}</View>
+        </ScrollView>
       </View>
 
       <InviteModal visible={openInvite} onClose={() => setOpenInvite(false)} onSubmit={handleInviteSubmit} />

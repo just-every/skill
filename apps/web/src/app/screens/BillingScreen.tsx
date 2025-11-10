@@ -1,7 +1,8 @@
 import React from 'react';
-import { Pressable, Text, View } from 'react-native';
+import { Text, View } from 'react-native';
 
 import type { Company, SubscriptionSummary } from '../types';
+import { Badge, Button, Card, CardContent, CardDescription, CardHeader, CardTitle, Label } from '../../components/ui';
 
 type BillingScreenProps = {
   readonly company?: Company;
@@ -10,39 +11,54 @@ type BillingScreenProps = {
 
 const BillingScreen = ({ company, subscription }: BillingScreenProps) => {
   return (
-    <View style={{ gap: 24 }}>
-      <View style={{ backgroundColor: '#ffffff', borderRadius: 24, padding: 24, borderWidth: 1, borderColor: '#e2e8f0' }}>
-        <Text style={{ color: '#0f172a', fontSize: 22, fontWeight: '700' }}>Plan summary</Text>
-        <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 16, flexWrap: 'wrap', gap: 12 }}>
+    <View className="flex flex-col gap-6">
+      <Card>
+        <CardHeader className="flex flex-wrap items-center justify-between gap-3">
           <View>
-            <Text style={{ color: '#94a3b8' }}>Current plan</Text>
-            <Text style={{ color: '#0f172a', fontSize: 20, fontWeight: '700' }}>{subscription?.plan ?? company?.plan ?? 'Not set'}</Text>
+            <CardTitle>Plan summary</CardTitle>
+            <CardDescription>Keep your organization in lockstep across billing and seats.</CardDescription>
           </View>
-          <View>
-            <Text style={{ color: '#94a3b8' }}>Seats</Text>
-            <Text style={{ color: '#0f172a', fontSize: 20, fontWeight: '700' }}>{subscription?.seats ?? company?.stats?.seats ?? 0}</Text>
-          </View>
-          <View>
-            <Text style={{ color: '#94a3b8' }}>Renews on</Text>
-            <Text style={{ color: '#0f172a', fontSize: 20, fontWeight: '700' }}>
-              {subscription?.renewsOn ? new Date(subscription.renewsOn).toLocaleDateString() : 'Pending Stripe sync'}
-            </Text>
-          </View>
-        </View>
-        <Pressable style={{ marginTop: 20, borderRadius: 12, borderWidth: 1, borderColor: '#cbd5f5', padding: 12 }}>
-          <Text style={{ color: '#0f172a', fontWeight: '600' }}>Manage in Stripe (coming soon)</Text>
-        </Pressable>
-      </View>
+          <Badge>{subscription?.status ?? 'active'}</Badge>
+        </CardHeader>
+        <CardContent className="grid gap-4 md:grid-cols-3">
+          <Field label="Current plan" value={subscription?.plan ?? company?.plan ?? 'Not set'} />
+          <Field label="Seats" value={String(subscription?.seats ?? company?.stats?.seats ?? 0)} />
+          <Field
+            label="Renews on"
+            value={subscription?.renewsOn ? new Date(subscription.renewsOn).toLocaleDateString() : 'Pending Stripe sync'}
+          />
+        </CardContent>
+        <CardContent className="pt-0">
+          <Button variant="ghost" disabled className="w-full justify-center">
+            Manage in Stripe (coming soon)
+          </Button>
+        </CardContent>
+      </Card>
 
-      <View style={{ backgroundColor: '#ffffff', borderRadius: 24, padding: 24, borderWidth: 1, borderColor: '#e2e8f0', gap: 12 }}>
-        <Text style={{ color: '#0f172a', fontSize: 18, fontWeight: '700' }}>Billing email</Text>
-        <Text style={{ color: '#475569' }}>{company?.billingEmail ?? 'billing@your-company.com'}</Text>
-        <Text style={{ color: '#94a3b8' }}>
-          Update this email inside the Worker once the `/api/companies/:slug` PATCH endpoint lands.
-        </Text>
-      </View>
+      <Card>
+        <CardHeader>
+          <CardTitle>Billing contact</CardTitle>
+          <CardDescription>Send invoices and renewal notices to a shared mailbox.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <Label required>Email</Label>
+          <Field label="" value={company?.billingEmail ?? 'billing@your-company.com'} hideLabel />
+          <CardDescription>
+            Update this email via the Worker endpoint (`/api/accounts/:slug`) once persistence is enabled.
+          </CardDescription>
+        </CardContent>
+      </Card>
     </View>
   );
 };
+
+const Field = ({ label, value, hideLabel }: { label?: string; value: string; hideLabel?: boolean }) => (
+  <View className="space-y-2">
+    {!hideLabel && label ? <Label>{label}</Label> : null}
+    <View className="rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2">
+      <Text className="text-base text-ink">{value}</Text>
+    </View>
+  </View>
+);
 
 export default BillingScreen;

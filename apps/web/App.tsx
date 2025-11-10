@@ -1,6 +1,8 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import React, { ReactNode, useRef } from 'react';
 
+import './global.css';
+
 import { AuthProvider } from './src/auth/AuthProvider';
 import Layout from './src/components/Layout';
 import { Callback, Contact, Dashboard, Home, Pricing } from './src/pages';

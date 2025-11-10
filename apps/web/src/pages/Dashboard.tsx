@@ -84,12 +84,15 @@ const Dashboard = () => {
   if (authStatus !== 'authenticated' || !isAuthenticated) {
     const message = authStatus === 'checking' ? 'Checking your session…' : 'Redirecting to Better Auth…';
     return (
-      <View style={centerStyles}>
+      <View className={centerClassName}>
         <ActivityIndicator size="large" color="#0f172a" />
-        <Text style={{ color: '#475569', marginTop: 12 }}>{message}</Text>
+        <Text className="mt-3 text-base text-slate-500">{message}</Text>
         {authStatus === 'unauthenticated' ? (
-          <Pressable onPress={() => openHostedLogin({ returnPath: '/app/overview' })}>
-            <Text style={{ color: '#38bdf8', fontWeight: '600' }}>Continue to login</Text>
+          <Pressable
+            onPress={() => openHostedLogin({ returnPath: '/app/overview' })}
+            className="rounded-xl bg-ink px-6 py-3"
+          >
+            <Text className="text-center text-sm font-semibold text-white">Continue to login</Text>
           </Pressable>
         ) : null}
       </View>
@@ -99,16 +102,16 @@ const Dashboard = () => {
   if (companiesQuery.isError) {
     const message = companiesQuery.error instanceof Error ? companiesQuery.error.message : 'Unknown error';
     return (
-      <View style={centerStyles}>
-        <Text style={{ fontSize: 24, fontWeight: '700', color: '#0f172a' }}>Unable to load company data</Text>
-        <Text style={{ color: '#475569', marginVertical: 12, maxWidth: 420, textAlign: 'center' }}>
+      <View className={centerClassName}>
+        <Text className="text-2xl font-bold text-ink">Unable to load company data</Text>
+        <Text className="mx-auto mt-3 max-w-[420px] text-center text-sm text-slate-500">
           {message}. Please retry once your session is valid and the Worker can reach Cloudflare D1.
         </Text>
         <Pressable
           onPress={() => void companiesQuery.refetch()}
-          style={{ backgroundColor: '#0f172a', paddingHorizontal: 24, paddingVertical: 12, borderRadius: 12 }}
+          className="mt-4 rounded-xl bg-ink px-6 py-3"
         >
-          <Text style={{ color: '#f8fafc', fontWeight: '700' }}>Try again</Text>
+          <Text className="text-center text-sm font-semibold text-white">Try again</Text>
         </Pressable>
       </View>
     );
@@ -116,9 +119,9 @@ const Dashboard = () => {
 
   if (companiesQuery.isLoading && companies.length === 0) {
     return (
-      <View style={centerStyles}>
+      <View className={centerClassName}>
         <ActivityIndicator size="large" color="#0f172a" />
-        <Text style={{ color: '#475569', marginTop: 12 }}>Loading company data…</Text>
+        <Text className="mt-3 text-base text-slate-500">Loading company data…</Text>
       </View>
     );
   }
@@ -165,13 +168,6 @@ const Dashboard = () => {
   );
 };
 
-const centerStyles = {
-  flex: 1,
-  alignItems: 'center',
-  justifyContent: 'center',
-  backgroundColor: '#f8fafc',
-  gap: 12,
-  padding: 24,
-} as const;
+const centerClassName = 'flex-1 min-h-[320px] items-center justify-center gap-3 bg-surface px-6 py-12 text-center';
 
 export default Dashboard;

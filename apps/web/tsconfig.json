@@ -2,12 +2,13 @@
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
     "jsx": "react-jsx",
+    "jsxImportSource": "nativewind",
     "types": [
       "expo",
       "node"
     ],
     "baseUrl": "."
   },
-  "include": ["App.tsx", "src"],
+  "include": ["App.tsx", "src", "nativewind.d.ts", "nativewind-env.d.ts"],
   "exclude": ["node_modules"]
 }
