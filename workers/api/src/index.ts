@@ -1533,28 +1533,35 @@ async function handleAccountBranding(
   }
 
   if (env.DB) {
-    await env.DB.prepare(
-      `UPDATE company_branding_settings
-       SET primary_color = COALESCE(?1, primary_color),
-           secondary_color = COALESCE(?2, secondary_color),
-           accent_color = COALESCE(?3, accent_color),
-           logo_url = COALESCE(?4, logo_url),
-           tagline = COALESCE(?5, tagline),
-           updated_at = CURRENT_TIMESTAMP
-       WHERE company_id = ?6`
-    )
-      .bind(
-        updates.primaryColor ?? null,
-        updates.secondaryColor ?? null,
-        updates.accentColor ?? null,
-        updates.logoUrl ?? null,
-        updates.tagline ?? null,
-        account.id
+    try {
+      await env.DB.prepare(
+        `UPDATE company_branding_settings
+         SET primary_color = COALESCE(?1, primary_color),
+             secondary_color = COALESCE(?2, secondary_color),
+             accent_color = COALESCE(?3, accent_color),
+             logo_url = COALESCE(?4, logo_url),
+             tagline = COALESCE(?5, tagline),
+             updated_at = CURRENT_TIMESTAMP
+         WHERE company_id = ?6`
       )
-      .run();
+        .bind(
+          updates.primaryColor ?? null,
+          updates.secondaryColor ?? null,
+          updates.accentColor ?? null,
+          updates.logoUrl ?? null,
+          updates.tagline ?? null,
+          account.id
+        )
+        .run();
 
-    const refreshedBranding = await fetchBrandingFromDb(env, account.id);
-    return jsonResponse({ ok: true, branding: refreshedBranding ?? resolveBranding(account) });
+      const refreshedBranding = await fetchBrandingFromDb(env, account.id);
+      if (refreshedBranding) {
+        ACCOUNT_BRANDING_OVERRIDES.delete(account.id);
+        return jsonResponse({ ok: true, branding: refreshedBranding });
+      }
+    } catch (error) {
+      logDbError('handleAccountBranding', error);
+    }
   }
 
   const existing = ACCOUNT_BRANDING_OVERRIDES.get(account.id) ?? {};
