@@ -1,6 +1,6 @@
 import React from 'react';
 import { Text } from 'react-native';
-import { Path, Svg, type SvgProps } from 'react-native-svg';
+import type { SvgProps } from 'react-native-svg';
 
 const LOGO_ASPECT_RATIO = 800 / 151;
 
@@ -55,6 +55,22 @@ const LOGO_PATHS: { d: string; fillRule?: 'evenodd' | 'nonzero' }[] = [
   },
 ];
 
+type SvgModule = typeof import('react-native-svg');
+
+let svgModule: SvgModule | null = null;
+
+const getSvgModule = (): SvgModule | null => {
+  if (svgModule !== null) {
+    return svgModule;
+  }
+  try {
+    svgModule = require('react-native-svg') as SvgModule;
+  } catch {
+    svgModule = null;
+  }
+  return svgModule;
+};
+
 export type LogoProps = SvgProps & {
   readonly size?: number;
   readonly color?: string;
@@ -70,7 +86,9 @@ export const Logo = (props: LogoProps) => {
     ...rest
   } = props;
 
-  if (typeof window === 'undefined') {
+  const svg = getSvgModule();
+
+  if (!svg) {
     return (
       <Text style={{ fontSize: Math.round(size * 0.7), fontWeight: '700', color }} accessibilityRole="text">
         je
@@ -80,6 +98,7 @@ export const Logo = (props: LogoProps) => {
 
   const computedHeight = typeof height === 'number' ? height : size;
   const computedWidth = typeof width === 'number' ? width : Math.round(computedHeight * LOGO_ASPECT_RATIO);
+  const { Svg, Path } = svg;
 
   return (
     <Svg
