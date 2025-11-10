@@ -1063,16 +1063,16 @@ function normalisePath(pathname: string): string {
 
 async function buildAccountSummaries(env: Env, allowFallback: boolean): Promise<AccountRecord[] | null> {
   const fromDb = await fetchCompaniesFromDb(env);
-  if (fromDb !== null) {
+  if (fromDb !== null && fromDb.length > 0) {
     return fromDb;
   }
 
-  const shouldFallback = allowFallback || !env.DB || hasRecentDbError();
+  const shouldFallback = allowFallback || !env.DB || hasRecentDbError() || fromDb === null;
   if (shouldFallback) {
     return fallbackCompanies();
   }
 
-  return null;
+  return fromDb;
 }
 
 async function resolveAccountBySlug(env: Env, slug: string, allowFallback: boolean): Promise<AccountRecord | undefined> {
@@ -1461,7 +1461,8 @@ async function handleAccountMembers(
   allowFallback: boolean
 ): Promise<Response> {
   const membersFromDb = await fetchMembersFromDb(env, account.id);
-  if (!membersFromDb && !allowFallback) {
+  const shouldFallback = allowFallback || !env.DB || hasRecentDbError();
+  if (!membersFromDb && !shouldFallback) {
     return dataUnavailableResponse(env);
   }
   const members = membersFromDb ?? fallbackMembers(account.id);
@@ -1772,8 +1773,9 @@ async function handleAccountUsage(
   const daysParam = url.searchParams.get('days');
   const days = daysParam ? Math.min(Math.max(Number.parseInt(daysParam, 10) || 7, 1), 31) : 7;
   const pointsFromDb = await fetchUsagePointsFromDb(env, account.id, days);
+  const shouldFallback = allowFallback || !env.DB || hasRecentDbError();
   if (!pointsFromDb) {
-    if (!allowFallback) {
+    if (!shouldFallback) {
       return dataUnavailableResponse(env);
     }
     return jsonResponse({ points: fallbackUsage(account.id) });
@@ -1791,8 +1793,9 @@ async function handleAccountAssets(
     return jsonResponse({ error: 'Method Not Allowed' }, 405);
   }
   const rows = await fetchAssetsFromDb(env, account.id);
+  const shouldFallback = allowFallback || !env.DB || hasRecentDbError();
   if (!rows) {
-    if (!allowFallback) {
+    if (!shouldFallback) {
       return dataUnavailableResponse(env);
     }
     return jsonResponse({ assets: fallbackAssetsList() });
@@ -1802,8 +1805,9 @@ async function handleAccountAssets(
 
 async function handleAccountSubscription(env: Env, account: AccountRecord, allowFallback: boolean): Promise<Response> {
   const summary = await fetchSubscriptionSummaryFromDb(env, account.id);
+  const shouldFallback = allowFallback || !env.DB || hasRecentDbError();
   if (!summary) {
-    if (!allowFallback) {
+    if (!shouldFallback) {
       return dataUnavailableResponse(env);
     }
     return jsonResponse({ subscription: fallbackSubscription(account.id) });
@@ -1817,7 +1821,7 @@ async function handleAccountInvites(
   account: AccountRecord,
   allowFallback: boolean
 ): Promise<Response> {
-  const canUseFallback = allowFallback || !env.DB;
+  const canUseFallback = allowFallback || !env.DB || hasRecentDbError();
 
   if (request.method === 'GET') {
     const invites = await fetchInvitesFromDb(env, account.id);
