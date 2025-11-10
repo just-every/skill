@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Modal, Pressable, Text, View } from 'react-native';
 
 import type { InviteDraft } from '../../app/types';
@@ -8,33 +8,68 @@ import { cn } from '../../lib/cn';
 type InviteModalProps = {
   readonly visible: boolean;
   readonly onClose: () => void;
-  readonly onSubmit?: (draft: InviteDraft) => void;
+  readonly onSubmit?: (draft: InviteDraft) => Promise<void> | void;
 };
 
 const roles: InviteDraft['role'][] = ['Owner', 'Admin', 'Billing', 'Viewer'];
 
 export const InviteModal = ({ visible, onClose, onSubmit }: InviteModalProps) => {
   const [draft, setDraft] = useState<InviteDraft>({ name: '', email: '', role: 'Viewer' });
-  const [submitted, setSubmitted] = useState(false);
+  const [status, setStatus] = useState<'idle' | 'success' | 'error'>('idle');
+  const [message, setMessage] = useState<string>('');
+  const [loading, setLoading] = useState(false);
 
   const handleField = (key: keyof InviteDraft, value: string) => {
     setDraft((prev) => ({ ...prev, [key]: value }));
   };
 
-  const handleSubmit = () => {
-    setSubmitted(true);
-    onSubmit?.(draft);
+  const resetState = () => {
     setDraft({ name: '', email: '', role: 'Viewer' });
+    setStatus('idle');
+    setMessage('');
+    setLoading(false);
+  };
+
+  useEffect(() => {
+    if (!visible) {
+      resetState();
+    }
+  }, [visible]);
+
+  const handleSubmit = async () => {
+    if (!draft.name.trim() || !draft.email.trim()) {
+      setStatus('error');
+      setMessage('Name and email are required to send an invite.');
+      return;
+    }
+    try {
+      setLoading(true);
+      await onSubmit?.(draft);
+      setStatus('success');
+      setMessage(`Invite queued for ${draft.email}.`);
+      setDraft({ name: '', email: '', role: draft.role });
+    } catch (error) {
+      const description = error instanceof Error ? error.message : 'Failed to send invite.';
+      setStatus('error');
+      setMessage(description);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleClose = () => {
+    resetState();
+    onClose();
   };
 
   return (
-    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={handleClose}>
       <View className="flex-1 items-center justify-center bg-slate-900/60 p-4">
         <View className="w-full max-w-md space-y-5 rounded-3xl bg-white p-6">
           <View className="space-y-1">
             <Text className="text-2xl font-bold text-ink">Invite teammate</Text>
             <Text className="text-base text-slate-600">
-              Invitations are emailed through the Better Auth worker after backend wiring. For now the UI captures intent.
+              Invitations are issued through the Worker invite endpoint and include a seven-day signup link.
             </Text>
           </View>
 
@@ -67,15 +102,19 @@ export const InviteModal = ({ visible, onClose, onSubmit }: InviteModalProps) =>
             </View>
           </View>
 
-          {submitted ? (
-            <Alert variant="success" title="Thanks!" description="The invite endpoint still relies on the upcoming Worker migrations." />
+          {status !== 'idle' ? (
+            <Alert
+              variant={status === 'success' ? 'success' : 'danger'}
+              title={status === 'success' ? 'Invite sent' : 'Unable to send invite'}
+              description={message}
+            />
           ) : null}
 
           <View className="flex flex-row justify-end gap-3">
-            <Button variant="ghost" className="px-4 py-2" onPress={onClose}>
+            <Button variant="ghost" className="px-4 py-2" onPress={handleClose}>
               Cancel
             </Button>
-            <Button className="px-4 py-2" onPress={handleSubmit}>
+            <Button className="px-4 py-2" onPress={handleSubmit} loading={loading} disabled={loading}>
               Send invite
             </Button>
           </View>

@@ -49,8 +49,8 @@ const OverviewScreen = ({ company, members, subscription, onNavigateToTeam }: Ov
         <CardHeader>
           <CardTitle>Need to add a teammate?</CardTitle>
           <CardDescription>
-            Role-based access is enforced in the Worker once the members/invites endpoints are wired. For now you
-            can log intent so the upcoming migrations know which invites to issue.
+            Invite emails are generated directly from the Worker and stay active for seven days. Hop into the team
+            screen to review pending invites or resend links.
           </CardDescription>
         </CardHeader>
         <CardContent className="flex flex-wrap items-center justify-between gap-4">

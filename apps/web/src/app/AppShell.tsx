@@ -50,13 +50,13 @@ const AppShell = ({ navItems, activeItem, onNavigate, companies, isLoadingCompan
 
   const handleInviteSubmit = async (draft: InviteDraft) => {
     if (!activeCompany?.slug) {
-      return;
+      throw new Error('Select a company before inviting teammates.');
     }
-    try {
-      await api.post(`/api/accounts/${activeCompany.slug}/invites`, draft);
-    } catch (error) {
-      console.warn('Failed to create invite', error);
-    }
+    await api.post(`/api/accounts/${activeCompany.slug}/invites`, {
+      email: draft.email,
+      role: draft.role,
+      name: draft.name,
+    });
   };
 
   return (

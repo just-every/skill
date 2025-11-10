@@ -68,6 +68,20 @@ type AccountMemberRecord = {
   lastActiveAt?: string | null;
 };
 
+type InviteRole = AccountMemberRecord['role'];
+type InviteStatus = 'pending' | 'accepted' | 'expired';
+
+type AccountInviteRecord = {
+  id: string;
+  companyId: string;
+  email: string;
+  role: InviteRole;
+  status: InviteStatus;
+  createdAt: string;
+  expiresAt: string;
+  name?: string;
+};
+
 type SubscriptionSummary = {
   active: boolean;
   plan: string | null;
@@ -181,6 +195,33 @@ const ACCOUNT_MEMBERS: AccountMemberRecord[] = [
     lastActiveAt: '2025-11-04T08:00:00.000Z'
   }
 ];
+
+const SAMPLE_ACCOUNT_IDS = new Set(ACCOUNT_DATA.map((account) => account.id));
+const ACCOUNT_INVITE_STORE = new Map<string, AccountInviteRecord[]>();
+const INVITE_ROLE_ORDER: InviteRole[] = ['Owner', 'Admin', 'Billing', 'Viewer'];
+const FALLBACK_INVITE_EXPIRY_MS = 7 * 24 * 60 * 60 * 1000;
+
+for (const account of ACCOUNT_DATA) {
+  const seeded = ACCOUNT_MEMBERS
+    .filter((member) => member.accountId === account.id && member.status === 'invited')
+    .map<AccountInviteRecord>((member) => {
+      const createdAt = member.joinedAt ?? new Date().toISOString();
+      const expiresAt = new Date(new Date(createdAt).getTime() + FALLBACK_INVITE_EXPIRY_MS).toISOString();
+      return {
+        id: `seed-${member.id}`,
+        companyId: account.id,
+        email: member.email,
+        role: member.role,
+        status: 'pending',
+        createdAt,
+        expiresAt,
+        name: member.name,
+      };
+    });
+  if (seeded.length > 0) {
+    ACCOUNT_INVITE_STORE.set(account.id, seeded);
+  }
+}
 
 const ACCOUNT_BRANDING_OVERRIDES = new Map<string, BrandingOverride>();
 
@@ -477,36 +518,51 @@ async function fetchAssetsFromDb(env: Env, companyId: string): Promise<AssetObje
   }
 }
 
-async function fetchInvitesFromDb(env: Env, companyId: string): Promise<DbRow[] | null> {
+async function fetchInvitesFromDb(env: Env, companyId: string): Promise<AccountInviteRecord[] | null> {
   if (!env.DB) {
     logDbError('fetchInvitesFromDb', 'D1 binding is not configured');
     return null;
   }
   try {
-    return await queryAll(
+    const rows = await queryAll(
       env.DB,
       `SELECT id, email, role, status, expires_at, created_at
        FROM member_invites WHERE company_id = ? ORDER BY created_at DESC`,
       [companyId]
     );
+    return rows.map((row) => ({
+      id: stringFrom(row.id),
+      companyId,
+      email: stringFrom(row.email),
+      role: normaliseInviteRole(row.role as string | undefined) ?? 'Viewer',
+      status: normaliseInviteStatus(row.status),
+      createdAt: stringFrom(row.created_at, new Date().toISOString()),
+      expiresAt: stringFrom(row.expires_at, new Date(Date.now() + FALLBACK_INVITE_EXPIRY_MS).toISOString()),
+      name: undefined,
+    }));
   } catch (error) {
     logDbError('fetchInvitesFromDb', error);
     return null;
   }
 }
 
-async function createInviteInDb(env: Env, companyId: string, email: string, role: string): Promise<void> {
+async function createInviteInDb(env: Env, companyId: string, email: string, role: InviteRole): Promise<void> {
   if (!env.DB) {
     return;
   }
   const id = `inv-${generateSessionId()}`;
   const token = `${generateSessionId()}-${generateSessionId()}`;
-  await env.DB.prepare(
-    `INSERT INTO member_invites (id, company_id, email, role, token, expires_at)
-     VALUES (?1, ?2, ?3, ?4, ?5, datetime('now', '+7 days'))`
-  )
-    .bind(id, companyId, email, role, token)
-    .run();
+  try {
+    await env.DB.prepare(
+      `INSERT INTO member_invites (id, company_id, email, role, token, expires_at)
+       VALUES (?1, ?2, ?3, ?4, ?5, datetime('now', '+7 days'))`
+    )
+      .bind(id, companyId, email, role.toLowerCase(), token)
+      .run();
+  } catch (error) {
+    logDbError('createInviteInDb', error);
+    throw error;
+  }
 }
 
 async function linkAuditLogWithCompany(env: Env, auditId: string, companyId: string | null): Promise<void> {
@@ -523,11 +579,71 @@ async function linkAuditLogWithCompany(env: Env, auditId: string, companyId: str
 }
 
 function fallbackCompanies(): AccountRecord[] {
-  return ACCOUNT_DATA.map((account) => ({ ...account }));
+  return ACCOUNT_DATA.map((account) => ({
+    ...account,
+    stats: { ...account.stats },
+    brand: { ...account.brand },
+  }));
 }
 
 function fallbackMembers(companyId: string): AccountMemberRecord[] {
   return ACCOUNT_MEMBERS.filter((member) => member.accountId === companyId).map((member) => ({ ...member }));
+}
+
+function fallbackInvites(accountId: string): AccountInviteRecord[] {
+  const list = ensureFallbackInviteStore(accountId);
+  return list.map((invite) => ({ ...invite }));
+}
+
+function ensureFallbackInviteStore(accountId: string): AccountInviteRecord[] {
+  if (!ACCOUNT_INVITE_STORE.has(accountId)) {
+    ACCOUNT_INVITE_STORE.set(accountId, []);
+  }
+  return ACCOUNT_INVITE_STORE.get(accountId)!;
+}
+
+function appendFallbackInvite(accountId: string, invite: AccountInviteRecord): void {
+  const existing = ensureFallbackInviteStore(accountId);
+  ACCOUNT_INVITE_STORE.set(accountId, [invite, ...existing]);
+}
+
+function createFallbackInviteRecord(
+  accountId: string,
+  email: string,
+  role: InviteRole,
+  name?: string
+): AccountInviteRecord {
+  const createdAt = new Date();
+  const expiresAt = new Date(createdAt.getTime() + FALLBACK_INVITE_EXPIRY_MS);
+  return {
+    id: `inv-${generateSessionId()}`,
+    companyId: accountId,
+    email,
+    role,
+    status: 'pending',
+    createdAt: createdAt.toISOString(),
+    expiresAt: expiresAt.toISOString(),
+    name,
+  };
+}
+
+function normaliseInviteRole(value?: string | null): InviteRole | null {
+  if (!value) {
+    return null;
+  }
+  const lower = value.toLowerCase();
+  return INVITE_ROLE_ORDER.find((role) => role.toLowerCase() === lower) ?? null;
+}
+
+function normaliseInviteStatus(value?: unknown): InviteStatus {
+  if (typeof value !== 'string') {
+    return 'pending';
+  }
+  const lower = value.toLowerCase();
+  if (lower === 'accepted' || lower === 'expired') {
+    return lower;
+  }
+  return 'pending';
 }
 
 const LOCAL_PLACEHOLDER_HOSTS = new Set(['localhost', '127.0.0.1', '::1']);
@@ -982,7 +1098,10 @@ function mapAccountResponse(account: AccountRecord): Record<string, unknown> {
     industry: account.industry,
     createdAt: account.createdAt,
     billingEmail: account.billingEmail,
-    stats: account.stats,
+    stats: {
+      ...account.stats,
+      pendingInvites: resolvePendingInvitesCount(account),
+    },
     branding: resolveBranding(account)
   };
 }
@@ -1000,6 +1119,13 @@ function resolveBranding(account: AccountRecord): AccountBranding {
     tagline: override.tagline ?? account.brand.tagline,
     updatedAt: override.updatedAt
   };
+}
+
+function resolvePendingInvitesCount(account: AccountRecord): number {
+  if (SAMPLE_ACCOUNT_IDS.has(account.id) && ACCOUNT_INVITE_STORE.has(account.id)) {
+    return ACCOUNT_INVITE_STORE.get(account.id)!.length;
+  }
+  return account.stats.pendingInvites;
 }
 
 function fallbackUsage(companyId: string): Array<{ bucket: string; requests: number; storageGb: number }> {
@@ -1320,7 +1446,7 @@ async function handleAccountsRoute(request: Request, env: Env, pathname: string)
     case 'subscription':
       return handleAccountSubscription(env, account, allowFallback);
     case 'invites':
-      return handleAccountInvites(request, env, account);
+      return handleAccountInvites(request, env, account, allowFallback);
     default:
       return jsonResponse({
         account: mapAccountResponse(account)
@@ -1678,35 +1804,58 @@ async function handleAccountSubscription(env: Env, account: AccountRecord, allow
   return jsonResponse({ subscription: summary });
 }
 
-async function handleAccountInvites(request: Request, env: Env, account: AccountRecord): Promise<Response> {
-  if (!env.DB) {
-    return jsonResponse({ error: 'Database binding not configured' }, 503);
-  }
+async function handleAccountInvites(
+  request: Request,
+  env: Env,
+  account: AccountRecord,
+  allowFallback: boolean
+): Promise<Response> {
+  const canUseFallback = allowFallback || !env.DB;
 
   if (request.method === 'GET') {
     const invites = await fetchInvitesFromDb(env, account.id);
-    return jsonResponse({ invites: invites ?? [] });
+    if (invites) {
+      return jsonResponse({ invites });
+    }
+    if (!canUseFallback) {
+      return dataUnavailableResponse(env);
+    }
+    return jsonResponse({ invites: fallbackInvites(account.id) });
   }
 
   if (request.method === 'POST') {
-    let payload: { email?: string; role?: string };
+    let payload: { email?: string; role?: string; name?: string };
     try {
       payload = await request.json();
     } catch {
       return jsonResponse({ error: 'Invalid JSON' }, 400);
     }
+
     const email = payload.email?.trim().toLowerCase();
     if (!email) {
       return jsonResponse({ error: 'Email is required' }, 400);
     }
-    const allowedRoles = ['owner', 'admin', 'billing', 'viewer'];
-    const role = payload.role?.toLowerCase() ?? 'viewer';
-    if (!allowedRoles.includes(role)) {
-      return jsonResponse({ error: 'Invalid role' }, 400);
+
+    const role = normaliseInviteRole(payload.role ?? 'Viewer') ?? 'Viewer';
+
+    try {
+      await createInviteInDb(env, account.id, email, role);
+      const invites = await fetchInvitesFromDb(env, account.id);
+      if (invites) {
+        return jsonResponse({ ok: true, invites }, 201);
+      }
+    } catch (error) {
+      console.warn('Falling back to in-memory invite storage', error);
     }
-    await createInviteInDb(env, account.id, email, role);
-    const invites = await fetchInvitesFromDb(env, account.id);
-    return jsonResponse({ ok: true, invites: invites ?? [] }, 201);
+
+    if (!canUseFallback) {
+      return dataUnavailableResponse(env);
+    }
+
+    const displayName = payload.name?.trim();
+    const inviteRecord = createFallbackInviteRecord(account.id, email, role, displayName && displayName.length > 0 ? displayName : undefined);
+    appendFallbackInvite(account.id, inviteRecord);
+    return jsonResponse({ ok: true, invites: fallbackInvites(account.id) }, 201);
   }
 
   return jsonResponse({ error: 'Method Not Allowed' }, 405);
