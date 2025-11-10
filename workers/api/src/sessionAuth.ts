@@ -81,11 +81,13 @@ export async function authenticateRequest(request: Request, env: Env): Promise<A
 
   // Map session to AuthenticatedSession
   const session = result.session;
+  const expiresAtValue = session.session.expiresAt;
+  const expiresAt = normalizeTimestamp(expiresAtValue);
   const authenticatedSession: AuthenticatedSession = {
     sessionId: session.session.id,
     userId: session.user.id,
     emailAddress: session.user.email,
-    expiresAt: session.session.expiresAt.toISOString(),
+    expiresAt,
     session,
   };
 
@@ -208,4 +210,22 @@ function resolveLoginFetcher(env: Env): typeof fetch | undefined {
     return service.fetch.bind(service);
   }
   return undefined;
+}
+
+function normalizeTimestamp(value: unknown): string {
+  if (value instanceof Date) {
+    return value.toISOString();
+  }
+  if (typeof value === 'string') {
+    const parsed = Date.parse(value);
+    return Number.isFinite(parsed) ? new Date(parsed).toISOString() : value;
+  }
+  if (typeof value === 'number') {
+    return new Date(value).toISOString();
+  }
+  try {
+    return new Date(value as any).toISOString();
+  } catch {
+    return new Date().toISOString();
+  }
 }
