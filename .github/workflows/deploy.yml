@@ -25,6 +25,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       deployment-mode: ${{ steps.set-mode.outputs.mode }}
+      has-test-session: ${{ steps.session-gate.outputs.has-cookie }}
     env:
       ENV_BLOB: ${{ secrets.ENV_BLOB || '' }}
     steps:
@@ -42,6 +43,17 @@ jobs:
           echo "MODE=$MODE" >> "$GITHUB_ENV"
           echo "mode=$MODE" >> "$GITHUB_OUTPUT"
           echo "Deployment mode: $MODE"
+
+      - name: Evaluate authenticated E2E eligibility
+        id: session-gate
+        env:
+          TEST_SESSION_COOKIE: ${{ secrets.TEST_SESSION_COOKIE || '' }}
+        run: |
+          if [ -n "$TEST_SESSION_COOKIE" ]; then
+            echo "has-cookie=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has-cookie=false" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Enable Corepack for pnpm
         run: corepack enable pnpm
@@ -212,7 +224,7 @@ jobs:
 
   e2e:
     needs: deploy
-    if: needs.deploy.outputs.deployment-mode == 'deploy' && secrets.TEST_SESSION_COOKIE
+    if: needs.deploy.outputs.deployment-mode == 'deploy' && needs.deploy.outputs.has-test-session == 'true'
     runs-on: ubuntu-latest
     env:
       ENV_BLOB: ${{ secrets.ENV_BLOB || '' }}
