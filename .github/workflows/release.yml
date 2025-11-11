@@ -17,6 +17,7 @@ permissions:
 
 jobs:
   release:
+    environment: production
     runs-on: ubuntu-latest
     env:
       CI: true
