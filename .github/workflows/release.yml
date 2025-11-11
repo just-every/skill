@@ -20,11 +20,39 @@ jobs:
     runs-on: ubuntu-latest
     env:
       CI: true
+      ENV_BLOB: ${{ secrets.ENV_BLOB || '' }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+
+      - name: Ensure ENV_BLOB secret exists
+        run: |
+          if [ -z "$ENV_BLOB" ]; then
+            echo "ENV_BLOB secret is required for release" >&2
+            exit 1
+          fi
+
+      - name: Decode ENV_BLOB to .env.ci
+        run: |
+          echo "$ENV_BLOB" | base64 --decode > .env.ci
+
+      - name: Export env vars
+        run: |
+          set -euo pipefail
+          while IFS= read -r line; do
+            line="${line%%$'\r'}"
+            if [ -z "$line" ] || [[ "$line" =~ ^# ]]; then
+              continue
+            fi
+            var="${line%%=*}"; value="${line#*=}"
+            if [ -z "$var" ]; then
+              echo "Skipping malformed env line: $line" >&2
+              continue
+            fi
+            printf '%s=%s\n' "$var" "$value" >> $GITHUB_ENV
+          done < .env.ci
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v3
@@ -42,6 +70,9 @@ jobs:
           registry-url: https://registry.npmjs.org
           cache: pnpm
           cache-dependency-path: pnpm-lock.yaml
+
+      - name: Sync Font Awesome registry token
+        run: node scripts/sync-fontawesome-token.mjs
 
       - name: Install dependencies
         run: pnpm install --recursive
