@@ -127,7 +127,7 @@ const AppShell = ({ navItems, activeItem, onNavigate, companies, isLoadingCompan
       </View>
 
       <View className="flex min-h-screen flex-1 flex-col bg-surface">
-        <View className="flex flex-row items-center justify-between border-b border-slate-200 bg-white/90 px-6 py-4 backdrop-blur">
+        <View className="flex flex-row items-center justify-between border-b border-slate-200 bg-white/90 px-6 py-4 backdrop-blur z-40">
           <View className="relative">
             <Pressable
               onPress={() => setShowSwitcher((prev) => !prev)}
