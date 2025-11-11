@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
 import { Pressable, ScrollView, Text, View } from 'react-native';
 import { FontAwesomeIcon } from '@fortawesome/react-native-fontawesome';
@@ -35,6 +35,7 @@ const AppShell = ({ navItems, activeItem, onNavigate, companies, isLoadingCompan
   const api = useApiClient();
   const [openInvite, setOpenInvite] = useState(false);
   const [showSwitcher, setShowSwitcher] = useState(false);
+  const [switcherHover, setSwitcherHover] = useState(false);
   const [accountMenuOpen, setAccountMenuOpen] = useState(false);
   const switcherRef = React.useRef<HTMLDivElement | null>(null);
   const accountMenuRef = React.useRef<HTMLDivElement | null>(null);
@@ -95,6 +96,12 @@ const AppShell = ({ navItems, activeItem, onNavigate, companies, isLoadingCompan
     }
   };
 
+  const closeMenus = useCallback(() => {
+    setShowSwitcher(false);
+    setSwitcherHover(false);
+    setAccountMenuOpen(false);
+  }, []);
+
   useEffect(() => {
     if (typeof document === 'undefined') {
       return undefined;
@@ -103,124 +110,159 @@ const AppShell = ({ navItems, activeItem, onNavigate, companies, isLoadingCompan
       const target = event.target as Node;
       if (showSwitcher && switcherRef.current && !switcherRef.current.contains(target)) {
         setShowSwitcher(false);
+        setSwitcherHover(false);
       }
       if (accountMenuOpen && accountMenuRef.current && !accountMenuRef.current.contains(target)) {
         setAccountMenuOpen(false);
       }
     };
+    const handleGlobalKeydown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        closeMenus();
+      }
+    };
     document.addEventListener('mousedown', handleGlobalPress);
     document.addEventListener('touchstart', handleGlobalPress);
+    document.addEventListener('keydown', handleGlobalKeydown);
     return () => {
       document.removeEventListener('mousedown', handleGlobalPress);
       document.removeEventListener('touchstart', handleGlobalPress);
+      document.removeEventListener('keydown', handleGlobalKeydown);
     };
-  }, [accountMenuOpen, showSwitcher]);
+  }, [accountMenuOpen, closeMenus, showSwitcher]);
 
   return (
     <View className="flex min-h-screen flex-row bg-surface">
-      <View className="hidden w-72 flex-col gap-8 border-r border-slate-900/30 bg-gradient-to-b from-slate-950 via-slate-900 to-slate-950 px-6 py-8 text-white lg:flex">
-        <View className="flex flex-row items-center gap-3">
-          <Logo size={34} color="#f8fafc" />
-        </View>
-        <View className="space-y-2">
-          {navItems.map((item) => {
-            const isActive = item.key === activeItem;
-            return (
-              <Pressable
-                key={item.key}
-                onPress={() => onNavigate(item.key)}
-                className={cn(
-                  'flex flex-row items-start gap-3 rounded-2xl px-4 py-3 transition-colors',
-                  isActive ? 'bg-white/10 text-white' : 'text-slate-300 hover:bg-white/5'
-                )}
-              >
-                <View className="pt-1">
-                  <FontAwesomeIcon icon={item.icon} size={16} color={isActive ? '#ffffff' : '#b8c2d8'} />
-                </View>
-                <View className="flex-1">
-                  <Text className={cn('text-sm font-semibold', isActive ? 'text-white' : 'text-slate-100')}>
-                    {item.label}
-                  </Text>
-                  <Text className="text-[11px] text-slate-400">{item.description}</Text>
-                </View>
-              </Pressable>
-            );
-          })}
-        </View>
-      </View>
-
-      <View className="flex min-h-screen flex-1 flex-col bg-surface">
-        <View className="flex flex-row items-center justify-between border-b border-slate-200 bg-white/90 px-6 py-4 backdrop-blur z-40">
-          <View className="relative" ref={switcherRef}>
-            <Pressable
-              onPress={() => setShowSwitcher((prev) => !prev)}
-              className="min-w-[220px] rounded-2xl border border-slate-200 px-4 py-2 text-left"
-            >
-              <Text className="text-sm font-semibold text-ink">
-                {isLoadingCompanies ? 'Loading companies…' : activeCompany?.name ?? 'No companies'}
-              </Text>
-              <Text className="text-xs text-slate-500">{activeCompany?.plan ?? 'Plan TBD'}</Text>
-            </Pressable>
-            {showSwitcher ? (
-              <View className="absolute left-0 right-0 top-full z-50 mt-2 max-h-64 overflow-auto rounded-2xl border border-slate-200 bg-white p-3 shadow-2xl">
-                {companies.map((company) => (
-                  <Pressable
-                    key={company.id}
-                    onPress={() => handleCompanyChange(company)}
-                    className={cn(
-                      'rounded-xl px-3 py-2',
-                      company.id === activeCompany?.id ? 'bg-brand-50 text-ink' : 'text-slate-700'
-                    )}
-                  >
-                    <Text className="text-sm font-semibold">{company.name}</Text>
-                    <Text className="text-xs text-slate-500">{company.plan}</Text>
-                  </Pressable>
-                ))}
-              </View>
-            ) : null}
-          </View>
-
+      <View className="hidden w-72 border-r border-slate-900/30 bg-gradient-to-b from-slate-950 via-slate-900 to-slate-950 px-6 py-8 text-white lg:flex">
+        <View className="flex h-full flex-col">
           <View className="flex flex-row items-center gap-3">
-            <Button size="sm" variant="primary" onPress={() => setOpenInvite(true)}>
-              Invite teammates
-            </Button>
-
-            <View className="relative" ref={accountMenuRef}>
-              <Pressable
-                onPress={() => setAccountMenuOpen((prev) => !prev)}
-                className="flex flex-row items-center gap-2 rounded-full border border-slate-200 bg-white px-2 py-1"
-              >
-                <View className="h-9 w-9 items-center justify-center rounded-full bg-ink">
-                  <Text className="text-sm font-semibold text-white">{initials}</Text>
-                </View>
-                <FontAwesomeIcon icon={faAngleDown} size={12} color="#0f172a" />
-              </Pressable>
-              {accountMenuOpen ? (
-                <View className="absolute right-0 top-full z-50 mt-2 min-w-[220px] rounded-2xl border border-slate-200 bg-white p-4 shadow-2xl">
-                  <Text className="text-xs uppercase tracking-[0.3em] text-slate-400">Signed in as</Text>
-                  <Text className="mt-1 text-sm font-semibold text-ink">{displayName}</Text>
-                  <View className="mt-1 flex flex-row items-center gap-2 text-slate-500">
-                    <FontAwesomeIcon icon={faEnvelope} size={12} color="#64748b" />
-                    <Text className="text-xs text-slate-500">{userEmail}</Text>
+            <Logo size={34} color="#f8fafc" />
+          </View>
+          <View className="mt-8 flex flex-1 flex-col gap-2">
+            {navItems.map((item) => {
+              const isActive = item.key === activeItem;
+              return (
+                <Pressable
+                  key={item.key}
+                  onPress={() => onNavigate(item.key)}
+                  className={cn(
+                    'flex flex-row items-start gap-3 rounded-2xl px-4 py-3 transition-colors',
+                    isActive ? 'bg-white/10 text-white' : 'text-slate-300 hover:bg-white/5'
+                  )}
+                >
+                  <View className="pt-1">
+                    <FontAwesomeIcon icon={item.icon} size={16} color={isActive ? '#ffffff' : '#b8c2d8'} />
                   </View>
-                  <Pressable
-                    onPress={handleSignOut}
-                    className="mt-4 flex flex-row items-center justify-center gap-2 rounded-2xl border border-slate-200 px-4 py-2"
+                  <View className="flex-1">
+                    <Text className={cn('text-sm font-semibold', isActive ? 'text-white' : 'text-slate-100')}>
+                      {item.label}
+                    </Text>
+                    <Text className="text-[11px] text-slate-400">{item.description}</Text>
+                  </View>
+                </Pressable>
+              );
+            })}
+          </View>
+          <View className="mt-auto border-t border-white/10 pt-6">
+            <View className="space-y-2">
+              <Text className="text-[10px] uppercase tracking-[0.3em] text-slate-400">Current company</Text>
+              <View
+                className="relative"
+                ref={switcherRef}
+                onHoverIn={() => setSwitcherHover(true)}
+                onHoverOut={() => setSwitcherHover(false)}
+              >
+                <Pressable
+                  onPress={() => {
+                    setShowSwitcher((prev) => !prev);
+                    setSwitcherHover(false);
+                  }}
+                  className="rounded-2xl border border-slate-700 bg-slate-950/70 px-3 py-3 text-left text-sm font-semibold text-white"
+                  accessibilityRole="button"
+                  accessibilityLabel="Select company"
+                  accessibilityExpanded={showSwitcher || switcherHover}
+                  accessibilityHasPopup="menu"
+                >
+                  <Text>{activeCompany?.name ?? 'Select company'}</Text>
+                  <Text className="text-xs text-slate-400">{activeCompany?.plan ?? '—'}</Text>
+                </Pressable>
+                {(showSwitcher || switcherHover) && (
+                  <View
+                    accessibilityRole="menu"
+                    aria-label="Company switcher"
+                    className="absolute right-0 bottom-full mb-2 w-48 overflow-hidden rounded-2xl border border-slate-800 bg-slate-950/90 p-1 shadow-sm"
                   >
-                    <FontAwesomeIcon icon={faArrowRightFromBracket} size={14} color="#0f172a" />
-                    <Text className="text-sm font-semibold text-ink">Sign out</Text>
-                  </Pressable>
-                </View>
-              ) : null}
+                    {companies.map((company) => (
+                      <Pressable
+                        key={company.id}
+                        onPress={() => handleCompanyChange(company)}
+                        className={cn(
+                          'rounded-xl px-3 py-2 transition-colors',
+                          company.id === activeCompany?.id
+                            ? 'bg-white/10 text-white'
+                            : 'text-slate-200 hover:bg-white/5'
+                        )}
+                        accessibilityRole="menuitemradio"
+                        accessibilityState={{ selected: company.id === activeCompany?.id }}
+                      >
+                        <Text className="text-sm font-semibold">{company.name}</Text>
+                        <Text className="text-[11px] text-slate-400">{company.plan}</Text>
+                      </Pressable>
+                    ))}
+                  </View>
+                )}
+              </View>
+            </View>
+            <View className="mt-4 space-y-2">
+              <Text className="text-[10px] uppercase tracking-[0.3em] text-slate-400">Account</Text>
+              <View className="relative" ref={accountMenuRef}>
+                <Pressable
+                  onPress={() => setAccountMenuOpen((prev) => !prev)}
+                  accessibilityRole="button"
+                  accessibilityLabel="Account options"
+                  accessibilityExpanded={accountMenuOpen}
+                  accessibilityHasPopup="menu"
+                  className="flex flex-row items-center gap-2 rounded-full border border-slate-700 bg-slate-950/80 px-3 py-2"
+                >
+                  <View className="h-9 w-9 items-center justify-center rounded-full bg-ink">
+                    <Text className="text-sm font-semibold text-white">{initials}</Text>
+                  </View>
+                  <Text className="text-sm font-semibold text-white">{displayName}</Text>
+                  <FontAwesomeIcon icon={faAngleDown} size={12} color="#f8fafc" />
+                </Pressable>
+                {accountMenuOpen && (
+                  <View
+                    accessibilityRole="menu"
+                    aria-label="Account options"
+                    className="absolute right-0 bottom-full mb-2 min-w-[220px] rounded-2xl border border-slate-800 bg-slate-950/90 p-4 shadow-sm"
+                  >
+                    <Text className="text-[10px] uppercase tracking-[0.3em] text-slate-400">Signed in as</Text>
+                    <Text className="mt-1 text-sm font-semibold text-white">{userEmail}</Text>
+                    <Pressable
+                      onPress={handleSignOut}
+                      accessibilityRole="menuitem"
+                      className="mt-4 flex flex-row items-center justify-center gap-2 rounded-2xl border border-slate-700 px-4 py-2"
+                    >
+                      <FontAwesomeIcon icon={faArrowRightFromBracket} size={14} color="#94a3b8" />
+                      <Text className="text-sm font-semibold text-white">Logout</Text>
+                    </Pressable>
+                  </View>
+                )}
+              </View>
             </View>
           </View>
         </View>
-
+      </View>
+      <View className="flex min-h-screen flex-1 flex-col bg-surface">
+        <View className="flex flex-row items-center justify-end border-b border-slate-200 bg-white/90 px-6 py-4 backdrop-blur z-40">
+          <Button size="sm" variant="primary" onPress={() => setOpenInvite(true)}>
+            Invite teammates
+          </Button>
+        </View>
         <ScrollView className="flex-1">
           <View className="flex-1 gap-6 px-4 py-6 md:px-8">{children}</View>
         </ScrollView>
       </View>
-
       <InviteModal visible={openInvite} onClose={() => setOpenInvite(false)} onSubmit={handleInviteSubmit} />
     </View>
   );
