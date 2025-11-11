@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
 import { Pressable, ScrollView, Text, View } from 'react-native';
 import { FontAwesomeIcon } from '@fortawesome/react-native-fontawesome';
@@ -36,6 +36,8 @@ const AppShell = ({ navItems, activeItem, onNavigate, companies, isLoadingCompan
   const [openInvite, setOpenInvite] = useState(false);
   const [showSwitcher, setShowSwitcher] = useState(false);
   const [accountMenuOpen, setAccountMenuOpen] = useState(false);
+  const switcherRef = React.useRef<HTMLDivElement | null>(null);
+  const accountMenuRef = React.useRef<HTMLDivElement | null>(null);
   const { session, signOut } = useAuth();
 
   const activeCompany = useMemo(() => {
@@ -93,6 +95,27 @@ const AppShell = ({ navItems, activeItem, onNavigate, companies, isLoadingCompan
     }
   };
 
+  useEffect(() => {
+    if (typeof document === 'undefined') {
+      return undefined;
+    }
+    const handleGlobalPress = (event: MouseEvent | TouchEvent) => {
+      const target = event.target as Node;
+      if (showSwitcher && switcherRef.current && !switcherRef.current.contains(target)) {
+        setShowSwitcher(false);
+      }
+      if (accountMenuOpen && accountMenuRef.current && !accountMenuRef.current.contains(target)) {
+        setAccountMenuOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleGlobalPress);
+    document.addEventListener('touchstart', handleGlobalPress);
+    return () => {
+      document.removeEventListener('mousedown', handleGlobalPress);
+      document.removeEventListener('touchstart', handleGlobalPress);
+    };
+  }, [accountMenuOpen, showSwitcher]);
+
   return (
     <View className="flex min-h-screen flex-row bg-surface">
       <View className="hidden w-72 flex-col gap-8 border-r border-slate-900/30 bg-gradient-to-b from-slate-950 via-slate-900 to-slate-950 px-6 py-8 text-white lg:flex">
@@ -128,7 +151,7 @@ const AppShell = ({ navItems, activeItem, onNavigate, companies, isLoadingCompan
 
       <View className="flex min-h-screen flex-1 flex-col bg-surface">
         <View className="flex flex-row items-center justify-between border-b border-slate-200 bg-white/90 px-6 py-4 backdrop-blur z-40">
-          <View className="relative">
+          <View className="relative" ref={switcherRef}>
             <Pressable
               onPress={() => setShowSwitcher((prev) => !prev)}
               className="min-w-[220px] rounded-2xl border border-slate-200 px-4 py-2 text-left"
@@ -162,7 +185,7 @@ const AppShell = ({ navItems, activeItem, onNavigate, companies, isLoadingCompan
               Invite teammates
             </Button>
 
-            <View className="relative">
+            <View className="relative" ref={accountMenuRef}>
               <Pressable
                 onPress={() => setAccountMenuOpen((prev) => !prev)}
                 className="flex flex-row items-center gap-2 rounded-full border border-slate-200 bg-white px-2 py-1"
