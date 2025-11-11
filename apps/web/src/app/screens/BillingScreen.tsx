@@ -143,6 +143,7 @@ const BillingScreen = ({ company, subscription, products = [], invoices = [], vi
                     </View>
                     <Button
                       variant="default"
+                      testID={`billing-product-select-${product.id}`}
                       onPress={() => {
                         if (!product.priceId || !canCheckoutProduct) {
                           return;
@@ -227,6 +228,7 @@ const BillingScreen = ({ company, subscription, products = [], invoices = [], vi
           <View className="space-y-3">
             {isEditingEmail ? (
               <Input
+                testID="billing-contact-input"
                 value={draftEmail}
                 onChangeText={(value) => setDraftEmail(value)}
                 errorText={emailError ?? undefined}
@@ -235,7 +237,10 @@ const BillingScreen = ({ company, subscription, products = [], invoices = [], vi
                 autoCapitalize="none"
               />
             ) : (
-              <View className="rounded-2xl border border-slate-200 bg-slate-50 px-3 py-3">
+              <View
+                testID="billing-contact-value"
+                className="rounded-2xl border border-slate-200 bg-slate-50 px-3 py-3"
+              >
                 <Text className="text-base text-ink">{company?.billingEmail ?? 'billing@your-company.com'}</Text>
               </View>
             )}
@@ -245,6 +250,7 @@ const BillingScreen = ({ company, subscription, products = [], invoices = [], vi
                   <>
                     <Button
                       variant="default"
+                      testID="billing-contact-save"
                       onPress={async () => {
                         setEmailError(null);
                         try {
@@ -262,6 +268,7 @@ const BillingScreen = ({ company, subscription, products = [], invoices = [], vi
                     </Button>
                     <Button
                       variant="ghost"
+                      testID="billing-contact-cancel"
                       onPress={() => {
                         setDraftEmail(company?.billingEmail ?? '');
                         setEmailError(null);
@@ -273,7 +280,7 @@ const BillingScreen = ({ company, subscription, products = [], invoices = [], vi
                     </Button>
                   </>
                 ) : (
-                  <Button variant="default" onPress={() => setIsEditingEmail(true)}>
+                  <Button variant="default" testID="billing-contact-edit" onPress={() => setIsEditingEmail(true)}>
                     Edit
                   </Button>
                 )

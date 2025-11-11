@@ -1,15 +1,25 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { Pressable, ScrollView, Text, View } from 'react-native';
 
 import type { Invite, Member } from '../types';
-import { Badge, Button, Card, CardContent, CardDescription, CardHeader, CardTitle } from '../../components/ui';
+import {
+  Badge,
+  Button,
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+  Input,
+} from '../../components/ui';
 
 type TeamScreenProps = {
   readonly members?: Member[];
   readonly invites?: Invite[];
   readonly viewerRole?: Member['role'];
-  readonly onRemoveMember?: (memberId: string) => void;
-  readonly onChangeRole?: (memberId: string, newRole: Member['role']) => void;
+  readonly onRemoveMember?: (memberId: string) => Promise<void>;
+  readonly onChangeRole?: (memberId: string, newRole: Member['role']) => Promise<void>;
+  readonly onUpdateMemberName?: (memberId: string, name: string) => Promise<void>;
   readonly onResendInvite?: (inviteId: string) => void;
   readonly onRevokeInvite?: (inviteId: string) => void;
 };
@@ -18,20 +28,20 @@ const roleVariant: Record<Member['role'], 'default' | 'warning' | 'success' | 'm
   Owner: 'warning',
   Admin: 'default',
   Billing: 'success',
-  Viewer: 'muted'
+  Viewer: 'muted',
 };
 
 const statusVariant: Record<Member['status'], 'success' | 'warning' | 'danger'> = {
   active: 'success',
   invited: 'warning',
-  suspended: 'danger'
+  suspended: 'danger',
 };
 
 const inviteStatusVariant: Record<Invite['status'], 'default' | 'success' | 'warning' | 'danger' | 'muted'> = {
   pending: 'warning',
   accepted: 'success',
   expired: 'muted',
-  revoked: 'danger'
+  revoked: 'danger',
 };
 
 const TeamScreen = ({
@@ -40,26 +50,86 @@ const TeamScreen = ({
   viewerRole,
   onRemoveMember,
   onChangeRole,
+  onUpdateMemberName,
   onResendInvite,
   onRevokeInvite,
 }: TeamScreenProps) => {
-  const [activeMenu, setActiveMenu] = useState<string | null>(null);
-  const canManageTeam = viewerRole === 'Owner' || viewerRole === 'Admin';
+  const [memberToRemove, setMemberToRemove] = useState<Member | null>(null);
+  const [busyMemberId, setBusyMemberId] = useState<string | null>(null);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [editingNameId, setEditingNameId] = useState<string | null>(null);
+  const [editingNameValue, setEditingNameValue] = useState('');
+  const [nameError, setNameError] = useState<string | null>(null);
 
-  const handleRemoveMember = (memberId: string) => {
-    onRemoveMember?.(memberId);
-    setActiveMenu(null);
+  const canManageTeam = viewerRole === 'Owner' || viewerRole === 'Admin';
+  const roleOptions = useMemo(() => (['Admin', 'Billing', 'Viewer'] as const), []);
+
+  const handleChangeRole = async (memberId: string, newRole: Member['role'], currentRole: Member['role']) => {
+    if (!canManageTeam || currentRole === newRole) {
+      return;
+    }
+    setErrorMessage(null);
+    setBusyMemberId(memberId);
+    try {
+      await onChangeRole?.(memberId, newRole);
+    } catch (error) {
+      console.error('Failed to update role', error);
+      setErrorMessage('Unable to apply role change. Please try again.');
+    } finally {
+      setBusyMemberId(null);
+    }
   };
 
-  const handleChangeRole = (memberId: string, newRole: Member['role']) => {
-    onChangeRole?.(memberId, newRole);
-    setActiveMenu(null);
+  const handleStartEditingName = (member: Member) => {
+    setEditingNameId(member.id);
+    setEditingNameValue(member.name);
+    setNameError(null);
+  };
+
+  const handleSaveName = async (memberId: string) => {
+    const trimmed = editingNameValue.trim();
+    if (!trimmed) {
+      setNameError('Name is required');
+      return;
+    }
+    setBusyMemberId(memberId);
+    try {
+      await onUpdateMemberName?.(memberId, trimmed);
+      setEditingNameId(null);
+    } catch (error) {
+      console.error('Failed to update name', error);
+      setNameError('Unable to save name. Please try again.');
+    } finally {
+      setBusyMemberId(null);
+    }
+  };
+
+  const confirmRemoval = async () => {
+    if (!memberToRemove) {
+      return;
+    }
+    setErrorMessage(null);
+    setBusyMemberId(memberToRemove.id);
+    try {
+      await onRemoveMember?.(memberToRemove.id);
+      setMemberToRemove(null);
+    } catch (error) {
+      console.error('Failed to remove member', error);
+      setErrorMessage('Unable to remove member. Please try again.');
+    } finally {
+      setBusyMemberId(null);
+    }
   };
 
   const formatDate = (value?: string) => (value ? new Date(value).toLocaleDateString() : '—');
 
   return (
-    <View className="space-y-6">
+    <View className="space-y-6 relative">
+      {errorMessage && (
+        <View className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3">
+          <Text className="text-sm font-semibold text-red-700">{errorMessage}</Text>
+        </View>
+      )}
       <Card>
         <CardHeader className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 pb-4">
           <View className="space-y-1">
@@ -77,42 +147,103 @@ const TeamScreen = ({
             {members.map((member) => (
               <View
                 key={member.id}
+                testID={`team-member-row-${member.id}`}
+                dataSet={{ memberId: member.id }}
                 className="flex flex-row items-center justify-between border-b border-slate-100 px-6 py-4 last:border-b-0"
               >
                 <View className="space-y-1">
-                  <Text className="text-base font-semibold text-ink">{member.name}</Text>
+                  {editingNameId === member.id ? (
+                    <View className="space-y-2">
+                      <Input
+                        testID={`team-member-name-input-${member.id}`}
+                        value={editingNameValue}
+                        onChangeText={setEditingNameValue}
+                        className="rounded-2xl border-slate-300 bg-white"
+                        autoFocus
+                      />
+                      <View className="flex flex-row gap-2">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          testID={`team-member-save-${member.id}`}
+                          onPress={() => handleSaveName(member.id)}
+                          disabled={busyMemberId === member.id}
+                        >
+                          Save
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          testID={`team-member-cancel-${member.id}`}
+                          onPress={() => {
+                            setEditingNameId(null);
+                            setNameError(null);
+                          }}
+                          disabled={busyMemberId === member.id}
+                          >
+                          Cancel
+                        </Button>
+                      </View>
+                      {nameError && <Text className="text-xs text-red-600">{nameError}</Text>}
+                    </View>
+                  ) : (
+                    <View className="flex flex-row items-center gap-2">
+                      <Text className="text-base font-semibold text-ink" testID={`team-member-name-${member.id}`}>
+                        {member.name}
+                      </Text>
+                      {canManageTeam && member.role !== 'Owner' && (
+                        <Pressable
+                          testID={`team-member-edit-${member.id}`}
+                          accessibilityRole="button"
+                          onPress={() => handleStartEditingName(member)}
+                        >
+                          <Text className="text-xs font-semibold text-slate-500">Edit</Text>
+                        </Pressable>
+                      )}
+                    </View>
+                  )}
                   <Text className="text-sm text-slate-500">{member.email}</Text>
                 </View>
-                <View className="flex flex-row items-center gap-2">
-                  <Badge variant={roleVariant[member.role]}>{member.role}</Badge>
-                  <Badge variant={statusVariant[member.status]}>{member.status}</Badge>
+                <View className="flex flex-col items-end gap-2">
+                  <View className="flex flex-row flex-wrap items-center gap-2">
+                    <Badge
+                      variant={roleVariant[member.role]}
+                      testID={`team-member-current-role-${member.id}`}
+                    >
+                      {member.role}
+                    </Badge>
+                    <Badge variant={statusVariant[member.status]}>{member.status}</Badge>
+                  </View>
                   {canManageTeam && member.role !== 'Owner' && (
-                    <View className="relative">
-                      <Pressable onPress={() => setActiveMenu(activeMenu === member.id ? null : member.id)}>
-                        <View className="rounded px-2 py-1 hover:bg-slate-100">
-                          <Text className="text-base text-slate-600">⋮</Text>
-                        </View>
-                      </Pressable>
-                      {activeMenu === member.id && (
-                        <View className="absolute right-0 top-8 z-10 w-48 rounded-lg border border-slate-200 bg-white shadow-lg">
-                          <View className="p-1">
-                            <Text className="px-3 py-2 text-xs font-semibold text-slate-500">Change role</Text>
-                            {(['Admin', 'Billing', 'Viewer'] as const).map((role) => (
-                              <Pressable key={role} onPress={() => handleChangeRole(member.id, role)}>
-                                <View className="rounded px-3 py-2 hover:bg-slate-100">
-                                  <Text className="text-sm text-ink">{role}</Text>
-                                </View>
-                              </Pressable>
-                            ))}
-                            <View className="my-1 border-t border-slate-200" />
-                            <Pressable onPress={() => handleRemoveMember(member.id)}>
-                              <View className="rounded px-3 py-2 hover:bg-red-50">
-                                <Text className="text-sm text-red-600">Remove member</Text>
-                              </View>
-                            </Pressable>
+                    <View className="flex flex-row flex-wrap items-center gap-2">
+                      {roleOptions.map((role) => (
+                        <Pressable
+                          key={`${member.id}-${role}`}
+                          testID={`team-member-role-${member.id}-${role}`}
+                          accessibilityRole="button"
+                          onPress={() => handleChangeRole(member.id, role, member.role)}
+                          disabled={busyMemberId === member.id}
+                        >
+                          <View
+                            className={`rounded-full border px-3 py-1 ${
+                              member.role === role
+                                ? 'border-transparent bg-slate-900 text-white'
+                                : 'border-slate-200 bg-white text-slate-700 hover:border-slate-300'
+                            }`}
+                          >
+                            <Text className="text-xs font-semibold">{role}</Text>
                           </View>
-                        </View>
-                      )}
+                        </Pressable>
+                      ))}
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onPress={() => setMemberToRemove(member)}
+                        disabled={busyMemberId === member.id}
+                        textClassName="text-red-600"
+                      >
+                        Remove
+                      </Button>
                     </View>
                   )}
                 </View>
@@ -177,6 +308,30 @@ const TeamScreen = ({
           )}
         </CardContent>
       </Card>
+
+      {memberToRemove && (
+        <View className="absolute inset-0 z-20 flex items-center justify-center bg-black/40 p-4">
+          <View className="w-full max-w-sm rounded-2xl bg-white p-6 shadow-2xl">
+            <Text className="text-lg font-semibold text-ink">Confirm removal</Text>
+            <Text className="mt-2 text-sm text-slate-600">
+              Removing {memberToRemove.name} will revoke their access immediately. This cannot be undone from the UI.
+            </Text>
+            <View className="mt-4 flex flex-row items-center justify-end gap-2">
+              <Button variant="ghost" size="sm" onPress={() => setMemberToRemove(null)}>
+                Cancel
+              </Button>
+              <Button
+                variant="secondary"
+                size="sm"
+                onPress={confirmRemoval}
+                loading={busyMemberId === memberToRemove.id}
+              >
+                Remove
+              </Button>
+            </View>
+          </View>
+        </View>
+      )}
     </View>
   );
 };

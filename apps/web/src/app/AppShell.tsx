@@ -144,6 +144,10 @@ const AppShell = ({ navItems, activeItem, onNavigate, companies, isLoadingCompan
               return (
                 <Pressable
                   key={item.key}
+                  testID={`nav-${item.key}`}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: isActive }}
+                  aria-current={isActive ? 'page' : undefined}
                   onPress={() => onNavigate(item.key)}
                   className={cn(
                     'flex flex-row items-start gap-3 rounded-2xl px-4 py-3 transition-colors',
@@ -173,6 +177,7 @@ const AppShell = ({ navItems, activeItem, onNavigate, companies, isLoadingCompan
                 onHoverOut={() => setSwitcherHover(false)}
               >
                 <Pressable
+                  testID="company-switcher-toggle"
                   onPress={() => {
                     setShowSwitcher((prev) => !prev);
                     setSwitcherHover(false);
@@ -190,6 +195,7 @@ const AppShell = ({ navItems, activeItem, onNavigate, companies, isLoadingCompan
                   <View
                     accessibilityRole="menu"
                     aria-label="Company switcher"
+                    testID="company-switcher-menu"
                     className="absolute right-0 bottom-full mb-2 w-48 overflow-hidden rounded-2xl border border-slate-800 bg-slate-950/90 p-1 shadow-sm"
                   >
                     {companies.map((company) => (
@@ -217,6 +223,7 @@ const AppShell = ({ navItems, activeItem, onNavigate, companies, isLoadingCompan
               <Text className="text-[10px] uppercase tracking-[0.3em] text-slate-400">Account</Text>
               <View className="relative" ref={accountMenuRef}>
                 <Pressable
+                  testID="account-menu-toggle"
                   onPress={() => setAccountMenuOpen((prev) => !prev)}
                   accessibilityRole="button"
                   accessibilityLabel="Account options"
@@ -234,6 +241,7 @@ const AppShell = ({ navItems, activeItem, onNavigate, companies, isLoadingCompan
                   <View
                     accessibilityRole="menu"
                     aria-label="Account options"
+                    testID="account-menu"
                     className="absolute right-0 bottom-full mb-2 min-w-[220px] rounded-2xl border border-slate-800 bg-slate-950/90 p-4 shadow-sm"
                   >
                     <Text className="text-[10px] uppercase tracking-[0.3em] text-slate-400">Signed in as</Text>

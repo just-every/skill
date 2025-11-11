@@ -23,6 +23,8 @@ jobs:
   deploy:
     environment: production
     runs-on: ubuntu-latest
+    outputs:
+      deployment-mode: ${{ steps.set-mode.outputs.mode }}
     env:
       ENV_BLOB: ${{ secrets.ENV_BLOB || '' }}
     steps:
@@ -38,6 +40,7 @@ jobs:
         run: |
           MODE="${{ github.event_name == 'workflow_dispatch' && github.event.inputs.mode || 'deploy' }}"
           echo "MODE=$MODE" >> "$GITHUB_ENV"
+          echo "mode=$MODE" >> "$GITHUB_OUTPUT"
           echo "Deployment mode: $MODE"
 
       - name: Enable Corepack for pnpm
@@ -206,3 +209,56 @@ jobs:
             workers/api/wrangler.toml
             test-results/**
           if-no-files-found: ignore
+
+  e2e:
+    needs: deploy
+    if: needs.deploy.outputs.deployment-mode == 'deploy' && secrets.TEST_SESSION_COOKIE
+    runs-on: ubuntu-latest
+    env:
+      ENV_BLOB: ${{ secrets.ENV_BLOB || '' }}
+      TEST_SESSION_COOKIE: ${{ secrets.TEST_SESSION_COOKIE }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Ensure ENV_BLOB secret exists
+        if: env.ENV_BLOB == ''
+        run: |
+          echo "ENV_BLOB secret is required for authenticated E2E" >&2
+          exit 1
+
+      - name: Decode ENV_BLOB to .env.ci
+        run: |
+          echo "$ENV_BLOB" | base64 --decode > .env.ci
+
+      - name: Export env vars for E2E
+        run: |
+          set -euo pipefail
+          while IFS= read -r line; do
+            line="${line%%$'\r'}"
+            if [ -z "$line" ]; then
+              continue
+            fi
+            var="${line%%=*}"; value="${line#*=}"
+            if [ -z "$var" ]; then
+              echo "Skipping malformed env line: $line" >&2
+              continue
+            fi
+            printf '%s=%s\n' "$var" "$value" >> $GITHUB_ENV
+          done < <(grep -v '^#' .env.ci)
+
+      - name: Enable Corepack for pnpm
+        run: corepack enable pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Run authenticated Playwright suite
+        env:
+          E2E_BASE_URL: ${{ env.PROJECT_DOMAIN }}
+        run: pnpm test:e2e
+
+      - name: Upload Playwright artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: authenticated-playwright-${{ github.run_id }}
+          path: test-results/**
+          if-no-files-found: warn
