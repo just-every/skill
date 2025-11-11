@@ -17,10 +17,10 @@
 - Worker unit tests: `npm run test --workspace workers/api` (34 tests; stripe + prerender warnings only).  
 - Worker typecheck: `pnpm --filter @justevery/worker run typecheck` (passes after typing fixes).  
 - Web build: `pnpm --filter @justevery/web run build`.  
-- Open Playwright suite: `RUN_OPEN_E2E=true npm run test:e2e` (landing/login/checkout PASS; authenticated spec skipped).  
+- Open Playwright suite: `RUN_OPEN_E2E=true npm run test:e2e` (landing/login/checkout PASS; authenticated spec skipped without `TEST_SESSION_COOKIE`).  
 - Smoke/curl: `curl -I https://starter.justevery.com` and `curl -I https://starter.justevery.com/app` (return 200).  
-- Screenshots: `landing.png`, `app.png` in repo root capture current UI state.  
-- GitHub Actions: `deploy.yml` now documents the automated workflows; no run IDs were available in this environment (run after pushing).  
+- Screenshots: `docs/assets/landing.png`, `docs/assets/app.png` capture the landing and /app states.  
+- GitHub Actions: `deploy.yml` now documents the automated workflows; recent run `19263977479` (Workflow `Deploy (ENV_BLOB)`) succeeded with smoke checks against `/api/status` and `/api/stripe/products` and published artifacts `deploy-19263977479.zip` plus `test-results/**`.  
 
 ## Authenticated E2E
 - Provide `TEST_SESSION_COOKIE` (Better Auth Owner/Admin session token scoped to `/api/*`) to the deploy workflow secret or local env.  
