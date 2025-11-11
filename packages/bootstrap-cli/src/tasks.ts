@@ -110,6 +110,21 @@ function baseTasks(cwd: string): ListrTask<BootstrapTaskContext>[] {
       }
     },
     {
+      title: 'Sync Font Awesome credentials',
+      task: async (ctx: BootstrapTaskContext, task: BootstrapTaskWrapper) => {
+        const token = ctx.envResult?.env.FONT_AWESOME_PACKAGE_TOKEN ?? process.env.FONT_AWESOME_PACKAGE_TOKEN;
+        if (!token) {
+          task.skip('FONT_AWESOME_PACKAGE_TOKEN not configured');
+          return;
+        }
+        await execa('node', ['scripts/sync-fontawesome-token.mjs'], {
+          cwd,
+          env: { ...process.env, FONT_AWESOME_PACKAGE_TOKEN: token }
+        });
+        task.output = '.npmrc updated for Font Awesome registry';
+      }
+    },
+    {
       title: 'Detect Cloudflare capabilities',
       task: async (ctx: BootstrapTaskContext, task: BootstrapTaskWrapper) => {
         if (!ctx.envResult) {

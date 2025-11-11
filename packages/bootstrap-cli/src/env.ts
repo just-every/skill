@@ -21,7 +21,8 @@ const BaseEnvSchema = z.object({
   LOGIN_ORIGIN: z.string().optional(),
   SESSION_COOKIE_DOMAIN: z.string().optional(),
   STRIPE_SECRET_KEY: z.string().min(1, 'STRIPE_SECRET_KEY is required'),
-  STRIPE_TEST_SECRET_KEY: z.string().optional()
+  STRIPE_TEST_SECRET_KEY: z.string().optional(),
+  FONT_AWESOME_PACKAGE_TOKEN: z.string().optional()
 });
 
 const GeneratedEnvSchema = z.object({

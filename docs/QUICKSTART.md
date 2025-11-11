@@ -26,6 +26,7 @@ Minimal flow to go from clone → deploy in 10–15 minutes.
    APP_URL=https://starter.justevery.com/app
    CLOUDFLARE_ACCOUNT_ID=<id>
    CLOUDFLARE_API_TOKEN=<token>
+   FONT_AWESOME_PACKAGE_TOKEN=<npm-fontawesome-token>
    # Optional Stripe (see docs/BILLING.md)
    STRIPE_SECRET_KEY=sk_test_...
    STRIPE_WEBHOOK_SECRET=whsec_...
@@ -34,6 +35,7 @@ Minimal flow to go from clone → deploy in 10–15 minutes.
    ```bash
    set -a; source ~/.env; set +a
    ```
+   The bootstrap CLI and install hooks mirror `FONT_AWESOME_PACKAGE_TOKEN` into `.npmrc` automatically, so private Font Awesome packages are available both locally and in CI.
    _See `docs/SECRETS_CLOUDFLARE.md` for instructions on obtaining your Cloudflare Account ID and API Token. See `docs/BILLING.md` for Stripe configuration. Bootstrap calculates `PROJECT_HOST` from `PROJECT_DOMAIN` automatically and uses it when claiming Worker routes (wrangler template routes default to `{{PROJECT_ID}}.justevery.com`)._
 
 3. Bootstrap (preflight → env → deploy)

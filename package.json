@@ -9,6 +9,7 @@
     "packages/*"
   ],
   "scripts": {
+    "preinstall": "node ./scripts/sync-fontawesome-token.mjs",
     "dev:web": "npm run dev --workspace apps/web",
     "dev:worker": "npm run dev --workspace workers/api",
     "build": "npm run build --workspaces",
