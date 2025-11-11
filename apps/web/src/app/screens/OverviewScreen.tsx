@@ -21,7 +21,7 @@ const OverviewScreen = ({ company, members, subscription, onNavigateToTeam }: Ov
 
   return (
     <View className="flex flex-col gap-6">
-      <View className="rounded-3xl bg-gradient-to-br from-ink via-ink to-brand-900 p-6 text-white shadow-xl">
+      <View className="rounded-3xl bg-gradient-to-br from-ink via-ink to-brand-900 p-6 text-white">
         <Text className="text-xs uppercase tracking-[0.35em] text-slate-200">Current company</Text>
         <Text className="mt-2 text-3xl font-bold text-white">{company?.name ?? 'No company selected'}</Text>
         <Text className="mt-2 text-base text-slate-200">
@@ -37,7 +37,7 @@ const OverviewScreen = ({ company, members, subscription, onNavigateToTeam }: Ov
         {stats.map((stat) => (
           <View
             key={stat.label}
-            className="flex min-h-[140px] flex-col gap-2 rounded-2xl border border-slate-200 bg-white/90 p-5 shadow-sm"
+            className="flex min-h-[140px] flex-col gap-2 rounded-2xl border border-slate-200 bg-white/90 p-5"
           >
             <Text className="text-xs uppercase tracking-[0.4em] text-slate-400">{stat.label}</Text>
             <Text className="text-3xl font-bold text-ink">{stat.value}</Text>

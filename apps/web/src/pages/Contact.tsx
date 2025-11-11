@@ -35,7 +35,7 @@ const Contact = () => (
           <Pressable
             key={channel.label}
             onPress={() => channel.action()}
-            className="rounded-2xl border border-slate-200 bg-white px-6 py-5 shadow-sm transition hover:border-slate-300"
+            className="rounded-2xl border border-slate-200 bg-white px-6 py-5 transition hover:border-slate-300"
           >
             <Text className="text-xs font-semibold uppercase tracking-[0.4em] text-slate-400">
               {channel.label}
@@ -46,7 +46,7 @@ const Contact = () => (
         ))}
       </View>
 
-      <View className="space-y-3 rounded-3xl bg-ink px-6 py-8 text-slate-100 shadow-lg">
+      <View className="space-y-3 rounded-3xl bg-ink px-6 py-8 text-slate-100">
         <Text className="text-lg font-bold text-accent">Need bespoke support?</Text>
         <Text className="text-base text-slate-200">
           The starter ships with defaults, but we frequently help teams with Better Auth hardening, Stripe billing

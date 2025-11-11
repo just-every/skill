@@ -6,10 +6,7 @@ import { cn } from '../../lib/cn';
 export type CardProps = ViewProps;
 
 export const Card = ({ className, ...props }: CardProps) => (
-  <View
-    className={cn('rounded-3xl border border-slate-200 bg-white shadow-card', className)}
-    {...props}
-  />
+  <View className={cn('rounded-3xl border border-slate-200 bg-white', className)} {...props} />
 );
 
 export const CardHeader = ({ className, ...props }: ViewProps) => (

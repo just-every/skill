@@ -58,7 +58,7 @@ const Pricing = () => {
           {tiers.map((tier) => (
             <View
               key={tier.name}
-              className="flex min-h-[360px] flex-col gap-6 rounded-3xl border border-slate-200 bg-white p-6 shadow-sm"
+              className="flex min-h-[360px] flex-col gap-6 rounded-3xl border border-slate-200 bg-white p-6"
             >
               <View className="space-y-1">
                 <Text className="text-2xl font-bold text-ink">{tier.name}</Text>

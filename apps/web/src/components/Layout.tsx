@@ -91,10 +91,10 @@ const Layout = ({ children }: LayoutProps) => {
                   key={item.href}
                   onPress={() => navigate(item.href)}
                   accessibilityRole="link"
-                  className={cn(
-                    'rounded-full px-4 py-2 text-base font-medium text-slate-500 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-offset-2 focus-visible:ring-offset-white',
-                    isActive && 'bg-slate-100 text-ink shadow-sm'
-                  )}
+                className={cn(
+                  'rounded-full px-4 py-2 text-base font-medium text-slate-500 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-offset-2 focus-visible:ring-offset-white',
+                  isActive && 'bg-slate-100 text-ink'
+                )}
                 >
                   <Text className={cn(isActive && 'font-semibold text-ink')}>{item.label}</Text>
                 </Pressable>

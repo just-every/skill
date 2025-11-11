@@ -98,10 +98,6 @@ const AppShell = ({ navItems, activeItem, onNavigate, companies, isLoadingCompan
       <View className="hidden w-72 flex-col gap-8 border-r border-slate-900/30 bg-gradient-to-b from-slate-950 via-slate-900 to-slate-950 px-6 py-8 text-white lg:flex">
         <View className="flex flex-row items-center gap-3">
           <Logo size={34} color="#f8fafc" />
-          <View>
-            <Text className="text-lg font-semibold text-white">justevery</Text>
-            <Text className="text-[11px] uppercase tracking-[0.3em] text-slate-400">console</Text>
-          </View>
         </View>
         <View className="space-y-2">
           {navItems.map((item) => {
@@ -111,16 +107,18 @@ const AppShell = ({ navItems, activeItem, onNavigate, companies, isLoadingCompan
                 key={item.key}
                 onPress={() => onNavigate(item.key)}
                 className={cn(
-                  'flex flex-row items-center gap-3 rounded-2xl px-4 py-3 transition-colors',
-                  isActive
-                    ? 'bg-white/10 text-white shadow-lg shadow-black/20'
-                    : 'text-slate-300 hover:bg-white/5'
+                  'flex flex-row items-start gap-3 rounded-2xl px-4 py-3 transition-colors',
+                  isActive ? 'bg-white/10 text-white' : 'text-slate-300 hover:bg-white/5'
                 )}
               >
-                <FontAwesomeIcon icon={item.icon} size={16} color={isActive ? '#ffffff' : '#94a3b8'} />
-                <View>
-                  <Text className="text-sm font-semibold">{item.label}</Text>
-                  <Text className="text-xs text-slate-400">{item.description}</Text>
+                <View className="pt-1">
+                  <FontAwesomeIcon icon={item.icon} size={16} color={isActive ? '#ffffff' : '#b8c2d8'} />
+                </View>
+                <View className="flex-1">
+                  <Text className={cn('text-sm font-semibold', isActive ? 'text-white' : 'text-slate-100')}>
+                    {item.label}
+                  </Text>
+                  <Text className="text-[11px] text-slate-400">{item.description}</Text>
                 </View>
               </Pressable>
             );
@@ -141,7 +139,7 @@ const AppShell = ({ navItems, activeItem, onNavigate, companies, isLoadingCompan
               <Text className="text-xs text-slate-500">{activeCompany?.plan ?? 'Plan TBD'}</Text>
             </Pressable>
             {showSwitcher ? (
-              <View className="absolute left-0 right-0 top-full z-30 mt-2 max-h-64 overflow-auto rounded-2xl border border-slate-200 bg-white p-3 shadow-2xl">
+              <View className="absolute left-0 right-0 top-full z-50 mt-2 max-h-64 overflow-auto rounded-2xl border border-slate-200 bg-white p-3 shadow-2xl">
                 {companies.map((company) => (
                   <Pressable
                     key={company.id}
@@ -175,7 +173,7 @@ const AppShell = ({ navItems, activeItem, onNavigate, companies, isLoadingCompan
                 <FontAwesomeIcon icon={faAngleDown} size={12} color="#0f172a" />
               </Pressable>
               {accountMenuOpen ? (
-                <View className="absolute right-0 top-full z-30 mt-2 min-w-[220px] rounded-2xl border border-slate-200 bg-white p-4 shadow-2xl">
+                <View className="absolute right-0 top-full z-50 mt-2 min-w-[220px] rounded-2xl border border-slate-200 bg-white p-4 shadow-2xl">
                   <Text className="text-xs uppercase tracking-[0.3em] text-slate-400">Signed in as</Text>
                   <Text className="mt-1 text-sm font-semibold text-ink">{displayName}</Text>
                   <View className="mt-1 flex flex-row items-center gap-2 text-slate-500">

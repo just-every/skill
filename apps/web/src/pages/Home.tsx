@@ -69,7 +69,7 @@ const Home = () => {
 
   return (
     <View className="flex flex-col gap-14 py-10">
-      <Card className="border-transparent bg-gradient-to-br from-ink via-ink to-brand-900 shadow-card">
+      <Card className="border-transparent bg-gradient-to-br from-ink via-ink to-brand-900">
         <CardHeader className="space-y-3">
           <View className="self-start rounded-full border border-white/20 bg-white/10 px-4 py-1">
             <Typography variant="caption" className="text-white/80">
@@ -90,7 +90,7 @@ const Home = () => {
 
         <CardContent className="gap-8 pt-4">
           <View className="mt-2 flex-row flex-wrap gap-3">
-            <Button onPress={() => void handleOpenDashboard()} className="shadow-lg shadow-brand-900/20">
+            <Button onPress={() => void handleOpenDashboard()}>
               Open dashboard
             </Button>
             <Button

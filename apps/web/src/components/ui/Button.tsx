@@ -50,7 +50,7 @@ export const Button = forwardRef<Pressable, ButtonProps>(
         accessibilityRole="button"
         disabled={isDisabled}
         className={cn(
-          'rounded-2xl flex-row items-center justify-center gap-2 shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-brand-500 focus-visible:ring-offset-white',
+          'rounded-2xl flex-row items-center justify-center gap-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-brand-500 focus-visible:ring-offset-white',
           sizeClasses[size],
           variantClasses[variant],
           isDisabled && 'opacity-60',
