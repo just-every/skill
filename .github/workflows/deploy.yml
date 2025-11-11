@@ -100,6 +100,8 @@ jobs:
         with:
           node-version: 20
           cache: 'pnpm'
+      - name: Sync Font Awesome registry token
+        run: node scripts/sync-fontawesome-token.mjs
       - run: pnpm install --frozen-lockfile
 
       - name: Verify Expo web build & prerender
