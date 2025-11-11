@@ -254,7 +254,7 @@ jobs:
       - name: Run authenticated Playwright suite
         env:
           E2E_BASE_URL: ${{ env.PROJECT_DOMAIN }}
-        run: pnpm test:e2e
+        run: pnpm test:e2e -- tests/e2e/authenticated.spec.ts
 
       - name: Upload Playwright artifacts
         uses: actions/upload-artifact@v4

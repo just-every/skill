@@ -82,6 +82,7 @@ export function buildGeneratedFiles(options: GenerateFilesOptions): GenerateFile
 
   pushWeb(webEntries, 'STRIPE_WEBHOOK_SECRET', stripeWebhookSecret);
   pushWeb(webEntries, 'STRIPE_WEBHOOK_URL', stripeWebhookUrl);
+  pushWeb(webEntries, 'STRIPE_PRODUCT_DEFINITIONS', env.STRIPE_PRODUCT_DEFINITIONS ?? '');
   pushWeb(webEntries, 'STRIPE_PRODUCT_IDS', stripeProductIds);
   pushWeb(webEntries, 'STRIPE_PRICE_IDS', stripePriceIds);
   pushWeb(webEntries, 'STRIPE_PRODUCTS', env.STRIPE_PRODUCTS ?? '');
@@ -121,6 +122,9 @@ function escapeValue(value: string): string {
   if (value === '') return '';
   if (/^[A-Za-z0-9_./:-]+$/.test(value)) {
     return value;
+  }
+  if (!value.includes("'")) {
+    return `'${value}'`;
   }
   return JSON.stringify(value);
 }

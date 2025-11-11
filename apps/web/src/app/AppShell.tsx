@@ -8,6 +8,7 @@ import { faAngleDown, faArrowRightFromBracket, faEnvelope } from '@fortawesome/p
 import { useCompanyStore } from '../state/companyStore';
 import type { Company, InviteDraft } from './types';
 import { useApiClient } from '../api/client';
+import { useSwitchCompanyMutation } from './hooks';
 import InviteModal from './components/InviteModal';
 import { Button } from '../components/ui';
 import { Logo } from '../components/Logo';
@@ -37,9 +38,13 @@ const AppShell = ({ navItems, activeItem, onNavigate, companies, isLoadingCompan
   const [showSwitcher, setShowSwitcher] = useState(false);
   const [switcherHover, setSwitcherHover] = useState(false);
   const [accountMenuOpen, setAccountMenuOpen] = useState(false);
+  const [pendingCompanyId, setPendingCompanyId] = useState<string | null>(null);
+  const [switchError, setSwitchError] = useState<string | null>(null);
+  const [isSigningOut, setIsSigningOut] = useState(false);
   const switcherRef = React.useRef<HTMLDivElement | null>(null);
   const accountMenuRef = React.useRef<HTMLDivElement | null>(null);
   const { session, signOut } = useAuth();
+  const switchCompanyMutation = useSwitchCompanyMutation();
 
   const activeCompany = useMemo(() => {
     if (!companies || companies.length === 0) {
@@ -52,10 +57,27 @@ const AppShell = ({ navItems, activeItem, onNavigate, companies, isLoadingCompan
     return companies.find((company) => company.id === activeCompanyId) ?? fallback;
   }, [activeCompanyId, companies]);
 
-  const handleCompanyChange = (company: Company) => {
-    setShowSwitcher(false);
-    setActiveCompany(company.id);
-  };
+  const handleCompanyChange = useCallback(
+    async (company: Company) => {
+      if (!company.slug || switchCompanyMutation.isPending) {
+        return;
+      }
+      setPendingCompanyId(company.id);
+      setSwitchError(null);
+      try {
+        await switchCompanyMutation.mutateAsync({ slug: company.slug });
+        setActiveCompany(company.id);
+        setShowSwitcher(false);
+        setSwitcherHover(false);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Failed to switch company';
+        setSwitchError(message);
+      } finally {
+        setPendingCompanyId(null);
+      }
+    },
+    [setActiveCompany, setShowSwitcher, setSwitcherHover, switchCompanyMutation]
+  );
 
   const handleInviteSubmit = async (draft: InviteDraft) => {
     if (!activeCompany?.slug) {
@@ -89,12 +111,28 @@ const AppShell = ({ navItems, activeItem, onNavigate, companies, isLoadingCompan
       .join('') || 'JA';
   }, [displayName]);
 
-  const handleSignOut = async () => {
-    await signOut({ returnUrl: typeof window !== 'undefined' ? window.location.origin : undefined });
-    if (typeof window !== 'undefined') {
-      window.location.assign('/');
+  const handleSignOut = useCallback(async () => {
+    if (isSigningOut) {
+      return;
     }
-  };
+    setIsSigningOut(true);
+    try {
+      await api.post<{ ok: boolean }>('/api/session/logout', {});
+    } catch (error) {
+      console.warn('Failed to clear worker session', error);
+    }
+    try {
+      await signOut({ returnUrl: typeof window !== 'undefined' ? window.location.origin : undefined });
+    } catch (error) {
+      console.warn('Sign out failed', error);
+    } finally {
+      setAccountMenuOpen(false);
+      if (typeof window !== 'undefined') {
+        window.location.assign('/');
+      }
+      setIsSigningOut(false);
+    }
+  }, [api, isSigningOut, setAccountMenuOpen, signOut]);
 
   const closeMenus = useCallback(() => {
     setShowSwitcher(false);
@@ -201,23 +239,35 @@ const AppShell = ({ navItems, activeItem, onNavigate, companies, isLoadingCompan
                     {companies.map((company) => (
                       <Pressable
                         key={company.id}
-                        onPress={() => handleCompanyChange(company)}
+                        onPress={() => void handleCompanyChange(company)}
                         className={cn(
                           'rounded-xl px-3 py-2 transition-colors',
                           company.id === activeCompany?.id
                             ? 'bg-white/10 text-white'
-                            : 'text-slate-200 hover:bg-white/5'
+                            : 'text-slate-200 hover:bg-white/5',
+                          switchCompanyMutation.isPending ? 'opacity-60' : undefined
                         )}
                         accessibilityRole="menuitemradio"
-                        accessibilityState={{ selected: company.id === activeCompany?.id }}
+                        accessibilityState={{
+                          selected: company.id === activeCompany?.id,
+                          busy: pendingCompanyId === company.id && switchCompanyMutation.isPending,
+                        }}
+                        disabled={switchCompanyMutation.isPending}
                       >
-                        <Text className="text-sm font-semibold">{company.name}</Text>
-                        <Text className="text-[11px] text-slate-400">{company.plan}</Text>
+                        <Text className="text-sm font-semibold">
+                          {pendingCompanyId === company.id && switchCompanyMutation.isPending ? 'Switching…' : company.name}
+                        </Text>
+                        <Text className="text-[11px] text-slate-400">
+                          {pendingCompanyId === company.id && switchCompanyMutation.isPending ? 'Hold tight…' : company.plan}
+                        </Text>
                       </Pressable>
                     ))}
                   </View>
                 )}
               </View>
+              {switchError ? (
+                <Text className="text-[11px] text-rose-300">{switchError}</Text>
+              ) : null}
             </View>
             <View className="mt-4 space-y-2">
               <Text className="text-[10px] uppercase tracking-[0.3em] text-slate-400">Account</Text>
@@ -245,14 +295,22 @@ const AppShell = ({ navItems, activeItem, onNavigate, companies, isLoadingCompan
                     className="absolute right-0 bottom-full mb-2 min-w-[220px] rounded-2xl border border-slate-800 bg-slate-950/90 p-4 shadow-sm"
                   >
                     <Text className="text-[10px] uppercase tracking-[0.3em] text-slate-400">Signed in as</Text>
-                    <Text className="mt-1 text-sm font-semibold text-white">{userEmail}</Text>
+                    <View className="mt-1 flex-row items-center gap-2">
+                      <FontAwesomeIcon icon={faEnvelope} size={11} color="#94a3b8" />
+                      <Text className="text-sm font-semibold text-white" numberOfLines={1} ellipsizeMode="tail">
+                        {userEmail}
+                      </Text>
+                    </View>
                     <Pressable
-                      onPress={handleSignOut}
+                      onPress={() => void handleSignOut()}
                       accessibilityRole="menuitem"
                       className="mt-4 flex flex-row items-center justify-center gap-2 rounded-2xl border border-slate-700 px-4 py-2"
+                      disabled={isSigningOut}
                     >
                       <FontAwesomeIcon icon={faArrowRightFromBracket} size={14} color="#94a3b8" />
-                      <Text className="text-sm font-semibold text-white">Logout</Text>
+                      <Text className="text-sm font-semibold text-white">
+                        {isSigningOut ? 'Signing out…' : 'Logout'}
+                      </Text>
                     </Pressable>
                   </View>
                 )}

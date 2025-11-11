@@ -10,7 +10,7 @@ Add these to `~/.env` (bootstrap CLI) **and** `workers/api/.dev.vars` (local Wra
 | --- | --- |
 | `STRIPE_SECRET_KEY` | Stripe API key (Dashboard → Developers → API keys → Secret key) |
 | `STRIPE_WEBHOOK_SECRET` | Signing secret from the webhook endpoint you create below |
-| `STRIPE_PRODUCTS` | JSON or shorthand string describing the plans/prices the dashboard should list |
+| `STRIPE_PRODUCTS` | JSON array describing the plans/prices the dashboard should list (each entry must include `priceId`, `unitAmount`, and `currency`; `id`, `name`, `description`, `interval`, and `metadata` are optional) |
 
 Example `.dev.vars` snippet:
 
@@ -19,8 +19,8 @@ Example `.dev.vars` snippet:
 STRIPE_SECRET_KEY=sk_test_51...
 STRIPE_WEBHOOK_SECRET=whsec_...
 STRIPE_PRODUCTS='[
-  {"id":"prod_scale","name":"Scale","priceId":"price_scale_monthly","unitAmount":5400,"currency":"usd","interval":"month"},
-  {"id":"prod_launch","name":"Launch","priceId":"price_launch_monthly","unitAmount":2100,"currency":"usd","interval":"month"}
+  {"id":"prod_scale","name":"Scale","description":"Scale plan","priceId":"price_scale_monthly","unitAmount":5400,"currency":"usd","interval":"month","metadata":{"tier":"scale"}},
+  {"id":"prod_launch","name":"Launch","description":"Launch plan","priceId":"price_launch_monthly","unitAmount":2100,"currency":"usd","interval":"month","metadata":{"tier":"launch"}}
 ]'
 ```
 

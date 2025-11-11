@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import Worker, { type Env } from '../src/index';
+import Worker, { type BillingProduct, type Env } from '../src/index';
 import type { IncomingRequestCfProperties } from '@cloudflare/workers-types';
 
 const mockRequireSession = vi.fn();
@@ -16,7 +16,6 @@ vi.mock('../src/sessionAuth', () => ({
 
 const ctx = {} as ExecutionContext;
 const realFetch = globalThis.fetch;
-let fetchSpy: ReturnType<typeof vi.spyOn>;
 const stripeQueue: Array<{ status: number; body: unknown }> = [];
 
 function queueStripeResponse(body: unknown, status = 200): void {
@@ -123,9 +122,13 @@ async function runFetch(request: Request, env: Env): Promise<Response> {
   );
 }
 
+async function parseJson<T = unknown>(response: Response): Promise<T> {
+  return (await response.json()) as T;
+}
+
 beforeEach(() => {
   stripeQueue.length = 0;
-  fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
+  const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
     const url = typeof input === 'string'
       ? input
       : input instanceof Request
@@ -145,13 +148,14 @@ beforeEach(() => {
     }
 
     return realFetch(input as RequestInfo, init);
-  });
+  }) as typeof globalThis.fetch;
+  globalThis.fetch = fetchMock;
 
   setViewerEmail('ava@justevery.com');
 });
 
 afterEach(() => {
-  fetchSpy?.mockRestore();
+  globalThis.fetch = realFetch;
   mockRequireSession.mockReset();
 });
 
@@ -164,7 +168,7 @@ describe('Account billing endpoints', () => {
 
     const response = await runFetch(request, env);
     expect(response.status).toBe(200);
-    const data = await response.json();
+    const data = await parseJson<{ products: BillingProduct[] }>(response);
     expect(Array.isArray(data.products)).toBe(true);
     expect(data.products).toHaveLength(2);
   });
@@ -175,7 +179,7 @@ describe('Account billing endpoints', () => {
 
     const response = await runFetch(request, env);
     expect(response.status).toBe(200);
-    const data = await response.json();
+    const data = await parseJson<{ products: BillingProduct[] }>(response);
     expect(data.products).toHaveLength(0);
   });
 
@@ -218,7 +222,7 @@ describe('Account billing endpoints', () => {
 
     const response = await runFetch(request, env);
     expect(response.status).toBe(200);
-    const data = await response.json();
+    const data = await parseJson<{ sessionId: string; url: string }>(response);
     expect(data.sessionId).toBe('cs_test_123');
     expect(data.url).toMatch(/checkout/);
   });
@@ -264,7 +268,7 @@ describe('Account billing endpoints', () => {
 
     const response = await runFetch(request, env);
     expect(response.status).toBe(200);
-    const data = await response.json();
+    const data = await parseJson<{ url: string }>(response);
     expect(data.url).toMatch(/billing/);
   });
 
@@ -298,7 +302,9 @@ describe('Account billing endpoints', () => {
     const response = await runFetch(request, env);
 
     expect(response.status).toBe(200);
-    const data = await response.json();
+    const data = await parseJson<{
+      invoices: Array<{ id: string; amountDue: number }>;
+    }>(response);
     expect(data.invoices).toHaveLength(1);
     expect(data.invoices[0]).toMatchObject({ id: 'in_123', amountDue: 5000 });
   });
@@ -310,6 +316,29 @@ describe('Account billing endpoints', () => {
 
     const response = await runFetch(request, env);
     expect(response.status).toBe(403);
+  });
+
+  it('returns enriched billing products for Owner/Admin', async () => {
+    setViewerEmail('ava@justevery.com');
+    const env = createMockEnv();
+    const request = new Request('http://127.0.0.1/api/accounts/justevery/billing/products');
+
+    const response = await runFetch(request, env);
+    expect(response.status).toBe(200);
+    const data = await parseJson<{ products: Array<Partial<BillingProduct>> }>(response);
+    expect(Array.isArray(data.products)).toBe(true);
+    expect(data.products[0]).toHaveProperty('priceId');
+    expect(data.products[0]).toHaveProperty('currency');
+    expect(data.products[0]).toHaveProperty('interval');
+  });
+
+  it('rejects billing products for unauthenticated viewers', async () => {
+    mockRequireSession.mockResolvedValue({ ok: false, reason: 'missing_cookie' } as const);
+    const request = new Request('http://127.0.0.1/api/accounts/justevery/billing/products');
+    const env = createMockEnv();
+
+    const response = await runFetch(request, env);
+    expect(response.status).toBe(401);
   });
 
   it('propagates Stripe failures when listing invoices', async () => {

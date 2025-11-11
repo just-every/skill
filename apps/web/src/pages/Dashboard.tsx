@@ -19,6 +19,7 @@ import {
   useResendInviteMutation,
   useSubscriptionQuery,
   useUpdateMemberRoleMutation,
+  useUpdateMemberNameMutation,
   useUsageQuery,
   useDeleteInviteMutation,
 } from '../app/hooks';
@@ -26,6 +27,7 @@ import type { Company, Member } from '../app/types';
 import OverviewScreen from '../app/screens/OverviewScreen';
 import TeamScreen from '../app/screens/TeamScreen';
 import BillingScreen from '../app/screens/BillingScreen';
+import BillingReturnScreen from '../app/screens/BillingReturnScreen';
 import UsageScreen from '../app/screens/UsageScreen';
 import AssetsScreen from '../app/screens/AssetsScreen';
 import SettingsScreen from '../app/screens/SettingsScreen';
@@ -52,6 +54,33 @@ const resolveSection = (path: string): string => {
   return NAV_ITEMS.some((item) => item.key === section) ? section : 'overview';
 };
 
+const parseBillingReturnState = (path: string): { variant: 'success' | 'cancel'; sessionId: string | null } | null => {
+  if (!path.startsWith('/app/billing/')) {
+    return null;
+  }
+  if (path.startsWith('/app/billing/success')) {
+    return { variant: 'success', sessionId: extractSessionId(path) };
+  }
+  if (path.startsWith('/app/billing/cancel')) {
+    return { variant: 'cancel', sessionId: extractSessionId(path) };
+  }
+  return null;
+};
+
+const extractSessionId = (path: string): string | null => {
+  const queryIndex = path.indexOf('?');
+  if (queryIndex === -1) {
+    return null;
+  }
+  const search = path.slice(queryIndex);
+  try {
+    const params = new URLSearchParams(search);
+    return params.get('session_id');
+  } catch {
+    return null;
+  }
+};
+
 const toPath = (segment: string): string => {
   if (segment === 'overview') {
     return '/app/overview';
@@ -63,6 +92,7 @@ const Dashboard = () => {
   const { path, navigate } = useRouterContext();
   const { status: authStatus, isAuthenticated, openHostedLogin, session } = useAuth();
   const section = resolveSection(path);
+  const billingReturnState = React.useMemo(() => parseBillingReturnState(path), [path]);
 
   const companiesQuery = useCompaniesQuery();
   const companies = companiesQuery.data?.accounts ?? [];
@@ -91,6 +121,7 @@ const Dashboard = () => {
   const createCheckoutMutation = useCreateCheckoutMutation(activeCompany?.id, activeCompany?.slug);
   const createPortalMutation = useCreatePortalMutation(activeCompany?.id, activeCompany?.slug);
   const updateMemberRoleMutation = useUpdateMemberRoleMutation(activeCompany?.id, activeCompany?.slug);
+  const updateMemberNameMutation = useUpdateMemberNameMutation(activeCompany?.id, activeCompany?.slug);
   const removeMemberMutation = useRemoveMemberMutation(activeCompany?.id, activeCompany?.slug);
   const resendInviteMutation = useResendInviteMutation(activeCompany?.id, activeCompany?.slug);
   const revokeInviteMutation = useDeleteInviteMutation(activeCompany?.id, activeCompany?.slug);
@@ -184,19 +215,36 @@ const Dashboard = () => {
     await revokeInviteMutation.mutateAsync(inviteId);
   };
 
+  const handleUpdateMemberName = async (memberId: string, name: string) => {
+    await updateMemberNameMutation.mutateAsync({ memberId, name });
+  };
+
   const renderScreen = (company?: Company) => {
+    if (billingReturnState) {
+      return (
+        <BillingReturnScreen
+          variant={billingReturnState.variant}
+          sessionId={billingReturnState.sessionId}
+          companyName={company?.name}
+          onManageInStripe={handleOpenPortal}
+          isManagePending={createPortalMutation.isPending}
+          onBackToBilling={() => handleNavigate('billing')}
+        />
+      );
+    }
     switch (section) {
       case 'team':
         return (
-          <TeamScreen
-            members={membersQuery.data ?? []}
-            invites={invitesQuery.data ?? []}
-            viewerRole={viewerRole}
-            onChangeRole={handleChangeRole}
-            onRemoveMember={handleRemoveMember}
-            onResendInvite={handleResendInvite}
-            onRevokeInvite={handleRevokeInvite}
-          />
+        <TeamScreen
+          members={membersQuery.data ?? []}
+          invites={invitesQuery.data ?? []}
+          viewerRole={viewerRole}
+          onChangeRole={handleChangeRole}
+          onRemoveMember={handleRemoveMember}
+          onUpdateMemberName={handleUpdateMemberName}
+          onResendInvite={handleResendInvite}
+          onRevokeInvite={handleRevokeInvite}
+        />
         );
       case 'billing':
         return (

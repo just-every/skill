@@ -24,7 +24,11 @@ const invoiceStatusVariant: Record<Invoice['status'], 'default' | 'success' | 'w
 };
 
 const BillingScreen = ({ company, subscription, products = [], invoices = [], viewerRole, onOpenCheckout, onOpenPortal }: BillingScreenProps) => {
-  const [isLoading, setIsLoading] = React.useState(false);
+  const [portalPending, setPortalPending] = React.useState(false);
+  const [checkoutState, setCheckoutState] = React.useState<{ priceId: string | null; status: 'idle' | 'pending' | 'error'; message?: string }>({
+    priceId: null,
+    status: 'idle'
+  });
   const [isEditingEmail, setIsEditingEmail] = React.useState(false);
   const [draftEmail, setDraftEmail] = React.useState(company?.billingEmail ?? '');
   const [successMessage, setSuccessMessage] = React.useState<string | null>(null);
@@ -50,34 +54,50 @@ const BillingScreen = ({ company, subscription, products = [], invoices = [], vi
   // Determine if viewer can view invoices (Owner, Admin, or Billing)
   const canViewInvoices = viewerRole === 'Owner' || viewerRole === 'Admin' || viewerRole === 'Billing';
 
+  const redirectToUrl = async (url: string) => {
+    if (typeof window !== 'undefined') {
+      window.location.assign(url);
+      return;
+    }
+    await Linking.openURL(url);
+  };
+
   const handleOpenPortal = async () => {
     if (!onOpenPortal || !canManageBilling) return;
-    setIsLoading(true);
+    setPortalPending(true);
     try {
       const result = await onOpenPortal();
       if (result?.url) {
-        await Linking.openURL(result.url);
+        await redirectToUrl(result.url);
+      } else {
+        throw new Error('Stripe portal did not return a URL');
       }
     } catch (error) {
       console.error('Failed to open portal:', error);
     } finally {
-      setIsLoading(false);
+      setPortalPending(false);
     }
   };
 
   const handleOpenCheckout = async (priceId: string) => {
     if (!onOpenCheckout || !canManageBilling) return;
-    setIsLoading(true);
+    setCheckoutState({ priceId, status: 'pending' });
     try {
       const result = await onOpenCheckout(priceId);
       if (result?.url) {
-        await Linking.openURL(result.url);
+        await redirectToUrl(result.url);
+        return;
       }
+      throw new Error('Stripe checkout did not return a URL');
     } catch (error) {
       console.error('Failed to open checkout:', error);
-    } finally {
-      setIsLoading(false);
+      const message = error instanceof Error ? error.message : 'Unable to start checkout';
+      setCheckoutState({ priceId: null, status: 'error', message });
     }
+  };
+
+  const dismissCheckoutError = () => {
+    setCheckoutState({ priceId: null, status: 'idle' });
   };
 
   const formatCurrency = (amount: number, currency: string) => {
@@ -110,11 +130,11 @@ const BillingScreen = ({ company, subscription, products = [], invoices = [], vi
         <CardContent className="pt-0">
           <Button
             variant="ghost"
-            disabled={!canManageBilling || isLoading}
+            disabled={!canManageBilling || portalPending}
             onPress={handleOpenPortal}
             className="w-full justify-center"
           >
-            {isLoading ? 'Loading...' : 'Manage in Stripe'}
+            {portalPending ? 'Opening portal…' : 'Manage in Stripe'}
           </Button>
         </CardContent>
       </Card>
@@ -126,8 +146,21 @@ const BillingScreen = ({ company, subscription, products = [], invoices = [], vi
             <CardDescription>Upgrade or change your subscription plan.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
+            {checkoutState.status === 'error' && (
+              <View className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3">
+                <Text className="text-sm font-semibold text-rose-900">Checkout failed</Text>
+                <Text className="mt-1 text-xs text-rose-700">
+                  {checkoutState.message ?? 'Unable to reach Stripe. Try again or verify your network connection.'}
+                </Text>
+                <Pressable onPress={dismissCheckoutError} className="mt-2 self-start border-b border-rose-400">
+                  <Text className="text-xs font-semibold text-rose-700">Dismiss</Text>
+                </Pressable>
+              </View>
+            )}
             {products.map((product) => {
               const canCheckoutProduct = Boolean(product.priceId && !product.priceId.startsWith('legacy:'));
+              const isPendingCheckout =
+                checkoutState.status === 'pending' && checkoutState.priceId === product.priceId;
               return (
                 <View key={product.id} className="flex flex-col gap-1">
                   <View className="flex flex-row items-center justify-between rounded-lg border border-slate-200 p-4">
@@ -150,9 +183,9 @@ const BillingScreen = ({ company, subscription, products = [], invoices = [], vi
                         }
                         handleOpenCheckout(product.priceId);
                       }}
-                      disabled={isLoading || !canCheckoutProduct}
+                      disabled={!canCheckoutProduct || checkoutState.status === 'pending'}
                     >
-                      Select
+                      {isPendingCheckout ? 'Redirecting…' : 'Select'}
                     </Button>
                   </View>
                   {!canCheckoutProduct && (

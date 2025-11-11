@@ -22,11 +22,11 @@ PROJECT_DOMAIN = "https://starter.justevery.com"
 APP_BASE_URL = "/app"
 
 # --- Stripe ---
-STRIPE_PRODUCTS = "Founders:2500,usd,month;Scale:4900,usd,month"
+STRIPE_PRODUCTS = '''[{"id":"prod_TNHA7XzCAXqNfU","name":"Founders","priceId":"price_1SQWcDGD1Q57MReNLuvln86m","unitAmount":2500,"currency":"usd","interval":"month","metadata":{}},{"id":"prod_TNHAmpDbavwPfp","name":"Scale","priceId":"price_1SQWcDGD1Q57MReNhTRLLXWa","unitAmount":4900,"currency":"usd","interval":"month","metadata":{}}]'''
 EXPO_PUBLIC_WORKER_ORIGIN = "https://starter.justevery.com"
 
 # --- Cloudflare metadata ---
-CLOUDFLARE_ZONE_ID = ""
+CLOUDFLARE_ZONE_ID = "723318de8bc1f3353196efc02c4a09ed"
 
 [[d1_databases]]
 binding = "DB"

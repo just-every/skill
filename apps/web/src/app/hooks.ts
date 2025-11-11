@@ -5,6 +5,7 @@ import { useApiClient } from '../api/client';
 import { fallbackAssets, fallbackCompanies, fallbackMembers, fallbackSubscription, fallbackUsage } from './mocks';
 import { shouldUseMockData } from './mockDataPolicy';
 import type { AssetObject, Company, Invoice, InviteDraft, Invite, Member, Product, SubscriptionSummary, UsagePoint } from './types';
+import { usePublicEnv } from '../runtimeEnv';
 
 type AccountsResponse = {
   accounts: Company[];
@@ -23,7 +24,49 @@ type SubscriptionResponse = {
   subscription: SubscriptionSummary;
 };
 
+type SwitchCompanyResponse = {
+  ok: boolean;
+  currentAccountId: string;
+  currentAccountSlug: string;
+};
+
 const allowMockData = shouldUseMockData();
+
+const DEFAULT_CHECKOUT_BASE = 'https://app.localhost';
+
+const trimTrailingSlash = (value: string): string => {
+  return value.replace(/\/+$/, '');
+};
+
+const ensureAbsoluteUrl = (value: string): string => {
+  try {
+    // Normalise and validate the URL; throws if invalid.
+    return new URL(value).toString();
+  } catch {
+    throw new Error('Stripe checkout redirects require an absolute base URL');
+  }
+};
+
+const resolveCheckoutBaseUrl = (workerOrigin?: string, workerOriginLocal?: string): string => {
+  if (workerOrigin && workerOrigin.trim().length > 0) {
+    return ensureAbsoluteUrl(workerOrigin.trim());
+  }
+  if (workerOriginLocal && workerOriginLocal.trim().length > 0) {
+    return ensureAbsoluteUrl(workerOriginLocal.trim());
+  }
+  if (typeof window !== 'undefined') {
+    return ensureAbsoluteUrl(window.location.origin);
+  }
+  return ensureAbsoluteUrl(DEFAULT_CHECKOUT_BASE);
+};
+
+export const buildCheckoutRedirectUrls = (baseUrl: string) => {
+  const normalised = trimTrailingSlash(ensureAbsoluteUrl(baseUrl));
+  return {
+    successUrl: `${normalised}/app/billing/success?session_id={CHECKOUT_SESSION_ID}`,
+    cancelUrl: `${normalised}/app/billing/cancel`,
+  };
+};
 
 export const useCompaniesQuery = () => {
   const api = useApiClient();
@@ -305,6 +348,38 @@ export const useRemoveMemberMutation = (companyId?: string, companySlug?: string
   });
 };
 
+export const useUpdateMemberNameMutation = (companyId?: string, companySlug?: string) => {
+  const api = useApiClient();
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({ memberId, name }: { memberId: string; name: string }) => {
+      if (!companySlug) {
+        throw new Error('Company slug is required');
+      }
+      return await api.patch(`/api/accounts/${companySlug}/members/${memberId}`, { name });
+    },
+    onMutate: async ({ memberId, name }) => {
+      await queryClient.cancelQueries({ queryKey: ['company-members', companyId] });
+      const previousMembers = queryClient.getQueryData<Member[]>(['company-members', companyId]);
+
+      queryClient.setQueryData<Member[]>(['company-members', companyId], (old = []) =>
+        old.map((member) => (member.id === memberId ? { ...member, name } : member))
+      );
+
+      return { previousMembers };
+    },
+    onError: (err, variables, context) => {
+      if (context?.previousMembers) {
+        queryClient.setQueryData(['company-members', companyId], context.previousMembers);
+      }
+    },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: ['company-members', companyId] });
+    }
+  });
+};
+
 // Billing hooks
 type ProductsResponse = {
   products: Product[];
@@ -374,17 +449,19 @@ export const useInvoicesQuery = (companyId?: string, companySlug?: string) => {
 export const useCreateCheckoutMutation = (companyId?: string, companySlug?: string) => {
   const api = useApiClient();
   const queryClient = useQueryClient();
+  const env = usePublicEnv();
 
   return useMutation({
     mutationFn: async (priceId: string) => {
       if (!companySlug) {
         throw new Error('Company slug is required');
       }
-      const baseUrl = typeof window !== 'undefined' ? window.location.origin : 'https://app.localhost';
+      const baseUrl = resolveCheckoutBaseUrl(env.workerOrigin, env.workerOriginLocal);
+      const { successUrl, cancelUrl } = buildCheckoutRedirectUrls(baseUrl);
       return await api.post<CheckoutResponse>(`/api/accounts/${companySlug}/billing/checkout`, {
         priceId,
-        successUrl: `${baseUrl}/app/billing?checkout=success`,
-        cancelUrl: `${baseUrl}/app/billing?checkout=cancelled`
+        successUrl,
+        cancelUrl
       });
     },
     onSuccess: () => {
@@ -413,6 +490,72 @@ export const useCreatePortalMutation = (companyId?: string, companySlug?: string
       // Invalidate subscription and invoices after portal interaction
       queryClient.invalidateQueries({ queryKey: ['subscription', companyId] });
       queryClient.invalidateQueries({ queryKey: ['invoices', companyId] });
+    }
+  });
+};
+
+export const useSwitchCompanyMutation = () => {
+  const api = useApiClient();
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({ slug }: { slug: string }) => {
+      if (!slug) {
+        throw new Error('Company slug is required');
+      }
+      return await api.post<SwitchCompanyResponse>(`/api/accounts/${slug}/switch`, {});
+    },
+    onSuccess: (data) => {
+      queryClient.setQueryData<{ accounts: Company[]; currentAccountId: string | null } | undefined>(
+        ['companies'],
+        (previous) => {
+          if (!previous) {
+            return previous;
+          }
+          return {
+            ...previous,
+            currentAccountId: data.currentAccountId ?? previous.currentAccountId,
+          };
+        }
+      );
+    }
+  });
+};
+
+export const useUpdateBillingEmailMutation = (companyId?: string, companySlug?: string) => {
+  const api = useApiClient();
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (billingEmail: string | null) => {
+      if (!companySlug) {
+        throw new Error('Company slug is required');
+      }
+      return await api.patch(`/api/accounts/${companySlug}`, { billingEmail });
+    },
+    onMutate: async (billingEmail) => {
+      if (!companyId) {
+        return;
+      }
+      await queryClient.cancelQueries({ queryKey: ['companies'] });
+      const previous = queryClient.getQueryData<{ accounts: Company[]; currentAccountId: string | null }>(['companies']);
+      if (previous) {
+        queryClient.setQueryData(['companies'], {
+          accounts: previous.accounts.map((company) =>
+            company.id === companyId ? { ...company, billingEmail: billingEmail ?? undefined } : company
+          ),
+          currentAccountId: previous.currentAccountId
+        });
+      }
+      return { previous };
+    },
+    onError: (err, billingEmail, context) => {
+      if (context?.previous) {
+        queryClient.setQueryData(['companies'], context.previous);
+      }
+    },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: ['companies'] });
     }
   });
 };

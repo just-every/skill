@@ -9,17 +9,18 @@ import {
   stripeRequests,
 } from './helpers';
 
+const realFetch = globalThis.fetch;
+
 describe('Stripe billing checkout & portal', () => {
   let worker: Awaited<ReturnType<typeof setupTestWorker>>['worker'];
-  let fetchSpy: Awaited<ReturnType<typeof setupTestWorker>>['fetchSpy'];
 
   beforeEach(async () => {
-    ({ worker, fetchSpy } = await setupTestWorker());
+    ({ worker } = await setupTestWorker());
     setViewerEmail('ava@justevery.com');
   });
 
   afterEach(() => {
-    fetchSpy?.mockRestore();
+    globalThis.fetch = realFetch;
     mockRequireSession.mockReset();
   });
 
@@ -72,6 +73,27 @@ describe('Stripe billing checkout & portal', () => {
     const payload = await response.json();
     expect(payload).toMatchObject({ error: 'priceId is required' });
     expect(stripeRequests).toHaveLength(0);
+  });
+
+  it('surfaces errors when Stripe rejects checkout', async () => {
+    const env = createMockEnv();
+    queueStripeResponse({ error: 'invalid_request' }, 400);
+
+    const request = new Request('http://127.0.0.1/api/accounts/justevery/billing/checkout', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        priceId: 'price_launch_monthly',
+        successUrl: 'https://app.local/success',
+        cancelUrl: 'https://app.local/cancel',
+      }),
+    });
+
+    const response = await runFetch(worker, request, env);
+    expect(response.status).toBe(500);
+    const payload = await response.json();
+    expect(payload).toMatchObject({ error: 'Failed to create checkout session' });
+    expect(stripeRequests).toHaveLength(1);
   });
 
   it('blocks non-admin/owner users from checkout and portal', async () => {

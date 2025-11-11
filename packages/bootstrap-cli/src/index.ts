@@ -32,6 +32,8 @@ export async function runEnvGenerate(options: RunOptions & { checkOnly?: boolean
 export async function runDeploy(
   options: RunOptions & { checkOnly?: boolean; dryRun?: boolean } = {}
 ): Promise<void> {
+  const applyDryRun = Boolean(options.dryRun || options.checkOnly);
+  await runApply({ cwd: options.cwd, dryRun: applyDryRun });
   const tasks = createDeployTasks({
     cwd: options.cwd,
     checkOnly: options.checkOnly ?? false,

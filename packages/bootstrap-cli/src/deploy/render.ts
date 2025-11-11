@@ -81,6 +81,7 @@ function buildSubstitutions(
     PROJECT_DOMAIN: escapeToml(projectDomain),
     APP_BASE_URL: escapeToml(appBaseUrl),
     STRIPE_PRODUCTS: escapeToml(stripeProducts),
+    STRIPE_PRODUCTS_LITERAL: stripeProducts,
     EXPO_PUBLIC_WORKER_ORIGIN: escapeToml(env.EXPO_PUBLIC_WORKER_ORIGIN ?? workerOrigin),
     CLOUDFLARE_ZONE_ID: escapeToml(env.CLOUDFLARE_ZONE_ID ?? ''),
     D1_DATABASE_NAME: escapeToml(d1Name),

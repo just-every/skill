@@ -161,6 +161,10 @@ export interface StripePlan {
   warnings: string[];
 }
 
+function resolveStripeProductDefinitions(env: BootstrapEnv): string {
+  return env.STRIPE_PRODUCT_DEFINITIONS ?? env.STRIPE_PRODUCTS ?? '';
+}
+
 /**
  * Build idempotent Stripe provisioning plan
  */
@@ -174,7 +178,7 @@ export async function buildStripePlan(
   const notes: string[] = [];
 
   // Parse product definitions
-  const products = parseProductDefinitions(env.STRIPE_PRODUCTS);
+  const products = parseProductDefinitions(resolveStripeProductDefinitions(env));
 
   // Check existing Stripe products
   const existingProducts = await stripe.products.list({ limit: 100 });
@@ -342,7 +346,7 @@ export async function executeStripePlan(
   const warnings: string[] = [];
   let provisionedWebhook: ProvisionedWebhook | undefined;
 
-  const products = parseProductDefinitions(env.STRIPE_PRODUCTS);
+  const products = parseProductDefinitions(resolveStripeProductDefinitions(env));
   const existingProducts = await stripe.products.list({ limit: 100 });
 
   // Provision products and prices
@@ -752,4 +756,51 @@ function arraysEqual<T>(a: T[], b: T[]): boolean {
     if (a[i] !== b[i]) return false;
   }
   return true;
+}
+
+export function buildStripeProductsPayload(env: BootstrapEnv, stripeResult?: StripeProvisionResult): string {
+  const raw = resolveStripeProductDefinitions(env);
+  if (!raw) {
+    return '[]';
+  }
+  let definitions: ProductDefinition[];
+  try {
+    definitions = parseProductDefinitions(raw);
+  } catch (error) {
+    return raw;
+  }
+
+  const resultProducts = stripeResult?.products ?? [];
+  const payload: unknown[] = [];
+
+  for (let index = 0; index < definitions.length; index += 1) {
+    const definition = definitions[index];
+    const provisioned = resultProducts[index];
+    const priceIds = provisioned?.priceIds ?? [];
+    const id = provisioned?.productId ?? definition.name.toLowerCase().replace(/[^a-z0-9]/g, '-');
+
+    for (let priceIndex = 0; priceIndex < definition.prices.length; priceIndex += 1) {
+      const priceDef = definition.prices[priceIndex];
+      const priceId = priceIds[priceIndex] ?? '';
+      payload.push({
+        id,
+        name: definition.name,
+        description: definition.description,
+        priceId,
+        unitAmount: priceDef.amount,
+        currency: priceDef.currency,
+        interval: priceDef.interval,
+        metadata: {
+          ...(definition.metadata ?? {}),
+          ...(priceDef.metadata ?? {})
+        }
+      });
+    }
+  }
+
+  if (payload.length === 0) {
+    return raw;
+  }
+
+  return JSON.stringify(payload);
 }

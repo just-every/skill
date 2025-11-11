@@ -23,6 +23,7 @@ import {
   executeStripePlan,
   formatStripePlan,
   createStripeClient,
+  buildStripeProductsPayload,
   type StripePlan,
   type StripeProvisionResult
 } from './providers/stripe.js';
@@ -265,20 +266,24 @@ export function createApplyTasks(options: PipelineOptions = {}): Listr<Bootstrap
         });
         task.output = lines.join('\n');
         if (!dryRun && ctx.stripeResult) {
-          const productIds = ctx.stripeResult.products
-            .map((p) => p.productId)
-            .join(',');
-          const priceIds = ctx.stripeResult.products
-            .flatMap((p) => p.priceIds)
-            .join(',');
-          const webhookSecret =
-            ctx.stripeResult.webhook?.webhookSecret ?? env.STRIPE_WEBHOOK_SECRET ?? 'whsec_missing_secret';
-          const stripeUpdates = {
-            STRIPE_WEBHOOK_SECRET: webhookSecret,
-            STRIPE_PRODUCT_IDS: productIds,
-            STRIPE_PRICE_IDS: priceIds,
-            STRIPE_WEBHOOK_URL: webhookUrl
-          } as Partial<GeneratedEnv>;
+        const productIds = ctx.stripeResult.products
+          .map((p) => p.productId)
+          .join(',');
+        const priceIds = ctx.stripeResult.products
+          .flatMap((p) => p.priceIds)
+          .join(',');
+        const stripeProductDefinitions = env.STRIPE_PRODUCT_DEFINITIONS ?? env.STRIPE_PRODUCTS ?? '';
+        const stripeProductsPayload = buildStripeProductsPayload(env, ctx.stripeResult);
+        const webhookSecret =
+          ctx.stripeResult.webhook?.webhookSecret ?? env.STRIPE_WEBHOOK_SECRET ?? 'whsec_missing_secret';
+        const stripeUpdates = {
+          STRIPE_WEBHOOK_SECRET: webhookSecret,
+          STRIPE_PRODUCT_DEFINITIONS: stripeProductDefinitions,
+          STRIPE_PRODUCT_IDS: productIds,
+          STRIPE_PRICE_IDS: priceIds,
+          STRIPE_WEBHOOK_URL: webhookUrl,
+          STRIPE_PRODUCTS: stripeProductsPayload
+        } as Partial<GeneratedEnv>;
           ctx.envResult = mergeGeneratedValues(ctx.envResult, stripeUpdates);
         }
       }
@@ -355,13 +360,17 @@ export function createEnvGenerateTasks(options: EnvGenerateOptions = {}): Listr<
             const priceIds = ctx.stripeResult.products
               .flatMap((p) => p.priceIds)
               .join(',');
+            const stripeProductDefinitions = env.STRIPE_PRODUCT_DEFINITIONS ?? env.STRIPE_PRODUCTS ?? '';
+            const stripeProductsPayload = buildStripeProductsPayload(env, ctx.stripeResult);
             const webhookSecret =
               ctx.stripeResult.webhook?.webhookSecret ?? env.STRIPE_WEBHOOK_SECRET ?? 'whsec_missing_secret';
             const stripeUpdates = {
               STRIPE_WEBHOOK_SECRET: webhookSecret,
+              STRIPE_PRODUCT_DEFINITIONS: stripeProductDefinitions,
               STRIPE_PRODUCT_IDS: productIds,
               STRIPE_PRICE_IDS: priceIds,
-              STRIPE_WEBHOOK_URL: webhookUrl
+              STRIPE_WEBHOOK_URL: webhookUrl,
+              STRIPE_PRODUCTS: stripeProductsPayload
             } as Partial<GeneratedEnv>;
             ctx.envResult = mergeGeneratedValues(ctx.envResult, stripeUpdates);
           }
@@ -550,18 +559,22 @@ export function createDeployTasks(options: DeployOptions = {}): Listr<DeployCont
       }
     },
     {
-      title: dryRun
-        ? 'Skip env file update (dry run)'
-        : checkOnly
-          ? 'Skip env file update (check-only)'
-          : 'Write generated env files',
+      title: checkOnly ? 'Skip D1 migrations (check-only)' : 'Run D1 migrations',
       enabled: () => !checkOnly && !dryRun,
       task: async (ctx, task) => {
         if (!ctx.envResult) {
           throw new Error('Environment not loaded');
         }
-        const { summary } = await writeGeneratedArtifacts(cwd, ctx.envResult, {});
-        task.output = summary || 'No changes';
+        if (shouldSkipWranglerCommands(ctx.envResult.env)) {
+          task.skip?.('Skipping migrations with placeholder credentials');
+          return;
+        }
+        await execa('pnpm', ['--filter', '@justevery/worker', 'run', 'migrate', '--', '--remote'], {
+          cwd,
+          stdio: 'inherit',
+          env: createCommandEnv(ctx.envResult.env)
+        });
+        task.output = 'D1 migrations applied';
       }
     },
     {
@@ -601,23 +614,39 @@ export function createDeployTasks(options: DeployOptions = {}): Listr<DeployCont
       enabled: () => !checkOnly,
       task: async (ctx, task) => {
         if (dryRun) {
-            ctx.deployResult = { command: 'pnpm --filter @justevery/worker run deploy', dryRun: true };
-            task.skip?.('Dry run requested; skipping deploy');
-            return;
-          }
-
-          if (!ctx.envResult) {
-            throw new Error('Environment not loaded');
-          }
-
-          guardCloudflareCredentials(ctx.envResult.env);
-          await execa('pnpm', ['--filter', '@justevery/worker', 'run', 'deploy'], {
-            cwd,
-            stdio: 'inherit'
-          });
-          ctx.deployResult = { command: 'pnpm --filter @justevery/worker run deploy', dryRun: false };
+          ctx.deployResult = { command: 'pnpm --filter @justevery/worker run deploy', dryRun: true };
+          task.skip?.('Dry run requested; skipping deploy');
+          return;
         }
+
+        if (!ctx.envResult) {
+          throw new Error('Environment not loaded');
+        }
+
+        guardCloudflareCredentials(ctx.envResult.env);
+        await execa('pnpm', ['--filter', '@justevery/worker', 'run', 'deploy'], {
+          cwd,
+          stdio: 'inherit'
+        });
+        ctx.deployResult = { command: 'pnpm --filter @justevery/worker run deploy', dryRun: false };
       }
+    },
+    {
+      title: 'Deployment summary',
+      task: (ctx, task) => {
+        if (!ctx.envResult) {
+          throw new Error('Environment not loaded');
+        }
+        const env = ctx.envResult.env;
+        const appUrl = env.APP_URL ?? deriveAppUrl(env);
+        const workerOrigin = env.WORKER_ORIGIN ?? deriveWorkerOrigin(env, appUrl);
+        task.output = [
+          `App URL: ${appUrl ?? 'n/a'}`,
+          `Worker URL: ${workerOrigin ?? 'n/a'}`,
+          'Next steps: verify the deployment and run any smoke tests.'
+        ].join('\n');
+      }
+    }
     ],
     {
       ctx: {},

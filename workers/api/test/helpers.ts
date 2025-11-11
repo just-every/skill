@@ -1,9 +1,11 @@
 import { vi } from 'vitest';
 import type { Env } from '../src/index';
 import type { IncomingRequestCfProperties } from '@cloudflare/workers-types';
-import type WorkerModule from '../src/index';
+type WorkerNS = typeof import('../src/index');
+type WorkerHandler = WorkerNS['default'];
 
 const mockRequireSession = vi.fn();
+const realFetch: typeof globalThis.fetch = globalThis.fetch ?? ((): Promise<Response> => Promise.reject(new Error('fetch unavailable'))) as typeof globalThis.fetch;
 
 vi.mock('../src/sessionAuth', () => ({
   authenticateRequest: vi.fn(),
@@ -111,12 +113,12 @@ export function createMockEnv(overrides: Partial<Env> = {}): Env {
 }
 
 export async function setupTestWorker() {
-  const workerModule: typeof WorkerModule = await import('../src/index');
-  const worker = workerModule.default;
+  const workerModule: WorkerNS = await import('../src/index');
+  const worker: WorkerHandler = workerModule.default;
   stripeQueue.length = 0;
   stripeRequests.length = 0;
 
-  const spy = vi.spyOn(globalThis, 'fetch').mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
+  const spy = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
     const url = typeof input === 'string' ? input : input instanceof Request ? input.url : input.toString();
 
     if (url.startsWith('https://api.stripe.com')) {
@@ -141,16 +143,24 @@ export async function setupTestWorker() {
       }));
     }
 
-    return globalThis.fetch === realFetch ? realFetch(input as RequestInfo, init) : realFetch(input as RequestInfo, init);
-  });
+    return realFetch(input as RequestInfo, init) as Promise<Response>;
+  }) as typeof globalThis.fetch;
+
+  globalThis.fetch = spy;
 
   return { worker, fetchSpy: spy };
 }
 
-const realFetch = globalThis.fetch;
-
-export function runFetch(worker: typeof WorkerModule.default, request: Request, env: Env): Promise<Response> {
-  return worker.fetch(request as Request<unknown, IncomingRequestCfProperties<unknown>>, env, {} as ExecutionContext);
+export function runFetch(worker: WorkerHandler, request: Request, env: Env): Promise<Response> {
+  const handler = worker.fetch;
+  if (!handler) {
+    throw new Error('Worker.fetch is not defined');
+  }
+  const result = handler(request as Request<unknown, IncomingRequestCfProperties<unknown>>, env, {} as ExecutionContext);
+  if (result instanceof Response) {
+    return Promise.resolve(result);
+  }
+  return result;
 }
 
 export { stripeRequests, mockRequireSession };

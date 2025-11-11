@@ -96,6 +96,17 @@ type AssetObject = {
   uploaded: string | null;
 };
 
+export type BillingProduct = {
+  id: string;
+  name: string;
+  description?: string;
+  priceId: string;
+  unitAmount: number;
+  currency: string;
+  interval?: string;
+  metadata?: Record<string, string>;
+};
+
 const ACCOUNT_DATA: AccountRecord[] = [
   {
     id: 'acct-justevery',
@@ -144,6 +155,9 @@ const ACCOUNT_DATA: AccountRecord[] = [
     }
   }
 ];
+
+const ACTIVE_ACCOUNT_COOKIE = 'je.active_account';
+const ACTIVE_ACCOUNT_COOKIE_MAX_AGE_SECONDS = 30 * 24 * 60 * 60;
 
 const ACCOUNT_MEMBERS: AccountMemberRecord[] = [
   {
@@ -348,6 +362,9 @@ async function fetchCompaniesFromDb(env: Env): Promise<AccountRecord[] | null> {
   }
   try {
     const rows = await queryAll(env.DB, COMPANY_SUMMARY_SQL);
+    if (rows.length === 0) {
+      return null;
+    }
     return rows.map((row) => mapDbCompany(row));
   } catch (error) {
     logDbError('fetchCompaniesFromDb', error);
@@ -1144,6 +1161,8 @@ const Worker: ExportedHandler<Env> = {
         return handleSessionApi(request, env);
       case "/api/session/bootstrap":
         return handleSessionBootstrap(request, env);
+      case "/api/session/logout":
+        return handleSessionLogout(request, env);
       case "/api/me":
         return handleMe(request, env);
       case "/api/assets/list":
@@ -1337,6 +1356,77 @@ function buildSessionCookie(token: string, env: Env, expiresAt?: string): string
   return parts.join('; ');
 }
 
+function buildExpiredSessionCookie(env: Env): string {
+  const parts = [
+    'better-auth.session_token=',
+    'Path=/',
+    'Secure',
+    'HttpOnly',
+    'SameSite=None',
+    'Expires=Thu, 01 Jan 1970 00:00:00 GMT',
+    'Max-Age=0',
+  ];
+  const domain = env.SESSION_COOKIE_DOMAIN?.trim();
+  if (domain) {
+    parts.push(`Domain=${domain}`);
+  }
+  return parts.join('; ');
+}
+
+function readCookieValue(request: Request, name: string): string | null {
+  const cookieHeader = request.headers.get('cookie');
+  if (!cookieHeader) {
+    return null;
+  }
+  const pairs = cookieHeader.split(';');
+  for (const pair of pairs) {
+    const trimmed = pair.trim();
+    if (!trimmed) {
+      continue;
+    }
+    const eqIndex = trimmed.indexOf('=');
+    const key = eqIndex >= 0 ? trimmed.slice(0, eqIndex) : trimmed;
+    if (key === name) {
+      const raw = eqIndex >= 0 ? trimmed.slice(eqIndex + 1) : '';
+      try {
+        return decodeURIComponent(raw);
+      } catch {
+        return raw;
+      }
+    }
+  }
+  return null;
+}
+
+function readActiveAccountSlug(request: Request): string | null {
+  const value = readCookieValue(request, ACTIVE_ACCOUNT_COOKIE);
+  if (!value) {
+    return null;
+  }
+  return value.trim() || null;
+}
+
+function buildActiveAccountCookie(slug: string | null, env: Env): string {
+  const encoded = slug ? encodeURIComponent(slug) : '';
+  const parts = [
+    `${ACTIVE_ACCOUNT_COOKIE}=${encoded}`,
+    'Path=/',
+    'SameSite=Lax',
+    'Secure',
+  ];
+  const domain = env.SESSION_COOKIE_DOMAIN?.trim();
+  if (domain) {
+    parts.push(`Domain=${domain}`);
+  }
+  if (slug) {
+    parts.push(`Max-Age=${ACTIVE_ACCOUNT_COOKIE_MAX_AGE_SECONDS}`);
+  } else {
+    parts.push('Max-Age=0');
+    parts.push('Expires=Thu, 01 Jan 1970 00:00:00 GMT');
+  }
+  return parts.join('; ');
+}
+
 function normalisePublicUrl(value?: string): string | null {
   if (!value) return null;
   try {
@@ -1420,6 +1510,18 @@ async function handleSessionBootstrap(request: Request, env: Env): Promise<Respo
     status: 200,
     headers,
   });
+}
+
+async function handleSessionLogout(request: Request, env: Env): Promise<Response> {
+  if (request.method !== 'POST') {
+    return jsonResponse({ error: 'method_not_allowed' }, 405);
+  }
+
+  const headers = new Headers();
+  headers.append('Set-Cookie', buildExpiredSessionCookie(env));
+  headers.append('Set-Cookie', buildActiveAccountCookie(null, env));
+
+  return jsonResponse({ ok: true }, 200, headers);
 }
 
 function isSessionSnapshot(value: unknown): value is SessionSnapshot {
@@ -1541,10 +1643,30 @@ async function handleAccountsRoute(request: Request, env: Env, pathname: string)
     if (!accounts) {
       return dataUnavailableResponse(env);
     }
+
+    let preferredAccount: AccountRecord | undefined;
+    const preferredSlug = readActiveAccountSlug(request);
+    if (preferredSlug) {
+      preferredAccount = accounts.find((account) => account.slug === preferredSlug);
+    }
+
+    const headers = new Headers();
+    if (preferredSlug && !preferredAccount) {
+      headers.append('Set-Cookie', buildActiveAccountCookie(null, env));
+    }
+
+    if (!preferredAccount && accounts.length > 0) {
+      preferredAccount = accounts[0];
+      if (!preferredSlug) {
+        headers.append('Set-Cookie', buildActiveAccountCookie(preferredAccount.slug, env));
+      }
+    }
+
+    const extraHeaders = headers.has('Set-Cookie') ? headers : undefined;
     return jsonResponse({
       accounts: accounts.map((account) => mapAccountResponse(account)),
-      currentAccountId: accounts[0]?.id ?? null,
-    });
+      currentAccountId: preferredAccount?.id ?? null,
+    }, 200, extraHeaders);
   }
 
   const segments = pathname.split('/').filter(Boolean);
@@ -1588,11 +1710,43 @@ async function handleAccountsRoute(request: Request, env: Env, pathname: string)
       return handleAccountInvites(request, env, account, allowFallback);
     case 'billing':
       return handleAccountBilling(request, env, account, segments[4], auth.session, allowFallback);
+    case 'switch':
+      return handleAccountSwitch(request, env, account, auth.session, allowFallback);
     default:
       return jsonResponse({
         account: mapAccountResponse(account)
       });
   }
+}
+
+async function handleAccountSwitch(
+  request: Request,
+  env: Env,
+  account: AccountRecord,
+  session: AuthenticatedSession,
+  allowFallback: boolean
+): Promise<Response> {
+  if (request.method !== 'POST') {
+    return jsonResponse({ error: 'Method Not Allowed' }, 405);
+  }
+
+  const viewerRole = await resolveViewerRoleForAccount(env, account.id, session, allowFallback);
+  if (!viewerRole) {
+    return jsonResponse({ error: 'forbidden', hint: 'Membership not found for this account' }, 403);
+  }
+
+  const headers = new Headers();
+  headers.append('Set-Cookie', buildActiveAccountCookie(account.slug, env));
+
+  return jsonResponse(
+    {
+      ok: true,
+      currentAccountId: account.id,
+      currentAccountSlug: account.slug,
+    },
+    200,
+    headers
+  );
 }
 
 async function handleAccountMembers(
@@ -2981,7 +3135,7 @@ function normalizeStripeProductEntry(raw: unknown): BillingProduct | null {
 function parseLegacyStripeProducts(raw: string): BillingProduct[] {
   const entries = raw.split(';').map((segment) => segment.trim()).filter(Boolean);
   return entries
-    .map((segment) => {
+    .map<BillingProduct | null>((segment) => {
       const [namePart, rest] = segment.split(':');
       const name = namePart?.trim();
       if (!name) {
