@@ -46,6 +46,20 @@ Minimal flow to go from clone → deploy in 10–15 minutes.
    ```
    - Generates `.env.local.generated` and renders `workers/api/wrangler.toml` on demand.
 
+### `pnpm bootstrap:deploy` behavior
+- Loads `~/.env`, `.env`, and any generated env files so you can keep secrets in your home directory and still share repo-specific defaults.
+- Validates required bindings (Stripe keys, Better Auth/Tenant config, Cloudflare account/D1/R2 settings, etc.) before provisioning infrastructure.
+- Provisions Stripe products/prices from the plan definitions you shipped in `STRIPE_PRODUCTS`, then writes a structured JSON payload back to your generated env files for the Worker and UI to consume.
+- The generated `STRIPE_PRODUCTS` now includes the associated `priceId`, `unitAmount`, `currency`, `interval`, `description`, and `metadata` for each plan; the Worker uses this data to power the Billing plan list and to gate Checkout buttons until a real Stripe price exists.
+  ```bash
+  STRIPE_PRODUCTS='[
+    {"id":"prod_TNHA7XzCAXqNfU","name":"Founders","description":"Founders plan","priceId":"price_1SQWcDGD1Q57MReNLuvln86m","unitAmount":2500,"currency":"usd","interval":"month","metadata":{}},
+    {"id":"prod_TNHAmpDbavwPfp","name":"Scale","description":"Scale plan","priceId":"price_1SQWcDGD1Q57MReNhTRLLXWa","unitAmount":4900,"currency":"usd","interval":"month","metadata":{}}
+  ]'
+  ```
+
+  The Worker/UI read this payload (via `/api/stripe/products` and the Billing screen) so plan cards know which Stripe price to call when Checkout or the portal is requested.
+
 4. Run the Worker (local)
    ```bash
    npm run dev:worker
@@ -76,3 +90,7 @@ Minimal flow to go from clone → deploy in 10–15 minutes.
    - See `docs/BILLING.md` for checkout/portal/invoice cURL flows.
 
 Re-run the CLI when secrets or infrastructure change. `bootstrap.sh` remains as a shim but is deprecated.
+
+## Release verification notes
+- For release-ready verification, see `docs/VERIFY.md` (smoke checks, Playwright artifacts), `docs/TEMPLATE_READY.md` (template-ready checklist), and `docs/ACCEPTANCE.md` (final goal-to-file/tets/artifacts mapping). 
+- The gated Copy/Team/Billing Playwright suite requires a Better Auth `TEST_SESSION_COOKIE` (Owner/Admin session) in CI; when absent the job skips automatically, but you can set `RUN_OPEN_E2E=true` locally once you have credentials to exercise the landing/login/checkout spec bundle.
