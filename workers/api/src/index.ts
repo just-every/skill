@@ -1779,6 +1779,7 @@ async function handleAccountUpdate(
       ).run();
     } catch (error) {
       logDbError('handleAccountUpdate', error);
+      return jsonResponse({ error: 'billing_update_failed' }, 500);
     }
   }
 

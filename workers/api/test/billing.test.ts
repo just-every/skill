@@ -179,6 +179,29 @@ describe('Account billing endpoints', () => {
     expect(data.products).toHaveLength(0);
   });
 
+  it('updates billing email via D1 when available', async () => {
+    const db = createDbMock();
+    const env = createMockEnv({ DB: db });
+    const prepareSpy = vi.spyOn(db, 'prepare');
+
+    const request = new Request('http://127.0.0.1/api/accounts/justevery', {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ billingEmail: 'new@justevery.com' }),
+    });
+
+    const response = await runFetch(request, env);
+    expect(response.status).toBe(200);
+    expect(prepareSpy).toHaveBeenCalledWith(expect.stringContaining('UPDATE companies SET billing_email = ? WHERE id = ?'));
+    const updateResult = prepareSpy.mock.results.find((result) =>
+      (result.value as { sql: string }).sql.includes('UPDATE companies SET billing_email = ? WHERE id = ?')
+    );
+    expect(updateResult).toBeDefined();
+    const statement = (updateResult!.value as { bindings: unknown[] });
+    expect(statement.bindings[0]).toBe('new@justevery.com');
+    expect(statement.bindings[1]).toBeTruthy();
+  });
+
   it('creates a checkout session for Owner/Admin roles', async () => {
     const env = createMockEnv();
     queueStripeResponse({ id: 'cs_test_123', url: 'https://checkout.stripe.com/test' });
