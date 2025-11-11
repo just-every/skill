@@ -403,6 +403,40 @@ async function fetchMembersFromDb(env: Env, companyId: string): Promise<AccountM
   }
 }
 
+async function fetchMemberById(env: Env, companyId: string, memberId: string): Promise<AccountMemberRecord | null> {
+  if (!env.DB) {
+    logDbError('fetchMemberById', 'D1 binding is not configured');
+    return null;
+  }
+  try {
+    const row = await queryFirst(
+      env.DB,
+      `SELECT id, company_id, display_name, email, role, status, invited_at, accepted_at, last_active_at
+       FROM company_members
+       WHERE company_id = ? AND id = ?
+       LIMIT 1`,
+      [companyId, memberId]
+    );
+    if (!row) {
+      return null;
+    }
+
+    return {
+      id: stringFrom(row.id),
+      accountId: stringFrom(row.company_id),
+      name: stringFrom(row.display_name, stringFrom(row.email)),
+      email: stringFrom(row.email),
+      role: normaliseInviteRole(typeof row.role === 'string' ? row.role : null) ?? 'Viewer',
+      status: (typeof row.status === 'string' ? row.status : 'active') as AccountMemberRecord['status'],
+      joinedAt: stringFrom(row.accepted_at ?? row.invited_at ?? row.last_active_at ?? new Date().toISOString()),
+      lastActiveAt: row.last_active_at ? String(row.last_active_at) : null
+    };
+  } catch (error) {
+    logDbError('fetchMemberById', error);
+    return null;
+  }
+}
+
 async function fetchBrandingFromDb(env: Env, companyId: string): Promise<AccountBranding | null> {
   if (!env.DB) {
     logDbError('fetchBrandingFromDb', 'D1 binding is not configured');
@@ -612,6 +646,49 @@ function ensureFallbackInviteStore(accountId: string): AccountInviteRecord[] {
 function appendFallbackInvite(accountId: string, invite: AccountInviteRecord): void {
   const existing = ensureFallbackInviteStore(accountId);
   ACCOUNT_INVITE_STORE.set(accountId, [invite, ...existing]);
+}
+
+function updateFallbackBillingEmail(slug: string, email: string | null): void {
+  const index = ACCOUNT_DATA.findIndex((account) => account.slug === slug);
+  if (index === -1) {
+    return;
+  }
+  ACCOUNT_DATA[index] = {
+    ...ACCOUNT_DATA[index],
+    billingEmail: email ?? undefined
+  };
+}
+
+function updateFallbackMemberRole(accountId: string, memberId: string, role: AccountMemberRecord['role']): boolean {
+  const index = ACCOUNT_MEMBERS.findIndex((member) => member.accountId === accountId && member.id === memberId);
+  if (index === -1) {
+    return false;
+  }
+  ACCOUNT_MEMBERS[index] = {
+    ...ACCOUNT_MEMBERS[index],
+    role
+  };
+  return true;
+}
+
+function updateFallbackMemberName(accountId: string, memberId: string, name: string): boolean {
+  const index = ACCOUNT_MEMBERS.findIndex((member) => member.accountId === accountId && member.id === memberId);
+  if (index === -1) {
+    return false;
+  }
+  ACCOUNT_MEMBERS[index] = {
+    ...ACCOUNT_MEMBERS[index],
+    name
+  };
+  return true;
+}
+
+function removeFallbackMember(accountId: string, memberId: string): void {
+  const index = ACCOUNT_MEMBERS.findIndex((member) => member.accountId === accountId && member.id === memberId);
+  if (index === -1) {
+    return;
+  }
+  ACCOUNT_MEMBERS.splice(index, 1);
 }
 
 function createFallbackInviteRecord(
@@ -1074,7 +1151,7 @@ const Worker: ExportedHandler<Env> = {
       case "/api/assets/get":
         return handleAssetsGet(request, env);
       case "/api/assets/put":
-        return handleAssetsPut(request, env);
+      return handleAssetsPut(request, env);
       case "/api/assets/delete":
         return handleAssetsDelete(request, env);
       case "/api/stripe/products":
@@ -1473,6 +1550,7 @@ async function handleAccountsRoute(request: Request, env: Env, pathname: string)
   const segments = pathname.split('/').filter(Boolean);
   const slug = segments[2];
   const action = segments[3];
+  const memberId = segments[4];
 
   const account = await resolveAccountBySlug(env, slug, allowFallback);
   if (!account) {
@@ -1482,9 +1560,22 @@ async function handleAccountsRoute(request: Request, env: Env, pathname: string)
     return jsonResponse({ error: 'Account not found' }, 404);
   }
 
+  if (action === 'members' && memberId) {
+    return handleAccountMember(request, env, account, memberId, auth.session, allowFallback);
+  }
+
+  if (action === 'members') {
+    return handleAccountMembers(account, auth.session, env, allowFallback);
+  }
+
+  if (!action) {
+    if (request.method === 'PATCH') {
+      return handleAccountUpdate(request, env, account, allowFallback);
+    }
+    return jsonResponse({ account: mapAccountResponse(account) });
+  }
+
   switch (action) {
-    case 'members':
-      return handleAccountMembers(account, auth.session, env, allowFallback);
     case 'branding':
       return handleAccountBranding(request, account, env);
     case 'usage':
@@ -1525,6 +1616,180 @@ async function handleAccountMembers(
       email: session.emailAddress ?? null
     }
   });
+}
+
+async function handleAccountMember(
+  request: Request,
+  env: Env,
+  account: AccountRecord,
+  memberId: string,
+  session: AuthenticatedSession,
+  allowFallback: boolean
+): Promise<Response> {
+  const viewerRole = await resolveViewerRoleForAccount(env, account.id, session, allowFallback);
+  if (!viewerRole) {
+    return jsonResponse({ error: 'forbidden', hint: 'Membership not found for this account' }, 403);
+  }
+
+  const canManageTeam = hasSufficientRole(viewerRole, 'Admin');
+  if (!canManageTeam) {
+    return jsonResponse({ error: 'forbidden', hint: 'Admin role required' }, 403);
+  }
+
+  const shouldFallback = allowFallback || !env.DB;
+  const memberFromDb = shouldFallback ? null : await fetchMemberById(env, account.id, memberId);
+  const fallbackMember = fallbackMembers(account.id).find((member) => member.id === memberId);
+  const existingMember = memberFromDb ?? (shouldFallback ? fallbackMember : null);
+
+  if (!existingMember) {
+    return jsonResponse({ error: 'member_not_found' }, 404);
+  }
+
+  if (request.method === 'PATCH') {
+    let payload: { role?: string; name?: string | null };
+    try {
+      payload = await request.json();
+    } catch {
+      return jsonResponse({ error: 'Invalid JSON' }, 400);
+    }
+
+    if (payload.role == null && payload.name == null) {
+      return jsonResponse({ error: 'No updates provided' }, 400);
+    }
+
+    const desiredRole = payload.role ? normaliseInviteRole(payload.role) : null;
+    if (payload.role && !desiredRole) {
+      return jsonResponse({ error: 'Invalid role' }, 400);
+    }
+
+    const desiredName = typeof payload.name === 'string' ? payload.name.trim() : null;
+    if (payload.name !== undefined && (desiredName ?? '') === '') {
+      return jsonResponse({ error: 'Name cannot be empty' }, 400);
+    }
+
+    const actions: Promise<void>[] = [];
+
+    if (desiredRole) {
+      const updateRole = async () => {
+        if (!shouldFallback && env.DB) {
+          await env.DB.prepare(
+            `UPDATE company_members
+             SET role = ?, updated_at = CURRENT_TIMESTAMP
+             WHERE company_id = ? AND id = ?`
+          )
+            .bind(desiredRole.toLowerCase(), account.id, memberId)
+            .run();
+        } else {
+          const updated = updateFallbackMemberRole(account.id, memberId, desiredRole);
+          if (!updated) {
+            throw new Error('member_not_found');
+          }
+        }
+      };
+      actions.push(updateRole());
+    }
+
+    if (payload.name !== undefined && desiredName) {
+      const updateName = async () => {
+        if (!shouldFallback && env.DB) {
+          await env.DB.prepare(
+            `UPDATE company_members
+             SET display_name = ?, updated_at = CURRENT_TIMESTAMP
+             WHERE company_id = ? AND id = ?`
+          )
+            .bind(desiredName, account.id, memberId)
+            .run();
+        } else {
+          const updated = updateFallbackMemberName(account.id, memberId, desiredName);
+          if (!updated) {
+            throw new Error('member_not_found');
+          }
+        }
+      };
+      actions.push(updateName());
+    }
+
+    try {
+      await Promise.all(actions);
+    } catch (error) {
+      if ((error as Error).message === 'member_not_found') {
+        return jsonResponse({ error: 'member_not_found' }, 404);
+      }
+      logDbError('handleAccountMember', error);
+      return jsonResponse({ error: 'Failed to update member' }, 500);
+    }
+
+    return jsonResponse({ ok: true });
+  }
+
+  if (request.method === 'DELETE') {
+    if (!shouldFallback && env.DB) {
+      try {
+        await env.DB.prepare(`DELETE FROM company_members WHERE company_id = ? AND id = ?`)
+          .bind(account.id, memberId)
+          .run();
+      } catch (error) {
+        logDbError('handleAccountMember', error);
+        return jsonResponse({ error: 'Failed to remove member' }, 500);
+      }
+    } else {
+      removeFallbackMember(account.id, memberId);
+    }
+
+    return jsonResponse({ ok: true });
+  }
+
+  return jsonResponse({ error: 'Method Not Allowed' }, 405);
+}
+
+async function handleAccountUpdate(
+  request: Request,
+  env: Env,
+  account: AccountRecord,
+  allowFallback: boolean
+): Promise<Response> {
+  if (request.method !== 'PATCH') {
+    return jsonResponse({ error: 'Method Not Allowed' }, 405);
+  }
+
+  let payload: { billingEmail?: string | null };
+  try {
+    payload = await request.json();
+  } catch {
+    return jsonResponse({ error: 'Invalid JSON' }, 400);
+  }
+
+  if (!('billingEmail' in payload)) {
+    return jsonResponse({ error: 'billingEmail is required' }, 400);
+  }
+
+  const rawValue = payload.billingEmail;
+  const trimmedValue = typeof rawValue === 'string' ? rawValue.trim() : null;
+  const normalizedEmail = trimmedValue === '' ? null : trimmedValue;
+
+  if (!env.DB && !allowFallback) {
+    return dataUnavailableResponse(env);
+  }
+
+  if (env.DB) {
+    try {
+      await env.DB.prepare(`UPDATE companies SET billing_email = ? WHERE id = ?`).bind(
+        normalizedEmail,
+        account.id
+      ).run();
+    } catch (error) {
+      logDbError('handleAccountUpdate', error);
+    }
+  }
+
+  updateFallbackBillingEmail(account.slug, normalizedEmail);
+
+  const refreshed = (env.DB ? await fetchCompanyBySlugFromDb(env, account.slug) : null) ?? {
+    ...account,
+    billingEmail: normalizedEmail ?? undefined
+  };
+
+  return jsonResponse({ ok: true, account: mapAccountResponse({ ...refreshed, billingEmail: normalizedEmail ?? undefined }) });
 }
 
 async function handleAccountBranding(
@@ -2101,7 +2366,13 @@ async function handleBillingProducts(
 
   try {
     const products = parseStripeProducts(env.STRIPE_PRODUCTS);
-    return jsonResponse({ products });
+    const cleaned = products.map((product) => ({
+      ...product,
+      name: sanitizeString(product.name),
+      currency: sanitizeString(product.currency),
+      interval: product.interval ? sanitizeString(product.interval) : undefined,
+    }));
+    return jsonResponse({ products: cleaned });
   } catch (error) {
     return jsonResponse({ error: (error as Error).message }, 500);
   }
@@ -2158,8 +2429,15 @@ async function handleBillingInvoices(
 async function handleStripeProducts(env: Env): Promise<Response> {
   try {
     const products = parseStripeProducts(env.STRIPE_PRODUCTS);
-    return jsonResponse({ products });
+    const cleaned = products.map((product) => ({
+      ...product,
+      name: sanitizeString(product.name),
+      currency: sanitizeString(product.currency),
+      interval: product.interval ? sanitizeString(product.interval) : undefined,
+    }));
+    return jsonResponse({ products: cleaned });
   } catch (error) {
+    console.warn('stripe products parse error', error);
     return jsonResponse({ error: (error as Error).message }, 500);
   }
 }
@@ -2243,7 +2521,6 @@ async function handleStripeWebhook(request: Request, env: Env): Promise<Response
       await handleSubscriptionWebhookEvent(event, linkedCompanyId, env);
     }
 
-    console.log("Stripe event received", event.type ?? "unknown", event.id ?? "");
   } catch (error) {
     console.warn("Stripe webhook JSON parse failed", error);
   }
@@ -2359,7 +2636,6 @@ async function handleSubscriptionWebhookEvent(
       )
       .run();
 
-    console.log('Subscription upserted', { companyId, subscriptionId, status });
   } catch (error) {
     console.error('Failed to upsert subscription', error);
   }
@@ -2637,31 +2913,125 @@ function parseMarketingKey(raw: string): string | null {
   return fullKey;
 }
 
-function parseStripeProducts(raw: string | undefined): unknown[] {
-  if (!raw) {
+function parseStripeProducts(raw: string | undefined): BillingProduct[] {
+  if (!raw || raw.trim() === '') {
     return [];
   }
 
-  try {
-    const parsed = JSON.parse(raw);
-    if (Array.isArray(parsed)) {
-      return parsed;
+  const trimmed = raw.trim();
+  if (trimmed.startsWith('[')) {
+    try {
+      const parsed = JSON.parse(trimmed);
+      if (Array.isArray(parsed)) {
+        return parsed
+          .map((entry) => normalizeStripeProductEntry(entry))
+          .filter((entry): entry is BillingProduct => Boolean(entry));
+      }
+    } catch (error) {
+      console.warn('STRIPE_PRODUCTS JSON parse failed', error);
     }
-  } catch (error) {
-    console.log("STRIPE_PRODUCTS not JSON, attempting to parse shorthand", error);
   }
 
-  const shorthand = raw.split(";").map((segment) => segment.trim()).filter(Boolean);
-  return shorthand.map((segment) => {
-    const [namePart, rest] = segment.split(":");
-    const [amount = "0", currency = "usd", interval = "month"] = (rest ?? "").split(",").map((piece) => piece.trim());
-    return {
-      name: namePart ?? "",
-      amount: Number.parseInt(amount, 10) || 0,
-      currency,
-      interval,
-    };
-  });
+  return parseLegacyStripeProducts(trimmed);
+}
+
+function normalizeStripeProductEntry(raw: unknown): BillingProduct | null {
+  if (!raw || typeof raw !== 'object') {
+    return null;
+  }
+
+  const entry = raw as Record<string, unknown>;
+  const priceId = stringFrom(entry.priceId ?? entry.price_id ?? '');
+  if (!priceId) {
+    return null;
+  }
+
+  const unitAmount = typeof entry.unitAmount === 'number'
+    ? entry.unitAmount
+    : typeof entry.amount === 'number'
+      ? entry.amount
+      : 0;
+  if (unitAmount <= 0) {
+    return null;
+  }
+
+  const name = sanitizeString(stringFrom(entry.name ?? entry.productName ?? '', 'Plan'));
+  const id = stringFrom(entry.id ?? entry.productId ?? priceId);
+  const currency = sanitizeString(stringFrom(entry.currency ?? 'usd', 'usd')).toLowerCase();
+  const intervalCandidate = typeof entry.interval === 'string'
+    ? sanitizeString(entry.interval)
+    : '';
+  const interval = intervalCandidate || undefined;
+  const description = typeof entry.description === 'string' ? entry.description : undefined;
+  const metadata = normalizeMetadata(entry.metadata);
+
+  return {
+    id,
+    name,
+    description,
+    priceId,
+    unitAmount,
+    currency,
+    interval,
+    metadata,
+  };
+}
+
+function parseLegacyStripeProducts(raw: string): BillingProduct[] {
+  const entries = raw.split(';').map((segment) => segment.trim()).filter(Boolean);
+  return entries
+    .map((segment) => {
+      const [namePart, rest] = segment.split(':');
+      const name = namePart?.trim();
+      if (!name) {
+        return null;
+      }
+      const [amountRaw, currencyRaw = 'usd', intervalRaw = 'month'] = (rest ?? '')
+        .split(',')
+        .map((piece) => piece.trim());
+      const amount = Number.parseInt(amountRaw, 10);
+      if (!Number.isFinite(amount) || amount <= 0) {
+        return null;
+      }
+      const currency = currencyRaw.toLowerCase() || 'usd';
+      const interval = intervalRaw || 'month';
+      const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
+      const priceId = slug ? `legacy:${slug}` : `legacy:${Date.now()}`;
+
+      return {
+        id: slug || priceId,
+        name,
+        priceId,
+        unitAmount: amount,
+        currency,
+        interval,
+      } satisfies BillingProduct;
+    })
+    .filter((entry): entry is BillingProduct => Boolean(entry));
+}
+
+function sanitizeString(value: string): string {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return trimmed;
+  }
+  const sanitized = trimmed.replace(/^[\\"']+/, '').replace(/[\\"']+$/, '');
+  return sanitized.trim();
+}
+
+function normalizeMetadata(value: unknown): Record<string, string> | undefined {
+  if (!value || typeof value !== 'object') {
+    return undefined;
+  }
+  const metadata: Record<string, string> = {};
+  for (const [key, raw] of Object.entries(value)) {
+    if (typeof raw === 'string') {
+      metadata[key] = raw;
+    } else if (typeof raw === 'number' || typeof raw === 'boolean') {
+      metadata[key] = String(raw);
+    }
+  }
+  return Object.keys(metadata).length > 0 ? metadata : undefined;
 }
 
 async function safeJson(response: Response): Promise<unknown | null> {

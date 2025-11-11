@@ -139,6 +139,63 @@ jobs:
             pnpm bootstrap:deploy
           fi
 
+      - name: Post-deploy smoke checks
+        if: env.MODE == 'deploy'
+        env:
+          BASE_URL: ${{ env.PROJECT_DOMAIN }}
+        run: |
+          set -euo pipefail
+          if [ -z "${BASE_URL:-}" ]; then
+            echo "PROJECT_DOMAIN is required for smoke checks" >&2
+            exit 1
+          fi
+          BASE_URL="${BASE_URL%/}"
+          STATUS_URL="${BASE_URL}/api/status"
+          PRODUCTS_URL="${BASE_URL}/api/stripe/products"
+          max_attempts=4
+
+          attempt=1
+          while true; do
+            if response=$(curl -fsSL "$STATUS_URL"); then
+              status=$(printf '%s' "$response" | jq -r '.status // ""')
+              if [ "$status" = "ok" ]; then
+                echo "Status response reports ok"
+                break
+              fi
+              echo "Status check attempt $attempt returned status='$status'" >&2
+            else
+              echo "Status check attempt $attempt failed to fetch" >&2
+            fi
+
+            if [ "$attempt" -ge "$max_attempts" ]; then
+              echo "Status smoke check failed after $attempt attempts" >&2
+              exit 1
+            fi
+            sleep $((attempt * 3))
+            attempt=$((attempt + 1))
+          done
+
+          attempt=1
+          while true; do
+            if response=$(curl -fsSL "$PRODUCTS_URL"); then
+              count=$(printf '%s' "$response" | jq -r '.products | length // 0')
+              if [ "$count" -gt 0 ]; then
+                echo "Products endpoint returned $count entries"
+                break
+              fi
+              echo "Products check attempt $attempt returned empty list" >&2
+            else
+              echo "Products check attempt $attempt failed to fetch" >&2
+            fi
+
+            if [ "$attempt" -ge "$max_attempts" ]; then
+              echo "Products smoke check failed after $attempt attempts" >&2
+              exit 1
+            fi
+            sleep $((attempt * 3))
+            attempt=$((attempt + 1))
+          done
+
       - name: Upload deployment artifacts
         if: always()
         uses: actions/upload-artifact@v4

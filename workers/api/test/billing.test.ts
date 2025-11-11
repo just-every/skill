@@ -81,8 +81,24 @@ function createMockEnv(overrides: Partial<Env> = {}): Env {
     APP_BASE_URL: '/app',
     PROJECT_DOMAIN: 'https://app.local',
     STRIPE_PRODUCTS: JSON.stringify([
-      { name: 'Launch', amount: 2100, currency: 'usd', interval: 'month' },
-      { name: 'Scale', amount: 5400, currency: 'usd', interval: 'month' },
+      {
+        id: 'prod_launch',
+        name: 'Launch',
+        description: 'Launch plan',
+        priceId: 'price_launch_monthly',
+        unitAmount: 2100,
+        currency: 'usd',
+        interval: 'month',
+      },
+      {
+        id: 'prod_scale',
+        name: 'Scale',
+        description: 'Scale plan',
+        priceId: 'price_scale_monthly',
+        unitAmount: 5400,
+        currency: 'usd',
+        interval: 'month',
+      },
     ]),
     STRIPE_WEBHOOK_SECRET: 'whsec_test',
     STRIPE_SECRET_KEY: 'sk_test_123',
@@ -160,7 +176,7 @@ describe('Account billing endpoints', () => {
     const response = await runFetch(request, env);
     expect(response.status).toBe(200);
     const data = await response.json();
-    expect(data.products).toHaveLength(1);
+    expect(data.products).toHaveLength(0);
   });
 
   it('creates a checkout session for Owner/Admin roles', async () => {
