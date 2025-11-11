@@ -63,4 +63,24 @@ describe('Account selection & switching', () => {
     const setCookie = response.headers.get('Set-Cookie');
     expect(setCookie).toContain('je.active_account=justevery');
   });
+
+  it('clears both session and active account cookies on logout', async () => {
+    const env = createMockEnv();
+    const request = new Request('http://127.0.0.1/api/session/logout', { method: 'POST' });
+
+    const response = await runFetch(worker, request, env);
+    expect(response.status).toBe(200);
+    const payload = await response.json();
+    expect(payload).toMatchObject({ ok: true });
+
+    const setCookies: string[] = [];
+    response.headers.forEach((value, key) => {
+      if (key.toLowerCase() === 'set-cookie') {
+        setCookies.push(value);
+      }
+    });
+
+    expect(setCookies.some((cookie) => cookie.startsWith('better-auth.session_token=') && cookie.includes('Max-Age=0'))).toBe(true);
+    expect(setCookies.some((cookie) => cookie.startsWith('je.active_account=') && cookie.includes('Max-Age=0'))).toBe(true);
+  });
 });

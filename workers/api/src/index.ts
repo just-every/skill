@@ -2867,15 +2867,15 @@ function jsonResponse(data: unknown, status = 200, extraHeaders?: HeadersInit): 
   const headers = new Headers({ "Content-Type": "application/json; charset=UTF-8" });
   if (extraHeaders) {
     if (extraHeaders instanceof Headers) {
-      extraHeaders.forEach((value, key) => headers.set(key, value));
+      extraHeaders.forEach((value, key) => headers.append(key, value));
     } else if (Array.isArray(extraHeaders)) {
       for (const [key, value] of extraHeaders) {
-        headers.set(key, value);
+        headers.append(key, value);
       }
     } else if (typeof extraHeaders === 'object') {
       for (const [key, value] of Object.entries(extraHeaders)) {
         if (value !== undefined) {
-          headers.set(key, value as string);
+          headers.append(key, value as string);
         }
       }
     }
