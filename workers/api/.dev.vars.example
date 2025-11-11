@@ -14,6 +14,9 @@ LOGIN_ORIGIN=https://login.justevery.com
 # Optional integrations
 STRIPE_SECRET_KEY=
 STRIPE_WEBHOOK_SECRET=
+# JSON array of Stripe product/price IDs (optional)
+# Example: STRIPE_PRODUCTS='[{"productId":"prod_ABC123","priceId":"price_XYZ789"}]'
+STRIPE_PRODUCTS=
 
 # Uncomment to override Expo defaults while pairing with the worker locally
 #EXPO_PUBLIC_WORKER_ORIGIN=http://127.0.0.1:8787

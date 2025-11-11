@@ -40,6 +40,16 @@ export type InviteDraft = {
   role: Member['role'];
 };
 
+export type Invite = {
+  id: string;
+  email: string;
+  role: Member['role'];
+  status: 'pending' | 'accepted' | 'expired' | 'revoked';
+  invitedAt: string;
+  expiresAt?: string;
+  invitedBy?: string;
+};
+
 export type AssetObject = {
   key: string;
   size: number;
@@ -57,4 +67,28 @@ export type SubscriptionSummary = {
   plan: string | null;
   renewsOn: string | null;
   seats: number;
+};
+
+export type Product = {
+  id: string;
+  name: string;
+  description?: string;
+  priceId: string;
+  unitAmount: number;
+  currency: string;
+  interval?: 'month' | 'year';
+  metadata?: Record<string, string>;
+};
+
+export type Invoice = {
+  id: string;
+  number: string | null;
+  status: 'draft' | 'open' | 'paid' | 'void' | 'uncollectible' | 'past_due' | 'canceled';
+  amountDue: number;
+  amountPaid: number;
+  currency: string;
+  created: string;
+  dueDate?: string | null;
+  hostedInvoiceUrl?: string | null;
+  invoicePdf?: string | null;
 };

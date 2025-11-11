@@ -8,11 +8,20 @@ import {
   useAssetsQuery,
   useCompaniesQuery,
   useCompanyById,
+  useCreateCheckoutMutation,
+  useCreatePortalMutation,
+  useInvitesQuery,
+  useInvoicesQuery,
   useMembersQuery,
+  useProductsQuery,
+  useRemoveMemberMutation,
+  useResendInviteMutation,
   useSubscriptionQuery,
+  useUpdateMemberRoleMutation,
   useUsageQuery,
+  useDeleteInviteMutation,
 } from '../app/hooks';
-import type { Company } from '../app/types';
+import type { Company, Member } from '../app/types';
 import OverviewScreen from '../app/screens/OverviewScreen';
 import TeamScreen from '../app/screens/TeamScreen';
 import BillingScreen from '../app/screens/BillingScreen';
@@ -51,7 +60,7 @@ const toPath = (segment: string): string => {
 
 const Dashboard = () => {
   const { path, navigate } = useRouterContext();
-  const { status: authStatus, isAuthenticated, openHostedLogin } = useAuth();
+  const { status: authStatus, isAuthenticated, openHostedLogin, session } = useAuth();
   const section = resolveSection(path);
 
   const companiesQuery = useCompaniesQuery();
@@ -73,6 +82,26 @@ const Dashboard = () => {
   const assetsQuery = useAssetsQuery(activeCompany?.id, activeCompany?.slug);
   const usageQuery = useUsageQuery(activeCompany?.id, activeCompany?.slug);
   const subscriptionQuery = useSubscriptionQuery(activeCompany?.id, activeCompany?.slug);
+  const productsQuery = useProductsQuery(activeCompany?.slug);
+  const invoicesQuery = useInvoicesQuery(activeCompany?.id, activeCompany?.slug);
+  const invitesQuery = useInvitesQuery(activeCompany?.id, activeCompany?.slug);
+
+  // Billing mutations
+  const createCheckoutMutation = useCreateCheckoutMutation(activeCompany?.id, activeCompany?.slug);
+  const createPortalMutation = useCreatePortalMutation(activeCompany?.id, activeCompany?.slug);
+  const updateMemberRoleMutation = useUpdateMemberRoleMutation(activeCompany?.id, activeCompany?.slug);
+  const removeMemberMutation = useRemoveMemberMutation(activeCompany?.id, activeCompany?.slug);
+  const resendInviteMutation = useResendInviteMutation(activeCompany?.id, activeCompany?.slug);
+  const revokeInviteMutation = useDeleteInviteMutation(activeCompany?.id, activeCompany?.slug);
+
+  // Derive viewer role from session user email and members list
+  const viewerRole: Member['role'] | undefined = React.useMemo(() => {
+    if (!session?.user?.email || !membersQuery.data) {
+      return undefined;
+    }
+    const viewerMember = membersQuery.data.find((m) => m.email === session.user.email);
+    return viewerMember?.role;
+  }, [session?.user?.email, membersQuery.data]);
 
   useEffect(() => {
     if (authStatus === 'unauthenticated') {
@@ -130,12 +159,56 @@ const Dashboard = () => {
     navigate(toPath(segment));
   };
 
+  const handleOpenCheckout = async (priceId: string) => {
+    return await createCheckoutMutation.mutateAsync(priceId);
+  };
+
+  const handleOpenPortal = async () => {
+    return await createPortalMutation.mutateAsync();
+  };
+
+  const handleChangeRole = async (memberId: string, role: Member['role']) => {
+    await updateMemberRoleMutation.mutateAsync({ memberId, role });
+  };
+
+  const handleRemoveMember = async (memberId: string) => {
+    await removeMemberMutation.mutateAsync(memberId);
+  };
+
+  const handleResendInvite = async (inviteId: string) => {
+    await resendInviteMutation.mutateAsync(inviteId);
+  };
+
+  const handleRevokeInvite = async (inviteId: string) => {
+    await revokeInviteMutation.mutateAsync(inviteId);
+  };
+
   const renderScreen = (company?: Company) => {
     switch (section) {
       case 'team':
-        return <TeamScreen members={membersQuery.data ?? []} />;
+        return (
+          <TeamScreen
+            members={membersQuery.data ?? []}
+            invites={invitesQuery.data ?? []}
+            viewerRole={viewerRole}
+            onChangeRole={handleChangeRole}
+            onRemoveMember={handleRemoveMember}
+            onResendInvite={handleResendInvite}
+            onRevokeInvite={handleRevokeInvite}
+          />
+        );
       case 'billing':
-        return <BillingScreen company={company} subscription={subscriptionQuery.data} />;
+        return (
+          <BillingScreen
+            company={company}
+            subscription={subscriptionQuery.data}
+            products={productsQuery.data ?? []}
+            invoices={invoicesQuery.data ?? []}
+            viewerRole={viewerRole}
+            onOpenCheckout={handleOpenCheckout}
+            onOpenPortal={handleOpenPortal}
+          />
+        );
       case 'usage':
         return <UsageScreen points={usageQuery.data ?? []} />;
       case 'assets':

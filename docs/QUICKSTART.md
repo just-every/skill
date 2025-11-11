@@ -11,7 +11,7 @@ Minimal flow to go from clone → deploy in 10–15 minutes.
 ## Prerequisites
 - Node.js ≥ 18, npm or pnpm
 - Cloudflare account + Wrangler (authenticated)
-- Optional: Stripe account
+- Optional: Stripe account (see `docs/BILLING.md` for billing setup)
 
 ## Steps
 1. Install
@@ -26,14 +26,15 @@ Minimal flow to go from clone → deploy in 10–15 minutes.
    APP_URL=https://starter.justevery.com/app
    CLOUDFLARE_ACCOUNT_ID=<id>
    CLOUDFLARE_API_TOKEN=<token>
-   # Optional Stripe
+   # Optional Stripe (see docs/BILLING.md)
    STRIPE_SECRET_KEY=sk_test_...
    STRIPE_WEBHOOK_SECRET=whsec_...
+   STRIPE_PRODUCTS='[{"productId":"prod_...","priceId":"price_..."}]'
    ```
    ```bash
    set -a; source ~/.env; set +a
    ```
-   _See `docs/SECRETS_CLOUDFLARE.md` for instructions on obtaining your Cloudflare Account ID and API Token. Bootstrap calculates `PROJECT_HOST` from `PROJECT_DOMAIN` automatically and uses it when claiming Worker routes (wrangler template routes default to `{{PROJECT_ID}}.justevery.com`)._
+   _See `docs/SECRETS_CLOUDFLARE.md` for instructions on obtaining your Cloudflare Account ID and API Token. See `docs/BILLING.md` for Stripe configuration. Bootstrap calculates `PROJECT_HOST` from `PROJECT_DOMAIN` automatically and uses it when claiming Worker routes (wrangler template routes default to `{{PROJECT_ID}}.justevery.com`)._
 
 3. Bootstrap (preflight → env → deploy)
    ```bash
@@ -66,7 +67,10 @@ Minimal flow to go from clone → deploy in 10–15 minutes.
    ```bash
    curl -I https://starter.justevery.com/
    curl -s https://starter.justevery.com/api/session
+   # Optional: verify Stripe integration
+   curl -s https://starter.justevery.com/api/accounts/justevery/billing/products
    ```
    - Expect 401 from `/api/session` without a bearer token; rerun with a valid token to confirm auth.
+   - See `docs/BILLING.md` for checkout/portal/invoice cURL flows.
 
 Re-run the CLI when secrets or infrastructure change. `bootstrap.sh` remains as a shim but is deprecated.

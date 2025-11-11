@@ -21,6 +21,7 @@ export interface Env {
   APP_BASE_URL?: string;
   PROJECT_DOMAIN?: string;
   STRIPE_PRODUCTS?: string;
+  STRIPE_SECRET_KEY?: string;
   STRIPE_WEBHOOK_SECRET?: string;
   EXPO_PUBLIC_WORKER_ORIGIN?: string;
   ALLOW_PLACEHOLDER_DATA?: string;
@@ -200,6 +201,12 @@ const SAMPLE_ACCOUNT_IDS = new Set(ACCOUNT_DATA.map((account) => account.id));
 const ACCOUNT_INVITE_STORE = new Map<string, AccountInviteRecord[]>();
 const INVITE_ROLE_ORDER: InviteRole[] = ['Owner', 'Admin', 'Billing', 'Viewer'];
 const FALLBACK_INVITE_EXPIRY_MS = 7 * 24 * 60 * 60 * 1000;
+const ROLE_RANK: Record<AccountMemberRecord['role'], number> = {
+  Viewer: 0,
+  Billing: 1,
+  Admin: 2,
+  Owner: 3,
+};
 
 for (const account of ACCOUNT_DATA) {
   const seeded = ACCOUNT_MEMBERS
@@ -633,6 +640,47 @@ function normaliseInviteRole(value?: string | null): InviteRole | null {
   }
   const lower = value.toLowerCase();
   return INVITE_ROLE_ORDER.find((role) => role.toLowerCase() === lower) ?? null;
+}
+
+function hasSufficientRole(current: AccountMemberRecord['role'], required: AccountMemberRecord['role']): boolean {
+  return ROLE_RANK[current] >= ROLE_RANK[required];
+}
+
+async function resolveViewerRoleForAccount(
+  env: Env,
+  accountId: string,
+  session: AuthenticatedSession,
+  allowFallback: boolean
+): Promise<AccountMemberRecord['role'] | null> {
+  const email = session.emailAddress?.toLowerCase();
+  if (!email) {
+    return null;
+  }
+
+  if (env.DB) {
+    try {
+      const row = await queryFirst(
+        env.DB,
+        `SELECT role FROM company_members WHERE company_id = ? AND LOWER(email) = LOWER(?) LIMIT 1`,
+        [accountId, email]
+      );
+      const role = normaliseInviteRole(typeof row?.role === 'string' ? row.role : null);
+      if (role) {
+        return role;
+      }
+    } catch (error) {
+      logDbError('resolveViewerRoleForAccount', error);
+    }
+  }
+
+  if (allowFallback || !env.DB) {
+    const fallbackMember = fallbackMembers(accountId).find((member) => member.email.toLowerCase() === email);
+    if (fallbackMember) {
+      return fallbackMember.role;
+    }
+  }
+
+  return null;
 }
 
 function normaliseInviteStatus(value?: unknown): InviteStatus {
@@ -1447,6 +1495,8 @@ async function handleAccountsRoute(request: Request, env: Env, pathname: string)
       return handleAccountSubscription(env, account, allowFallback);
     case 'invites':
       return handleAccountInvites(request, env, account, allowFallback);
+    case 'billing':
+      return handleAccountBilling(request, env, account, segments[4], auth.session, allowFallback);
     default:
       return jsonResponse({
         account: mapAccountResponse(account)
@@ -1872,6 +1922,239 @@ async function handleAccountInvites(
   return jsonResponse({ error: 'Method Not Allowed' }, 405);
 }
 
+async function handleAccountBilling(
+  request: Request,
+  env: Env,
+  account: AccountRecord,
+  subAction: string | undefined,
+  session: AuthenticatedSession,
+  allowFallback: boolean
+): Promise<Response> {
+  const viewerRole = await resolveViewerRoleForAccount(env, account.id, session, allowFallback);
+  if (!viewerRole) {
+    return jsonResponse({ error: 'forbidden', hint: 'Membership not found for this account' }, 403);
+  }
+
+  const canReadBilling = hasSufficientRole(viewerRole, 'Billing');
+  const canWriteBilling = hasSufficientRole(viewerRole, 'Admin');
+
+  switch (subAction) {
+    case 'products':
+      if (!canReadBilling) {
+        return jsonResponse({ error: 'forbidden', hint: 'Billing role required' }, 403);
+      }
+      return handleBillingProducts(request, env);
+    case 'invoices':
+      if (!canReadBilling) {
+        return jsonResponse({ error: 'forbidden', hint: 'Billing role required' }, 403);
+      }
+      return handleBillingInvoices(request, env, account);
+    case 'checkout':
+      if (!canWriteBilling) {
+        return jsonResponse({ error: 'forbidden', hint: 'Owner or Admin role required' }, 403);
+      }
+      return handleBillingCheckout(request, env, account);
+    case 'portal':
+      if (!canWriteBilling) {
+        return jsonResponse({ error: 'forbidden', hint: 'Owner or Admin role required' }, 403);
+      }
+      return handleBillingPortal(request, env, account);
+    default:
+      return jsonResponse({ error: 'Invalid billing action' }, 404);
+  }
+}
+
+async function handleBillingCheckout(
+  request: Request,
+  env: Env,
+  account: AccountRecord
+): Promise<Response> {
+  if (!env.STRIPE_SECRET_KEY) {
+    return jsonResponse({ error: 'Stripe not configured' }, 503);
+  }
+  if (request.method !== 'POST') {
+    return jsonResponse({ error: 'Method Not Allowed' }, 405);
+  }
+
+  let payload: {
+    priceId?: string;
+    quantity?: number;
+    successUrl?: string;
+    cancelUrl?: string;
+  };
+
+  try {
+    payload = await request.json();
+  } catch {
+    return jsonResponse({ error: 'Invalid JSON' }, 400);
+  }
+
+  const { priceId, quantity = 1, successUrl, cancelUrl } = payload;
+
+  if (!priceId) {
+    return jsonResponse({ error: 'priceId is required' }, 400);
+  }
+
+  if (!successUrl || !cancelUrl) {
+    return jsonResponse({ error: 'successUrl and cancelUrl are required' }, 400);
+  }
+
+  // Ensure Stripe customer exists
+  const customerId = await ensureStripeCustomer(env, account);
+
+  if (!customerId) {
+    return jsonResponse({ error: 'Failed to create or retrieve Stripe customer' }, 500);
+  }
+
+  try {
+    const response = await stripeRequest('/checkout/sessions', {
+      method: 'POST',
+      body: {
+        customer: customerId,
+        'line_items[0][price]': priceId,
+        'line_items[0][quantity]': quantity,
+        mode: 'subscription',
+        success_url: successUrl,
+        cancel_url: cancelUrl,
+        'metadata[company_id]': account.id,
+      },
+      apiKey: env.STRIPE_SECRET_KEY!,
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('Stripe checkout session failed', { status: response.status, error: errorText });
+      return jsonResponse({ error: 'Failed to create checkout session' }, 500);
+    }
+
+    const session = await response.json() as { id: string; url: string };
+    return jsonResponse({ sessionId: session.id, url: session.url });
+  } catch (error) {
+    console.error('Error creating checkout session', error);
+    return jsonResponse({ error: 'Internal server error' }, 500);
+  }
+}
+
+async function handleBillingPortal(
+  request: Request,
+  env: Env,
+  account: AccountRecord
+): Promise<Response> {
+  if (!env.STRIPE_SECRET_KEY) {
+    return jsonResponse({ error: 'Stripe not configured' }, 503);
+  }
+  if (request.method !== 'POST') {
+    return jsonResponse({ error: 'Method Not Allowed' }, 405);
+  }
+
+  let payload: { returnUrl?: string };
+  try {
+    payload = await request.json();
+  } catch {
+    return jsonResponse({ error: 'Invalid JSON' }, 400);
+  }
+
+  const { returnUrl } = payload;
+
+  if (!returnUrl) {
+    return jsonResponse({ error: 'returnUrl is required' }, 400);
+  }
+
+  // Ensure Stripe customer exists
+  const customerId = await ensureStripeCustomer(env, account);
+
+  if (!customerId) {
+    return jsonResponse({ error: 'Failed to retrieve Stripe customer' }, 500);
+  }
+
+  try {
+    const response = await stripeRequest('/billing_portal/sessions', {
+      method: 'POST',
+      body: {
+        customer: customerId,
+        return_url: returnUrl,
+      },
+      apiKey: env.STRIPE_SECRET_KEY!,
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('Stripe portal session failed', { status: response.status, error: errorText });
+      return jsonResponse({ error: 'Failed to create portal session' }, 500);
+    }
+
+    const session = await response.json() as { url: string };
+    return jsonResponse({ url: session.url });
+  } catch (error) {
+    console.error('Error creating portal session', error);
+    return jsonResponse({ error: 'Internal server error' }, 500);
+  }
+}
+
+async function handleBillingProducts(
+  request: Request,
+  env: Env
+): Promise<Response> {
+  if (request.method !== 'GET') {
+    return jsonResponse({ error: 'Method Not Allowed' }, 405);
+  }
+
+  try {
+    const products = parseStripeProducts(env.STRIPE_PRODUCTS);
+    return jsonResponse({ products });
+  } catch (error) {
+    return jsonResponse({ error: (error as Error).message }, 500);
+  }
+}
+
+async function handleBillingInvoices(
+  request: Request,
+  env: Env,
+  account: AccountRecord
+): Promise<Response> {
+  if (!env.STRIPE_SECRET_KEY) {
+    return jsonResponse({ error: 'Stripe not configured' }, 503);
+  }
+
+  if (request.method !== 'GET') {
+    return jsonResponse({ error: 'Method Not Allowed' }, 405);
+  }
+
+  const customerId = await ensureStripeCustomer(env, account);
+  if (!customerId) {
+    return jsonResponse({ error: 'stripe_customer_missing', hint: 'Unable to resolve Stripe customer' }, 502);
+  }
+
+  const url = new URL(request.url);
+  const limitParam = url.searchParams.get('limit');
+  const limitValue = limitParam ? Number.parseInt(limitParam, 10) : 10;
+  const limit = Number.isFinite(limitValue) ? Math.min(Math.max(limitValue, 1), 100) : 10;
+
+  try {
+    const response = await stripeRequest('/invoices', {
+      method: 'GET',
+      query: {
+        customer: customerId,
+        limit: String(limit),
+      },
+      apiKey: env.STRIPE_SECRET_KEY,
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('Stripe invoices request failed', { status: response.status, error: errorText });
+      return jsonResponse({ error: 'stripe_invoices_failed' }, 502);
+    }
+
+    const payload = await response.json() as { data?: Array<Record<string, unknown>> };
+    const invoices = (payload.data ?? []).map(mapStripeInvoice);
+    return jsonResponse({ invoices });
+  } catch (error) {
+    console.error('Error fetching Stripe invoices', error);
+    return jsonResponse({ error: 'stripe_invoices_failed' }, 502);
+  }
+}
+
 async function handleStripeProducts(env: Env): Promise<Response> {
   try {
     const products = parseStripeProducts(env.STRIPE_PRODUCTS);
@@ -1955,12 +2238,190 @@ async function handleStripeWebhook(request: Request, env: Env): Promise<Response
       await linkAuditLogWithCompany(env, auditId, linkedCompanyId);
     }
 
+    // Handle subscription events
+    if (event.type && linkedCompanyId && env.DB) {
+      await handleSubscriptionWebhookEvent(event, linkedCompanyId, env);
+    }
+
     console.log("Stripe event received", event.type ?? "unknown", event.id ?? "");
   } catch (error) {
     console.warn("Stripe webhook JSON parse failed", error);
   }
 
   return jsonResponse({ ok: true }, 200);
+}
+
+async function handleSubscriptionWebhookEvent(
+  event: { type: string; data: { object: Record<string, unknown> } },
+  companyId: string,
+  env: Env
+): Promise<void> {
+  const eventType = event.type;
+  const subscription = event.data.object;
+
+  // Handle subscription lifecycle events
+  const subscriptionEvents = [
+    'customer.subscription.created',
+    'customer.subscription.updated',
+    'customer.subscription.deleted',
+    'customer.subscription.trial_will_end',
+  ];
+
+  if (!subscriptionEvents.includes(eventType)) {
+    return;
+  }
+
+  const subscriptionId = typeof subscription.id === 'string' ? subscription.id : null;
+  if (!subscriptionId) {
+    console.warn('Subscription webhook missing subscription.id', { eventType });
+    return;
+  }
+
+  const status = typeof subscription.status === 'string' ? subscription.status : 'active';
+  const priceId = typeof subscription.items === 'object' && subscription.items !== null
+    ? extractFirstPriceId(subscription.items)
+    : null;
+
+  const quantity = typeof subscription.items === 'object' && subscription.items !== null
+    ? extractFirstQuantity(subscription.items)
+    : 1;
+
+  const currentPeriodStart = typeof subscription.current_period_start === 'number'
+    ? new Date(subscription.current_period_start * 1000).toISOString()
+    : null;
+
+  const currentPeriodEnd = typeof subscription.current_period_end === 'number'
+    ? new Date(subscription.current_period_end * 1000).toISOString()
+    : null;
+
+  const cancelAt = typeof subscription.cancel_at === 'number'
+    ? new Date(subscription.cancel_at * 1000).toISOString()
+    : null;
+
+  const cancelAtPeriodEnd = subscription.cancel_at_period_end === true ? 1 : 0;
+
+  // Calculate MRR in cents (assuming monthly billing)
+  const mrrCents = typeof subscription.plan === 'object' && subscription.plan !== null
+    ? calculateMrrFromPlan(subscription.plan as Record<string, unknown>, quantity)
+    : 0;
+
+  const planName = typeof subscription.plan === 'object' && subscription.plan !== null
+    ? extractPlanName(subscription.plan as Record<string, unknown>)
+    : null;
+
+  try {
+    if (!env.DB) {
+      return;
+    }
+
+    // Upsert subscription
+    await env.DB.prepare(
+      `INSERT INTO company_subscriptions (
+        id,
+        company_id,
+        stripe_subscription_id,
+        stripe_price_id,
+        plan_name,
+        status,
+        seats,
+        mrr_cents,
+        current_period_start,
+        current_period_end,
+        cancel_at,
+        cancel_at_period_end,
+        updated_at
+      ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, CURRENT_TIMESTAMP)
+      ON CONFLICT(stripe_subscription_id) DO UPDATE SET
+        status = excluded.status,
+        stripe_price_id = excluded.stripe_price_id,
+        plan_name = excluded.plan_name,
+        seats = excluded.seats,
+        mrr_cents = excluded.mrr_cents,
+        current_period_start = excluded.current_period_start,
+        current_period_end = excluded.current_period_end,
+        cancel_at = excluded.cancel_at,
+        cancel_at_period_end = excluded.cancel_at_period_end,
+        updated_at = CURRENT_TIMESTAMP`
+    )
+      .bind(
+        `sub-${generateSessionId()}`,
+        companyId,
+        subscriptionId,
+        priceId,
+        planName,
+        status,
+        quantity,
+        mrrCents,
+        currentPeriodStart,
+        currentPeriodEnd,
+        cancelAt,
+        cancelAtPeriodEnd
+      )
+      .run();
+
+    console.log('Subscription upserted', { companyId, subscriptionId, status });
+  } catch (error) {
+    console.error('Failed to upsert subscription', error);
+  }
+}
+
+function extractFirstPriceId(items: unknown): string | null {
+  if (!items || typeof items !== 'object') {
+    return null;
+  }
+  const data = (items as { data?: unknown[] }).data;
+  if (!Array.isArray(data) || data.length === 0) {
+    return null;
+  }
+  const firstItem = data[0];
+  if (!firstItem || typeof firstItem !== 'object') {
+    return null;
+  }
+  const price = (firstItem as { price?: { id?: string } }).price;
+  return price && typeof price.id === 'string' ? price.id : null;
+}
+
+function extractFirstQuantity(items: unknown): number {
+  if (!items || typeof items !== 'object') {
+    return 1;
+  }
+  const data = (items as { data?: unknown[] }).data;
+  if (!Array.isArray(data) || data.length === 0) {
+    return 1;
+  }
+  const firstItem = data[0];
+  if (!firstItem || typeof firstItem !== 'object') {
+    return 1;
+  }
+  const quantity = (firstItem as { quantity?: number }).quantity;
+  return typeof quantity === 'number' ? quantity : 1;
+}
+
+function calculateMrrFromPlan(plan: Record<string, unknown>, quantity: number): number {
+  const amount = typeof plan.amount === 'number' ? plan.amount : 0;
+  const interval = typeof plan.interval === 'string' ? plan.interval : 'month';
+
+  // Convert to monthly recurring revenue
+  let monthlyAmount = amount;
+  if (interval === 'year') {
+    monthlyAmount = Math.floor(amount / 12);
+  } else if (interval === 'day') {
+    monthlyAmount = amount * 30;
+  } else if (interval === 'week') {
+    monthlyAmount = amount * 4;
+  }
+
+  return monthlyAmount * quantity;
+}
+
+function extractPlanName(plan: Record<string, unknown>): string | null {
+  if (typeof plan.nickname === 'string' && plan.nickname.length > 0) {
+    return plan.nickname;
+  }
+  if (typeof plan.product === 'string' && plan.product.length > 0) {
+    return plan.product;
+  }
+  return null;
 }
 
 
@@ -2333,4 +2794,170 @@ function cors(response: Response): Response {
     statusText: response.statusText,
     headers,
   });
+}
+
+// Stripe HTTP API helpers
+async function stripeRequest(
+  endpoint: string,
+  options: {
+    method: string;
+    body?: Record<string, unknown>;
+    query?: Record<string, unknown>;
+    apiKey: string;
+  }
+): Promise<Response> {
+  const url = new URL(`https://api.stripe.com/v1${endpoint}`);
+  if (options.query) {
+    for (const [key, value] of Object.entries(options.query)) {
+      if (value !== undefined && value !== null) {
+        url.searchParams.set(key, String(value));
+      }
+    }
+  }
+
+  const headers = new Headers({
+    Authorization: `Bearer ${options.apiKey}`,
+  });
+
+  let body: string | undefined;
+  if (options.body && options.method !== 'GET') {
+    body = new URLSearchParams(
+      Object.entries(options.body)
+        .filter(([_, value]) => value !== undefined && value !== null)
+        .map(([key, value]) => [key, String(value)])
+    ).toString();
+    headers.set('Content-Type', 'application/x-www-form-urlencoded');
+  }
+
+  return fetch(url.toString(), {
+    method: options.method,
+    headers,
+    body,
+  });
+}
+
+async function ensureStripeCustomer(
+  env: Env,
+  account: AccountRecord
+): Promise<string | null> {
+  if (!env.DB || !env.STRIPE_SECRET_KEY) {
+    return null;
+  }
+
+  const companyId = account.id;
+
+  const existingRow = await queryFirst(
+    env.DB,
+    `SELECT stripe_customer_id FROM stripe_customers WHERE company_id = ? LIMIT 1`,
+    [companyId]
+  );
+  if (existingRow?.stripe_customer_id) {
+    return String(existingRow.stripe_customer_id);
+  }
+
+  const companyRow = await queryFirst(
+    env.DB,
+    `SELECT stripe_customer_id, billing_email FROM companies WHERE id = ? LIMIT 1`,
+    [companyId]
+  );
+
+  const existingCustomerId = companyRow?.stripe_customer_id ? String(companyRow.stripe_customer_id) : null;
+  if (existingCustomerId) {
+    try {
+      await env.DB.prepare(
+        `INSERT INTO stripe_customers (id, company_id, stripe_customer_id, billing_email)
+         VALUES (?1, ?2, ?3, ?4)
+         ON CONFLICT(company_id) DO UPDATE SET stripe_customer_id = excluded.stripe_customer_id`
+      )
+        .bind(
+          `strcust-${generateSessionId()}`,
+          companyId,
+          existingCustomerId,
+          account.billingEmail ?? companyRow?.billing_email ?? null
+        )
+        .run();
+    } catch (error) {
+      logDbError('ensureStripeCustomer migration', error);
+    }
+    return existingCustomerId;
+  }
+
+  const customerEmail = account.billingEmail ?? (companyRow?.billing_email ? String(companyRow.billing_email) : undefined);
+  if (!customerEmail) {
+    console.warn('Cannot create Stripe customer without email', { companyId });
+    return null;
+  }
+
+  try {
+    const response = await stripeRequest('/customers', {
+      method: 'POST',
+      body: {
+        email: customerEmail,
+        name: account.name,
+        'metadata[company_id]': companyId,
+        'metadata[company_slug]': account.slug,
+      },
+      apiKey: env.STRIPE_SECRET_KEY,
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('Failed to create Stripe customer', { status: response.status, error: errorText });
+      return null;
+    }
+
+    const customer = await response.json() as { id: string };
+    const stripeCustomerId = customer.id;
+
+    await env.DB.prepare(
+      `INSERT INTO stripe_customers (id, company_id, stripe_customer_id, billing_email)
+       VALUES (?1, ?2, ?3, ?4)`
+    )
+      .bind(
+        `strcust-${generateSessionId()}`,
+        companyId,
+        stripeCustomerId,
+        customerEmail
+      )
+      .run();
+
+    await env.DB.prepare(
+      `UPDATE companies SET stripe_customer_id = ? WHERE id = ?`
+    )
+      .bind(stripeCustomerId, companyId)
+      .run();
+
+    return stripeCustomerId;
+  } catch (error) {
+    console.error('Error ensuring Stripe customer', error);
+    return null;
+  }
+}
+
+type StripeInvoice = Record<string, unknown> & {
+  id?: string;
+  number?: string;
+  status?: string;
+  amount_due?: number;
+  amount_paid?: number;
+  currency?: string;
+  created?: number;
+  due_date?: number;
+  hosted_invoice_url?: string;
+  invoice_pdf?: string;
+};
+
+function mapStripeInvoice(invoice: StripeInvoice) {
+  return {
+    id: typeof invoice.id === 'string' ? invoice.id : null,
+    number: typeof invoice.number === 'string' ? invoice.number : null,
+    status: typeof invoice.status === 'string' ? invoice.status : null,
+    amountDue: typeof invoice.amount_due === 'number' ? invoice.amount_due : null,
+    amountPaid: typeof invoice.amount_paid === 'number' ? invoice.amount_paid : null,
+    currency: typeof invoice.currency === 'string' ? invoice.currency : null,
+    created: typeof invoice.created === 'number' ? invoice.created : null,
+    dueDate: typeof invoice.due_date === 'number' ? invoice.due_date : null,
+    hostedInvoiceUrl: typeof invoice.hosted_invoice_url === 'string' ? invoice.hosted_invoice_url : null,
+    invoicePdf: typeof invoice.invoice_pdf === 'string' ? invoice.invoice_pdf : null,
+  };
 }
