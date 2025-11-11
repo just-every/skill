@@ -2,7 +2,8 @@ import React from 'react';
 import { Linking, Pressable, ScrollView, Text, View } from 'react-native';
 
 import type { Company, Invoice, Member, Product, SubscriptionSummary } from '../types';
-import { Badge, Button, Card, CardContent, CardDescription, CardHeader, CardTitle, Label } from '../../components/ui';
+import { Badge, Button, Card, CardContent, CardDescription, CardHeader, CardTitle, Input, Label } from '../../components/ui';
+import { useUpdateBillingEmailMutation } from '../hooks';
 
 type BillingScreenProps = {
   readonly company?: Company;
@@ -24,6 +25,24 @@ const invoiceStatusVariant: Record<Invoice['status'], 'default' | 'success' | 'w
 
 const BillingScreen = ({ company, subscription, products = [], invoices = [], viewerRole, onOpenCheckout, onOpenPortal }: BillingScreenProps) => {
   const [isLoading, setIsLoading] = React.useState(false);
+  const [isEditingEmail, setIsEditingEmail] = React.useState(false);
+  const [draftEmail, setDraftEmail] = React.useState(company?.billingEmail ?? '');
+  const [successMessage, setSuccessMessage] = React.useState<string | null>(null);
+  const [emailError, setEmailError] = React.useState<string | null>(null);
+
+  const updateBillingEmailMutation = useUpdateBillingEmailMutation(company?.id, company?.slug);
+
+  React.useEffect(() => {
+    setDraftEmail(company?.billingEmail ?? '');
+  }, [company?.billingEmail]);
+
+  React.useEffect(() => {
+    if (!successMessage) {
+      return;
+    }
+    const timeout = setTimeout(() => setSuccessMessage(null), 4_000);
+    return () => clearTimeout(timeout);
+  }, [successMessage]);
 
   // Determine if viewer can manage billing (Owner, Admin, or Billing)
   const canManageBilling = viewerRole === 'Owner' || viewerRole === 'Admin' || viewerRole === 'Billing';
@@ -107,27 +126,42 @@ const BillingScreen = ({ company, subscription, products = [], invoices = [], vi
             <CardDescription>Upgrade or change your subscription plan.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
-            {products.map((product) => (
-              <View key={product.id} className="flex flex-row items-center justify-between rounded-lg border border-slate-200 p-4">
-                <View className="space-y-1">
-                  <Text className="text-base font-semibold text-ink">{product.name}</Text>
-                  {product.description && (
-                    <Text className="text-sm text-slate-500">{product.description}</Text>
+            {products.map((product) => {
+              const canCheckoutProduct = Boolean(product.priceId && !product.priceId.startsWith('legacy:'));
+              return (
+                <View key={product.id} className="flex flex-col gap-1">
+                  <View className="flex flex-row items-center justify-between rounded-lg border border-slate-200 p-4">
+                    <View className="space-y-1">
+                      <Text className="text-base font-semibold text-ink">{product.name}</Text>
+                      {product.description && (
+                        <Text className="text-sm text-slate-500">{product.description}</Text>
+                      )}
+                      <Text className="text-sm font-medium text-slate-700">
+                        {formatCurrency(product.unitAmount, product.currency)}
+                        {product.interval && `/${product.interval}`}
+                      </Text>
+                    </View>
+                    <Button
+                      variant="default"
+                      onPress={() => {
+                        if (!product.priceId || !canCheckoutProduct) {
+                          return;
+                        }
+                        handleOpenCheckout(product.priceId);
+                      }}
+                      disabled={isLoading || !canCheckoutProduct}
+                    >
+                      Select
+                    </Button>
+                  </View>
+                  {!canCheckoutProduct && (
+                    <Text className="px-4 text-[10px] text-slate-500">
+                      Configure a Stripe price ID to enable checkout for this plan.
+                    </Text>
                   )}
-                  <Text className="text-sm font-medium text-slate-700">
-                    {formatCurrency(product.unitAmount, product.currency)}
-                    {product.interval && `/${product.interval}`}
-                  </Text>
                 </View>
-                <Button
-                  variant="default"
-                  onPress={() => handleOpenCheckout(product.priceId)}
-                  disabled={isLoading}
-                >
-                  Select
-                </Button>
-              </View>
-            ))}
+              );
+            })}
           </CardContent>
         </Card>
       )}
@@ -183,15 +217,71 @@ const BillingScreen = ({ company, subscription, products = [], invoices = [], vi
 
       <Card>
         <CardHeader>
-          <CardTitle>Billing contact</CardTitle>
-          <CardDescription>Send invoices and renewal notices to a shared mailbox.</CardDescription>
+          <View>
+            <CardTitle>Billing contact</CardTitle>
+            <CardDescription>Send invoices and renewal notices to the right mailbox.</CardDescription>
+          </View>
         </CardHeader>
-        <CardContent>
+        <CardContent className="space-y-4">
           <Label required>Email</Label>
-          <Field label="" value={company?.billingEmail ?? 'billing@your-company.com'} hideLabel />
-          <CardDescription>
-            Update this email via the Worker endpoint (`/api/accounts/:slug`) once persistence is enabled.
-          </CardDescription>
+          <View className="space-y-3">
+            {isEditingEmail ? (
+              <Input
+                value={draftEmail}
+                onChangeText={(value) => setDraftEmail(value)}
+                errorText={emailError ?? undefined}
+                placeholder="billing@your-company.com"
+                keyboardType="email-address"
+                autoCapitalize="none"
+              />
+            ) : (
+              <View className="rounded-2xl border border-slate-200 bg-slate-50 px-3 py-3">
+                <Text className="text-base text-ink">{company?.billingEmail ?? 'billing@your-company.com'}</Text>
+              </View>
+            )}
+            <View className="flex flex-row flex-wrap gap-2">
+              {canManageBilling ? (
+                isEditingEmail ? (
+                  <>
+                    <Button
+                      variant="default"
+                      onPress={async () => {
+                        setEmailError(null);
+                        try {
+                          await updateBillingEmailMutation.mutateAsync(draftEmail ? draftEmail : null);
+                          setSuccessMessage('Billing contact updated.');
+                          setIsEditingEmail(false);
+                        } catch (error) {
+                          setEmailError(error instanceof Error ? error.message : 'Unable to update billing contact');
+                        }
+                      }}
+                      disabled={updateBillingEmailMutation.isLoading}
+                      className="min-w-[120px] justify-center"
+                    >
+                      {updateBillingEmailMutation.isLoading ? 'Saving…' : 'Save'}
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      onPress={() => {
+                        setDraftEmail(company?.billingEmail ?? '');
+                        setEmailError(null);
+                        setIsEditingEmail(false);
+                      }}
+                      disabled={updateBillingEmailMutation.isLoading}
+                    >
+                      Cancel
+                    </Button>
+                  </>
+                ) : (
+                  <Button variant="default" onPress={() => setIsEditingEmail(true)}>
+                    Edit
+                  </Button>
+                )
+              ) : null}
+            </View>
+            {successMessage && <Text className="text-sm text-success">{successMessage}</Text>}
+            {emailError && <Text className="text-sm text-danger">{emailError}</Text>}
+          </View>
         </CardContent>
       </Card>
     </View>
