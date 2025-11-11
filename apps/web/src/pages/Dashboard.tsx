@@ -1,5 +1,6 @@
 import React, { useEffect } from 'react';
 import { ActivityIndicator, Pressable, Text, View } from 'react-native';
+import { faChartSimple, faCreditCard, faFolderTree, faGear, faHouse, faUsers } from '@fortawesome/pro-solid-svg-icons';
 
 import { useAuth } from '../auth/AuthProvider';
 import AppShell, { type AppNavItem } from '../app/AppShell';
@@ -31,12 +32,12 @@ import SettingsScreen from '../app/screens/SettingsScreen';
 import { useRouterContext } from '../router/RouterProvider';
 
 const NAV_ITEMS: AppNavItem[] = [
-  { key: 'overview', label: 'Overview', description: 'Pulse, stats, quick actions', icon: '🏠' },
-  { key: 'team', label: 'Team', description: 'Members, roles, invites', icon: '👥' },
-  { key: 'billing', label: 'Billing', description: 'Plan & Stripe status', icon: '💳' },
-  { key: 'usage', label: 'Usage', description: 'Requests & storage', icon: '📈' },
-  { key: 'assets', label: 'Assets', description: 'R2 uploads', icon: '🗂️' },
-  { key: 'settings', label: 'Settings', description: 'Branding & domains', icon: '⚙️' },
+  { key: 'overview', label: 'Overview', description: 'Pulse, stats, quick actions', icon: faHouse },
+  { key: 'team', label: 'Team', description: 'Members, roles, invites', icon: faUsers },
+  { key: 'billing', label: 'Billing', description: 'Plan & Stripe status', icon: faCreditCard },
+  { key: 'usage', label: 'Usage', description: 'Requests & storage', icon: faChartSimple },
+  { key: 'assets', label: 'Assets', description: 'R2 uploads', icon: faFolderTree },
+  { key: 'settings', label: 'Settings', description: 'Branding & domains', icon: faGear },
 ];
 
 const resolveSection = (path: string): string => {

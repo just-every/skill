@@ -148,7 +148,7 @@ const TeamScreen = ({
                   <View className="space-y-1">
                     <Text className="text-base font-semibold text-ink">{invite.email}</Text>
                     <Text className="text-xs text-slate-500">
-                      Invited {formatDate(invite.invitedAt)} • Expires {formatDate(invite.expiresAt)}
+                      Invited {formatDate(invite.invitedAt ?? invite.createdAt)} • Expires {formatDate(invite.expiresAt)}
                     </Text>
                   </View>
                   <View className="flex flex-row items-center gap-2">

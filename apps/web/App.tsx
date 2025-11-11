@@ -16,10 +16,11 @@ const RoutedView = () => {
     return <Callback />;
   }
 
+  if (path.startsWith('/app')) {
+    return <Dashboard />;
+  }
+
   const content = (() => {
-    if (path.startsWith('/app')) {
-      return <Dashboard />;
-    }
     switch (path) {
       case '/pricing':
         return <Pricing />;

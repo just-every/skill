@@ -45,7 +45,8 @@ export type Invite = {
   email: string;
   role: Member['role'];
   status: 'pending' | 'accepted' | 'expired' | 'revoked';
-  invitedAt: string;
+  invitedAt?: string;
+  createdAt?: string;
   expiresAt?: string;
   invitedBy?: string;
 };
