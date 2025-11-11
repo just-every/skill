@@ -18,9 +18,11 @@
 - Worker typecheck: `pnpm --filter @justevery/worker run typecheck` (passes after typing fixes).  
 - Web build: `pnpm --filter @justevery/web run build`.  
 - Open Playwright suite: `RUN_OPEN_E2E=true npm run test:e2e` (landing/login/checkout PASS; authenticated spec skipped without `TEST_SESSION_COOKIE`).  
+- Auth session setup: `docs/AUTH_SETUP.md` explains how to get `TEST_SESSION_COOKIE` so the gated spec runs with owner/admin credentials.  
 - Smoke/curl: `curl -I https://starter.justevery.com` and `curl -I https://starter.justevery.com/app` (return 200).  
 - Screenshots: `docs/assets/landing.png`, `docs/assets/app.png` capture the landing and /app states.  
 - GitHub Actions: `deploy.yml` now documents the automated workflows; recent run `19263977479` (Workflow `Deploy (ENV_BLOB)`) succeeded with smoke checks against `/api/status` and `/api/stripe/products` and published artifacts `deploy-19263977479.zip` plus `test-results/**`.  
+- Browser Smoke (2025-11-11): loaded https://starter.justevery.com and https://starter.justevery.com/app via the deployed worker; landing renders correctly, /app redirects to Better Auth login, console logs show only the expected auth-required warning.  
 
 ## Authenticated E2E
 - Provide `TEST_SESSION_COOKIE` (Better Auth Owner/Admin session token scoped to `/api/*`) to the deploy workflow secret or local env.  

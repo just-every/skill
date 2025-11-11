@@ -109,6 +109,5 @@ See `docs/BOOTSTRAP-CLI-MIGRATION.md` for the full migration guide.
 
 For runbooks and deeper troubleshooting, start with the `docs/` folder.
 
-## Verification & release readiness
-- Reference `docs/VERIFY.md` for the post-deploy smoke checks, `docs/TEMPLATE_READY.md` for the overall template checklist, and `docs/ACCEPTANCE.md` for the final acceptance summary (living doc linking goals → files/tests/artifacts).
+- Reference `docs/VERIFY.md` for the post-deploy smoke checks, `docs/TEMPLATE_READY.md` for the overall template checklist, `docs/ACCEPTANCE.md` for the acceptance summary, and `docs/AUTH_SETUP.md` for how to capture/share `TEST_SESSION_COOKIE` so the gated spec runs.  
 - The gated Playwright suite relies on a Better Auth `TEST_SESSION_COOKIE` (Owner/Admin session) so CI skips the spec unless that secret is present; locally you can still prime the landing/login/checkout probes by setting `RUN_OPEN_E2E=true` once real credentials exist.
