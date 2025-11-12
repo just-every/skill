@@ -48,6 +48,18 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Bootstrap preflight
+        run: pnpm bootstrap:preflight
+
+      - name: Generate bootstrap env
+        run: pnpm bootstrap:env
+
+      - name: Validate bootstrap env
+        run: pnpm bootstrap:env -- --check
+
+      - name: Bootstrap deploy dry run
+        run: pnpm bootstrap:deploy:dry-run
+
       - name: Install Playwright browsers
         run: pnpm exec playwright install --with-deps
 
