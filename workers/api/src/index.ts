@@ -356,19 +356,34 @@ function mapDbCompany(row: DbRow): AccountRecord {
   } satisfies AccountRecord;
 }
 
-async function fetchCompaniesFromDb(env: Env): Promise<AccountRecord[] | null> {
+async function fetchCompaniesForViewer(
+  env: Env,
+  session: AuthenticatedSession
+): Promise<AccountRecord[] | null> {
   if (!env.DB) {
-    logDbError('fetchCompaniesFromDb', 'D1 binding is not configured');
+    logDbError('fetchCompaniesForViewer', 'D1 binding is not configured');
     return null;
   }
+
+  const userId = session.userId?.trim() ?? '';
+  const email = session.emailAddress?.trim().toLowerCase() ?? '';
+
+  if (!userId && !email) {
+    return [];
+  }
+
+  const viewerScopedSql = `${COMPANY_SELECT} WHERE EXISTS (
+    SELECT 1 FROM company_members m
+    WHERE m.company_id = c.id
+      AND ((?1 != '' AND m.user_id = ?1) OR (?2 != '' AND LOWER(m.email) = LOWER(?2)))
+  )
+  ORDER BY c.created_at ASC;`;
+
   try {
-    const rows = await queryAll(env.DB, COMPANY_SUMMARY_SQL);
-    if (rows.length === 0) {
-      return null;
-    }
+    const rows = await queryAll(env.DB, viewerScopedSql, [userId, email]);
     return rows.map((row) => mapDbCompany(row));
   } catch (error) {
-    logDbError('fetchCompaniesFromDb', error);
+    logDbError('fetchCompaniesForViewer', error);
     return null;
   }
 }
@@ -388,6 +403,157 @@ async function fetchCompanyBySlugFromDb(env: Env, slug: string): Promise<Account
     logDbError('fetchCompanyBySlugFromDb', error);
     return null;
   }
+}
+
+async function ensureAccountProvisionedForSession(env: Env, session: AuthenticatedSession): Promise<void> {
+  if (!env.DB) {
+    return;
+  }
+
+  const normalizedEmail = session.emailAddress?.trim().toLowerCase();
+  if (!normalizedEmail) {
+    return;
+  }
+
+  const userId = session.userId?.trim() ?? null;
+  const alreadyMember = await hasMembershipForUser(env, userId, normalizedEmail);
+  if (alreadyMember) {
+    return;
+  }
+
+  const persistedUserId = await upsertUserRecord(env, userId, normalizedEmail);
+  const displayName = deriveDisplayName(session.session.user?.name, normalizedEmail);
+  const companyName = deriveCompanyName(displayName);
+  const companySlug = await generateUniqueCompanySlug(env.DB, displayName);
+  const companyId = `acct-${generateSessionId()}`;
+  const memberId = `mbr-${generateSessionId()}`;
+  const subscriptionId = `sub-${generateSessionId()}`;
+  const plan = 'Launch';
+  const timestamp = new Date().toISOString();
+
+  const statements = [
+    env.DB.prepare(
+      `INSERT INTO companies (id, slug, name, plan, billing_email)
+       VALUES (?1, ?2, ?3, ?4, ?5)`
+    ).bind(companyId, companySlug, companyName, plan, normalizedEmail),
+    env.DB.prepare(
+      `INSERT INTO company_members (id, company_id, user_id, email, display_name, role, status)
+       VALUES (?1, ?2, ?3, ?4, ?5, 'owner', 'active')`
+    ).bind(memberId, companyId, persistedUserId, normalizedEmail, displayName),
+    env.DB.prepare(
+      `INSERT INTO company_branding_settings (company_id, updated_at)
+       VALUES (?1, ?2)
+       ON CONFLICT(company_id) DO UPDATE SET updated_at = excluded.updated_at`
+    ).bind(companyId, timestamp),
+    env.DB.prepare(
+      `INSERT INTO company_subscriptions (id, company_id, plan_name, status, seats, mrr_cents, current_period_start, current_period_end)
+       VALUES (?1, ?2, ?3, 'trialing', 5, 0, ?4, ?4)`
+    ).bind(subscriptionId, companyId, plan, timestamp),
+  ];
+
+  try {
+    await env.DB.batch(statements);
+  } catch (error) {
+    logDbError('ensureAccountProvisionedForSession', error);
+  }
+}
+
+async function hasMembershipForUser(env: Env, userId: string | null, email: string): Promise<boolean> {
+  if (!env.DB) {
+    return false;
+  }
+
+  if (userId) {
+    const member = await queryFirst(env.DB, `SELECT company_id FROM company_members WHERE user_id = ? LIMIT 1`, [userId]);
+    if (member?.company_id) {
+      return true;
+    }
+  }
+
+  const byEmail = await queryFirst(
+    env.DB,
+    `SELECT company_id FROM company_members WHERE LOWER(email) = LOWER(?) LIMIT 1`,
+    [email]
+  );
+  return Boolean(byEmail?.company_id);
+}
+
+async function upsertUserRecord(env: Env, userId: string | null, email: string): Promise<string> {
+  if (!env.DB) {
+    return userId ?? `user-${generateSessionId()}`;
+  }
+
+  const targetId = userId ?? `user-${generateSessionId()}`;
+  try {
+    await env.DB.prepare(
+      `INSERT INTO users (id, email)
+       VALUES (?1, ?2)
+       ON CONFLICT(id) DO UPDATE SET email = excluded.email, updated_at = CURRENT_TIMESTAMP`
+    )
+      .bind(targetId, email)
+      .run();
+    return targetId;
+  } catch (error) {
+    const uniqueViolation = error instanceof Error && error.message.toLowerCase().includes('unique');
+    if (!uniqueViolation) {
+      logDbError('upsertUserRecord', error);
+      throw error;
+    }
+    const existing = await queryFirst(env.DB, `SELECT id FROM users WHERE LOWER(email) = LOWER(?) LIMIT 1`, [email]);
+    if (existing?.id) {
+      return String(existing.id);
+    }
+    logDbError('upsertUserRecord', error);
+    throw error;
+  }
+}
+
+async function generateUniqueCompanySlug(db: D1Database, seed: string): Promise<string> {
+  const base = slugifySegment(seed);
+  let candidate = base;
+  let suffix = 1;
+
+  while (true) {
+    const row = await queryFirst(db, `SELECT slug FROM companies WHERE slug = ? LIMIT 1`, [candidate]);
+    if (!row) {
+      return candidate;
+    }
+    candidate = `${base}-${suffix++}`;
+  }
+}
+
+function deriveDisplayName(rawName: string | undefined | null, email: string): string {
+  const trimmed = rawName?.trim();
+  if (trimmed) {
+    return trimmed;
+  }
+  const local = extractLocalPart(email);
+  return local ? capitalise(local) : 'Owner';
+}
+
+function deriveCompanyName(displayName: string): string {
+  const first = displayName.split(/\s+/).filter(Boolean)[0] ?? 'New';
+  return `${first}'s Workspace`;
+}
+
+function slugifySegment(value: string): string {
+  const slug = value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+  return slug || 'workspace';
+}
+
+function extractLocalPart(email: string): string {
+  const [local] = email.split('@');
+  return local ?? email;
+}
+
+function capitalise(value: string): string {
+  if (!value) {
+    return value;
+  }
+  return value.charAt(0).toUpperCase() + value.slice(1);
 }
 
 async function fetchMembersFromDb(env: Env, companyId: string): Promise<AccountMemberRecord[] | null> {
@@ -1221,16 +1387,26 @@ const Worker: ExportedHandler<Env> = {
 };
 
 export default Worker;
+export { ensureAccountProvisionedForSession };
 
 function normalisePath(pathname: string): string {
   if (pathname === "/") return "/";
   return pathname.replace(/\/+$/, "");
 }
 
-async function buildAccountSummaries(env: Env, allowFallback: boolean): Promise<AccountRecord[] | null> {
-  const fromDb = await fetchCompaniesFromDb(env);
+async function buildAccountSummaries(
+  env: Env,
+  session: AuthenticatedSession,
+  allowFallback: boolean
+): Promise<AccountRecord[] | null> {
+  const fromDb = await fetchCompaniesForViewer(env, session);
   if (fromDb !== null) {
-    return fromDb;
+    if (fromDb.length > 0) {
+      return fromDb;
+    }
+    if (!allowFallback) {
+      return [];
+    }
   }
 
   const shouldFallback = allowFallback || !env.DB;
@@ -1661,7 +1837,8 @@ async function handleAccountsRoute(request: Request, env: Env, pathname: string)
   const allowFallback = shouldAllowPlaceholderData(request, env);
 
   if (pathname === "/api/accounts") {
-    const accounts = await buildAccountSummaries(env, allowFallback);
+    await ensureAccountProvisionedForSession(env, auth.session);
+    const accounts = await buildAccountSummaries(env, auth.session, allowFallback);
     if (!accounts) {
       return dataUnavailableResponse(env);
     }
@@ -2625,7 +2802,8 @@ async function handleSubscription(request: Request, env: Env): Promise<Response>
   if (slug) {
     account = await resolveAccountBySlug(env, slug, allowFallback);
   } else {
-    const accounts = await buildAccountSummaries(env, allowFallback);
+    await ensureAccountProvisionedForSession(env, auth.session);
+    const accounts = await buildAccountSummaries(env, auth.session, allowFallback);
     account = accounts?.[0];
   }
   if (!account) {
