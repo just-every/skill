@@ -610,6 +610,39 @@ export function createDeployTasks(options: DeployOptions = {}): Listr<DeployCont
       }
     },
     {
+      title: dryRun ? 'Skip secret sync (dry run)' : 'Sync worker secrets',
+      enabled: () => !checkOnly,
+      task: async (ctx, task) => {
+        if (dryRun) {
+          task.skip?.('Dry run requested; skipping secret sync');
+          return;
+        }
+        if (!ctx.envResult) {
+          throw new Error('Environment not loaded');
+        }
+        if (shouldSkipWranglerCommands(ctx.envResult.env)) {
+          task.skip?.('Skipping secret sync with placeholder credentials');
+          return;
+        }
+        const secret = ctx.envResult.env.STRIPE_WEBHOOK_SECRET?.trim();
+        if (!secret || secret === 'whsec_missing_secret') {
+          task.skip?.('STRIPE_WEBHOOK_SECRET not configured');
+          return;
+        }
+        await execa('wrangler', [
+          '--config',
+          'workers/api/wrangler.toml',
+          'secret',
+          'put',
+          'STRIPE_WEBHOOK_SECRET'
+        ], {
+          cwd,
+          input: `${secret}\n`
+        });
+        task.output = 'STRIPE_WEBHOOK_SECRET updated';
+      }
+    },
+    {
       title: dryRun ? 'Skip deploy (dry run)' : 'Deploy worker',
       enabled: () => !checkOnly,
       task: async (ctx, task) => {

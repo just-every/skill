@@ -833,6 +833,7 @@ const SPA_EXTRA_ROUTES = ["/callback", "/app", "/logout"];
 const PRERENDER_ROUTES: Record<string, string> = {
   '/': 'index.html',
   '/pricing': 'pricing.html',
+  '/payments': 'pricing.html',
   '/contact': 'contact.html'
 };
 const MARKETING_ROUTE_PREFIX = "/marketing/";
@@ -883,6 +884,28 @@ function normaliseAppBasePath(raw: string | undefined): string {
   }
 
   return candidate || "/app";
+}
+
+function redirectToLogin(env: Env, requestUrl: URL): Response {
+  const loginOrigin = env.LOGIN_ORIGIN?.trim();
+  if (!loginOrigin) {
+    return new Response('Login service is not configured', { status: 503 });
+  }
+
+  let target: URL;
+  try {
+    target = new URL(loginOrigin);
+  } catch {
+    return new Response('Login service origin is invalid', { status: 500 });
+  }
+
+  const redirectParam =
+    requestUrl.searchParams.get('redirect') ?? requestUrl.searchParams.get('return_to');
+  if (redirectParam) {
+    target.searchParams.set('redirect', redirectParam);
+  }
+
+  return Response.redirect(target.toString(), 302);
 }
 
 function shouldServeAppShell(pathname: string, env: Env): boolean {
@@ -1137,6 +1160,10 @@ const Worker: ExportedHandler<Env> = {
 
     if (pathname === "/marketing" || pathname.startsWith(MARKETING_ROUTE_PREFIX)) {
       return handleMarketingAsset(request, env, pathname);
+    }
+
+    if (pathname === "/login") {
+      return redirectToLogin(env, url);
     }
 
     const prerenderResponse = await servePrerenderedHtml(request, env, pathname);

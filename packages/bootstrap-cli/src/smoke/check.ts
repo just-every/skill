@@ -1,6 +1,6 @@
 import { promises as fs } from 'node:fs';
-import { mkdirSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { existsSync, mkdirSync } from 'node:fs';
+import { dirname, join, resolve } from 'node:path';
 import { execa } from 'execa';
 
 export type SmokeMode = 'full' | 'minimal';
@@ -60,6 +60,7 @@ export interface SmokeCheckReport {
 
 const DEFAULT_OUTPUT_ROOT = join('test-results', 'smoke');
 const DEFAULT_ROUTES = ['/', '/login', '/callback', '/logout', '/app', '/payments'];
+const WORKSPACE_ROOT = findWorkspaceRoot(process.env.INIT_CWD ?? process.cwd());
 
 export async function runSmokeChecks(options: SmokeCheckOptions): Promise<SmokeCheckReport> {
   const mode: SmokeMode = options.mode ?? 'full';
@@ -282,7 +283,9 @@ async function checkD1({
       '--command',
       'SELECT id, slug, domain, app_url FROM projects LIMIT 5;',
       '--json'
-    ]);
+    ], {
+      cwd: WORKSPACE_ROOT
+    });
 
     const parsed = JSON.parse(stdout);
     const rows = Array.isArray(parsed) && parsed[0]?.results ? parsed[0].results : [];
@@ -314,7 +317,9 @@ async function checkWorkerSecrets(): Promise<SmokeSecretsResult> {
       'workers/api/wrangler.toml',
       'secret',
       'list'
-    ]);
+    ], {
+      cwd: WORKSPACE_ROOT
+    });
 
     const secrets = JSON.parse(stdout);
     const names = secrets.map((secret: any) => secret.name).sort();
@@ -338,6 +343,23 @@ async function checkWorkerSecrets(): Promise<SmokeSecretsResult> {
       skipped: false,
       message: error instanceof Error ? error.message : String(error)
     };
+  }
+}
+
+function findWorkspaceRoot(start: string): string {
+  let current = start;
+  while (true) {
+    if (
+      existsSync(join(current, 'pnpm-workspace.yaml')) ||
+      existsSync(join(current, '.git'))
+    ) {
+      return current;
+    }
+    const parent = dirname(current);
+    if (parent === current) {
+      return start;
+    }
+    current = parent;
   }
 }
 
