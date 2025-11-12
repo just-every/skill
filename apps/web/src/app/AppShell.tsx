@@ -111,14 +111,6 @@ const AppShell = ({ navItems, activeItem, onNavigate, companies, isLoadingCompan
       .join('') || 'JA';
   }, [displayName]);
 
-  const handleNavPress = useCallback(
-    (key: string) => {
-      onNavigate(key);
-      setMobileMenuOpen(false);
-    },
-    [onNavigate]
-  );
-
   const handleSignOut = useCallback(async () => {
     if (isSigningOut) {
       return;
@@ -148,6 +140,14 @@ const AppShell = ({ navItems, activeItem, onNavigate, companies, isLoadingCompan
     setAccountMenuOpen(false);
     setMobileMenuOpen(false);
   }, []);
+
+  const handleNavPress = useCallback(
+    (key: string) => {
+      closeMenus();
+      onNavigate(key);
+    },
+    [closeMenus, onNavigate]
+  );
 
   useEffect(() => {
     if (typeof document === 'undefined') {
@@ -373,7 +373,7 @@ const AppShell = ({ navItems, activeItem, onNavigate, companies, isLoadingCompan
           <Pressable
             accessibilityRole="button"
             accessibilityLabel="Close navigation"
-            onPress={() => setMobileMenuOpen(false)}
+            onPress={closeMenus}
             className="absolute right-4 top-4 flex h-10 w-10 items-center justify-center rounded-full border border-white/20"
           >
             <FontAwesomeIcon icon={faXmark} size={20} color="#f8fafc" />
