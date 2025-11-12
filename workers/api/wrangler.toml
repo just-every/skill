@@ -32,6 +32,7 @@ CLOUDFLARE_ZONE_ID = "723318de8bc1f3353196efc02c4a09ed"
 binding = "DB"
 database_name = "starter-d1"
 database_id = "94e98a62-69a0-49e2-86ab-283c9e75fa52"
+migrations_dir = "migrations"
 
 [[r2_buckets]]
 binding = "STORAGE"

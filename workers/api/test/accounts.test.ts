@@ -24,7 +24,7 @@ describe('Account selection & switching', () => {
 
     const response = await runFetch(worker, request, env);
     expect(response.status).toBe(200);
-    const payload = await response.json();
+    const payload = (await response.json()) as { ok: boolean; currentAccountSlug: string };
     expect(payload).toMatchObject({ ok: true, currentAccountSlug: 'justevery' });
     expect(response.headers.get('Set-Cookie')).toContain('je.active_account=justevery');
   });
@@ -37,7 +37,7 @@ describe('Account selection & switching', () => {
 
     const response = await runFetch(worker, request, env);
     expect(response.status).toBe(200);
-    const payload = await response.json();
+    const payload = (await response.json()) as { currentAccountId: string | null };
     expect(payload.currentAccountId).toBe('acct-aerion-labs');
   });
 
@@ -58,7 +58,7 @@ describe('Account selection & switching', () => {
 
     const response = await runFetch(worker, request, env);
     expect(response.status).toBe(200);
-    const payload = await response.json();
+    const payload = (await response.json()) as { currentAccountId: string | null };
     expect(payload.currentAccountId).toBeTruthy();
     const setCookie = response.headers.get('Set-Cookie');
     expect(setCookie).toContain('je.active_account=justevery');
@@ -70,7 +70,7 @@ describe('Account selection & switching', () => {
 
     const response = await runFetch(worker, request, env);
     expect(response.status).toBe(200);
-    const payload = await response.json();
+    const payload = (await response.json()) as { ok: boolean };
     expect(payload).toMatchObject({ ok: true });
 
     const setCookies: string[] = [];

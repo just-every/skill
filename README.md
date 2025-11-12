@@ -73,15 +73,14 @@ CI’s `deploy.yml` handles all incremental deploys.
 
 ### Workflows
 
-- `.github/workflows/deploy.yml` – runs on push to `main`; decodes ENV_BLOB, exports a D1 backup, runs migrations, calls `pnpm bootstrap:deploy`, and uploads artifacts.
-- `.github/workflows/deploy-dry-run.yml` – manual dry run for validation.
-- `.github/workflows/backup-nightly.yml` – nightly `wrangler d1 export` with artifact retention.
+- `.github/workflows/deploy.yml` – runs on push to `main`; decodes ENV_BLOB, runs Wrangler migrations, calls `pnpm bootstrap:deploy`, and uploads artifacts.
+- `.github/workflows/release.yml` – publishes packages when Changesets report pending releases.
+- `.github/workflows/smoke.yml` – scheduled smoke + bootstrap validation (preflight/env/migrations dry run + Playwright probes).
 
 ### Rollback
 
-1. Grab the backup artifact from the deploy run (SQL file under `d1-backup-*`).
-2. Restore: `wrangler d1 execute <DB_NAME> --remote --file=backup.sql`.
-3. Re-run `deploy.yml` pointing at the previous commit via `workflow_dispatch`.
+1. Use Time Travel to rewind the D1 database: `wrangler d1 time-travel restore starter-d1 --timestamp=<ISO8601>` (or `--bookmark=<id>`). CI logs the `time-travel info` bookmark during deploys; you can capture a fresh one locally with `wrangler d1 time-travel info starter-d1` before experimenting.
+2. Re-run `deploy.yml` pointing at the previous commit via `workflow_dispatch`.
 
 ## Bootstrap CLI
 - `pnpm bootstrap:preflight` – validations (Cloudflare token, required envs)
@@ -101,7 +100,7 @@ See `docs/BOOTSTRAP-CLI-MIGRATION.md` for the full migration guide.
 
 **ENV_BLOB Deploy** – Secrets travel via `pnpm bootstrap:deploy`; see `docs/SECRETS_CLOUDFLARE.md` for token setup and rotation.
 
-**Nightly D1 Backups** – Managed by `.github/workflows/backup-nightly.yml`; database IDs live in rendered `wrangler.toml` for manual exports.
+**D1 Time Travel** – Cloudflare keeps 30 days of point-in-time history for production D1 databases by default. Use `wrangler d1 time-travel info starter-d1` to capture a bookmark before risky changes, and `wrangler d1 time-travel restore starter-d1 --timestamp=<ISO8601>` (or `--bookmark=<id>`) to roll back. Because of this, we do **not** export SQL dumps in CI—avoid re‑adding manual backups. (Docs: <https://developers.cloudflare.com/d1/reference/time-travel/>)
 
 **SSR Validation** – Follow `docs/SSR_MARKETING.md` (or run `pnpm --filter @justevery/web run build` + `pnpm bootstrap:smoke`) before promoting changes.
 

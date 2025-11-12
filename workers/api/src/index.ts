@@ -3169,9 +3169,9 @@ function normaliseProductsForResponse(products: BillingProduct[]): BillingProduc
 
   const hasRealPriceIds = products.some((product) => !product.priceId.startsWith('legacy:'));
 
-  return products
+  const mapped = products
     .filter((product) => (hasRealPriceIds ? !product.priceId.startsWith('legacy:') : true))
-    .map((product) => {
+    .map((product): BillingProduct | null => {
       const name = sanitizeString(product.name);
       const priceId = sanitizeString(product.priceId);
       if (!priceId) {
@@ -3187,8 +3187,9 @@ function normaliseProductsForResponse(products: BillingProduct[]): BillingProduc
         currency,
         interval,
       } satisfies BillingProduct;
-    })
-    .filter((product): product is BillingProduct => Boolean(product));
+    });
+
+  return mapped.filter((product): product is BillingProduct => product !== null);
 }
 
 function normaliseCurrency(value?: string): string {

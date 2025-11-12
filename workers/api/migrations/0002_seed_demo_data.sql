@@ -1,3 +1,5 @@
+-- Migration number: 0002
+-- Migration name: seed_demo_data
 PRAGMA foreign_keys = ON;
 
 INSERT OR IGNORE INTO users (id, email)

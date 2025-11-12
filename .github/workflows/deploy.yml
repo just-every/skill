@@ -132,19 +132,6 @@ jobs:
       - name: Render Wrangler config (dry run)
         run: pnpm bootstrap:deploy -- --dry-run
 
-      - name: Create D1 backup (remote)
-        if: env.MODE == 'deploy'
-        run: |
-          mkdir -p backups
-          pnpm exec wrangler d1 export "$D1_DATABASE_NAME" --remote --config workers/api/wrangler.toml --output backups/d1-backup-${{ github.run_id }}.sql
-
-      - name: Upload D1 backup
-        if: env.MODE == 'deploy'
-        uses: actions/upload-artifact@v4
-        with:
-          name: d1-backup-${{ github.run_id }}
-          path: backups/d1-backup-${{ github.run_id }}.sql
-
       - name: Run migrations (remote)
         if: env.MODE == 'deploy'
         run: pnpm --filter @justevery/worker run migrate -- --remote
@@ -222,7 +209,6 @@ jobs:
         with:
           name: deploy-${{ github.run_id }}
           path: |
-            backups/d1-backup-${{ github.run_id }}.sql
             workers/api/wrangler.toml
             test-results/**
           if-no-files-found: ignore
