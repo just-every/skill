@@ -5,10 +5,9 @@
 - Team page enhancements: inline name editing, role pills, and a non-destructive removal flow backed by optimistic hooks and success/failure messaging.
 - Billing persistence fixes: billing contact edits persist to D1-backed accounts, Stripe Checkout interceptions ensure the UI can exit gracefully, and product-select buttons now have deterministic test IDs.
 - Stripe products request assurance: smoke-run integration now proves `/api/stripe/products` returns a non-empty array alongside `/api/status`.
-- Gated Playwright E2E: new authenticated spec honors `TEST_SESSION_COOKIE`, captures sidebar/Team/Billing screenshots, and the deploy workflow conditionally runs the suite when CI can provide the session cookie.
+- Playwright open suite: `RUN_OPEN_E2E=true npm run test:e2e` exercises landing/login/checkout; authenticated coverage returns once the login worker exposes M2M tokens so CI can mint scoped credentials without cookies.
 
 ## How to run E2E in CI
 1. Ensure `ENV_BLOB` is populated with the client’s environment blob so the worker can bootstrap accounts, D1, and Stripe keys.
-2. Supply `TEST_SESSION_COOKIE` containing a Better Auth session token scoped to `/api/*`; without it the authenticated spec is skipped and the job exits cleanly.
-3. The workflow sets `E2E_BASE_URL` from `PROJECT_DOMAIN`; once the cookie is present, the `tests/e2e/authenticated.spec.ts` spec will run, stub PATCH/checkout calls, and emit `test-results/**` artifacts (sidebar.png, team-screen.png, billing-screen.png, plus any Playwright traces).
-4. `npm run test:e2e` (or `pnpm test:e2e`) is the orchestrating script; run it after `pnpm --filter @justevery/web run build` so prerender assets exist.
+2. Set `RUN_OPEN_E2E=true npm run test:e2e` to exercise the landing/login/checkout probes (these call `/`, `/api/session`, `/api/stripe/products`, and `/checkout`).
+3. Authenticated Playwright flows are paused until the login service emits M2M tokens; once available we will reintroduce the spec with non-cookie credentials and document the steps here.

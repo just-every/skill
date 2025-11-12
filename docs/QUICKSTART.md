@@ -92,5 +92,5 @@ Minimal flow to go from clone → deploy in 10–15 minutes.
 Re-run the CLI when secrets or infrastructure change. `bootstrap.sh` remains as a shim but is deprecated.
 
 ## Release verification notes
-- For release-ready verification, see `docs/VERIFY.md`, `docs/TEMPLATE_READY.md`, `docs/ACCEPTANCE.md`, and `docs/AUTH_SETUP.md` (how to capture and store `TEST_SESSION_COOKIE`). 
-- The gated Copy/Team/Billing Playwright suite requires a Better Auth `TEST_SESSION_COOKIE` (Owner/Admin session) in CI; when absent the job skips automatically, but you can set `RUN_OPEN_E2E=true` locally once you have credentials to exercise the landing/login/checkout spec bundle.
+- For release-ready verification, see `docs/VERIFY.md`, `docs/TEMPLATE_READY.md`, and `docs/ACCEPTANCE.md`.
+- Playwright automation currently focuses on open surfaces; run `RUN_OPEN_E2E=true npm run test:e2e` to exercise landing/login/checkout. Authenticated coverage will resume once the login worker issues M2M tokens so CI can obtain scoped credentials.

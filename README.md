@@ -106,5 +106,5 @@ See `docs/BOOTSTRAP-CLI-MIGRATION.md` for the full migration guide.
 
 For runbooks and deeper troubleshooting, start with the `docs/` folder.
 
-- Reference `docs/VERIFY.md` for the post-deploy smoke checks, `docs/TEMPLATE_READY.md` for the overall template checklist, `docs/ACCEPTANCE.md` for the acceptance summary, and `docs/AUTH_SETUP.md` for how to capture/share `TEST_SESSION_COOKIE` so the gated spec runs.  
-- The gated Playwright suite relies on a Better Auth `TEST_SESSION_COOKIE` (Owner/Admin session) so CI skips the spec unless that secret is present; locally you can still prime the landing/login/checkout probes by setting `RUN_OPEN_E2E=true` once real credentials exist.
+- Reference `docs/VERIFY.md` for the post-deploy smoke checks, `docs/TEMPLATE_READY.md` for the overall template checklist, and `docs/ACCEPTANCE.md` for the acceptance summary.
+- Playwright smoke now focuses on public surfaces; run `RUN_OPEN_E2E=true npm run test:e2e` to exercise landing/login/checkout. Authenticated coverage will return once the login worker ships M2M tokens, at which point we can add non-cookie credentials back to CI.

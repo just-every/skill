@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 
-const allowOpenE2E = Boolean(process.env.TEST_SESSION_COOKIE) || process.env.RUN_OPEN_E2E === 'true';
+const allowOpenE2E = process.env.RUN_OPEN_E2E === 'true';
 const baseURL =
   process.env.E2E_BASE_URL ??
   process.env.PROJECT_DOMAIN ??
@@ -9,7 +9,7 @@ const baseURL =
 const loginOrigin = process.env.LOGIN_ORIGIN ?? 'https://login.justevery.com';
 
 test.describe('Better Auth login surface', () => {
-  test.skip(!allowOpenE2E, 'Open E2E login checks disabled');
+  test.skip(!allowOpenE2E, 'Open E2E login checks disabled (set RUN_OPEN_E2E=true)');
 
   test('runtime env exposes Better Auth origin', async ({ request }) => {
     const response = await request.get(new URL('/api/runtime-env', baseURL).toString(), {
