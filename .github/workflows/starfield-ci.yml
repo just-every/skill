@@ -1,0 +1,53 @@
+name: Starfield CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  starfield:
+    name: Starfield build + tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: pnpm/action-setup@v2
+        with:
+          version: 20
+
+      - name: Install dependencies
+        run: pnpm install
+
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps
+
+      - name: Build web production bundle
+        run: pnpm --filter @justevery/web run build
+
+      - name: Serve dist
+        run: |
+          PORT=4173 node scripts/serve-dist.js &
+          echo $! > /tmp/starfield-server.pid
+
+      - name: Run Playwright starfield suite
+        env:
+          E2E_BASE_URL: http://127.0.0.1:4173
+        run: pnpm test:e2e:starfield
+
+      - name: Collect starfield assets
+        uses: actions/upload-artifact@v4
+        with:
+          name: starfield-media
+          path: docs/starfield/
+
+      - name: Stop server
+        if: always()
+        run: |
+          if [ -f /tmp/starfield-server.pid ]; then
+            kill $(cat /tmp/starfield-server.pid) || true
+          fi
