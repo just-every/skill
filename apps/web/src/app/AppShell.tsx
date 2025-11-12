@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { Pressable, ScrollView, Text, View } from 'react-native';
 import { FontAwesomeIcon } from '@fortawesome/react-native-fontawesome';
@@ -10,9 +10,14 @@ import type { Company, InviteDraft } from './types';
 import { useApiClient } from '../api/client';
 import { useSwitchCompanyMutation } from './hooks';
 import InviteModal from './components/InviteModal';
+import { Button } from '../components/ui';
 import { Logo } from '../components/Logo';
 import { cn } from '../lib/cn';
 import { useAuth } from '../auth/AuthProvider';
+import { usePrefersReducedMotion } from '../lib/usePrefersReducedMotion';
+import type { Hotspot } from './components/Starfield';
+import { useStarfieldVariant } from './hooks/useStarfieldVariant';
+import { usePublicEnv } from '../runtimeEnv';
 
 export type AppNavItem = {
   key: string;
@@ -30,6 +35,10 @@ type AppShellProps = {
   readonly children?: ReactNode;
 };
 
+const clamp01 = (value: number): number => Math.min(Math.max(value, 0), 1);
+
+const STARFIELD_MICRO_EVENT_FREQ = 0.003;
+
 const AppShell = ({ navItems, activeItem, onNavigate, companies, isLoadingCompanies, children }: AppShellProps) => {
   const { activeCompanyId, setActiveCompany } = useCompanyStore();
   const api = useApiClient();
@@ -41,10 +50,94 @@ const AppShell = ({ navItems, activeItem, onNavigate, companies, isLoadingCompan
   const [pendingCompanyId, setPendingCompanyId] = useState<string | null>(null);
   const [switchError, setSwitchError] = useState<string | null>(null);
   const [isSigningOut, setIsSigningOut] = useState(false);
-  const switcherRef = React.useRef<HTMLDivElement | null>(null);
-  const accountMenuRef = React.useRef<HTMLDivElement | null>(null);
+  const switcherRef = useRef<HTMLDivElement | null>(null);
+  const accountMenuRef = useRef<HTMLDivElement | null>(null);
   const { session, signOut } = useAuth();
   const switchCompanyMutation = useSwitchCompanyMutation();
+  const prefersReducedMotion = usePrefersReducedMotion();
+  const [starfieldVariant, setStarfieldVariant] = useStarfieldVariant();
+  const sidebarContainerRef = useRef<HTMLDivElement | null>(null);
+  const env = usePublicEnv();
+  const starfieldEnabled = env.starfieldEnabled;
+  const [starfieldModule, setStarfieldModule] = useState<null | typeof import('./components/Starfield')>(null);
+  const [switcherModule, setSwitcherModule] = useState<null | typeof import('./components/StarfieldVariantSwitcher')>(null);
+  const [hotspot, setHotspot] = useState<Hotspot | null>(null);
+  const [navInteractionLevel, setNavInteractionLevel] = useState(0);
+  const depthCurve = useMemo(() => (depth: number) => 0.25 + depth * 0.75, []);
+
+  const handleNavEngagement = useCallback(
+    (active: boolean) => {
+      if (!starfieldEnabled) {
+        return;
+      }
+      setNavInteractionLevel(active ? 1 : 0);
+    },
+    [starfieldEnabled]
+  );
+
+  const updateHotspot = (clientX: number, clientY: number) => {
+    if (!starfieldEnabled) {
+      return;
+    }
+    const sidebarRect = sidebarContainerRef.current?.getBoundingClientRect();
+    if (!sidebarRect) {
+      return;
+    }
+    const x = clamp01((clientX - sidebarRect.left) / sidebarRect.width);
+    const y = clamp01((clientY - sidebarRect.top) / sidebarRect.height);
+    setHotspot({ x, y, intensity: 0.85, radius: 0.4 });
+  };
+
+  const clearHotspot = () => {
+    setHotspot(null);
+  };
+
+  const handleNavFocus = () => {
+    handleNavEngagement(true);
+    const rect = sidebarContainerRef.current?.getBoundingClientRect();
+    if (rect) {
+      updateHotspot(rect.left + rect.width / 2, rect.top + rect.height / 2);
+    }
+  };
+
+  useEffect(() => {
+    const host = sidebarContainerRef.current;
+    if (!host) {
+      return undefined;
+    }
+    if (navInteractionLevel <= 0) {
+      clearHotspot();
+      return undefined;
+    }
+    const handlePointer = (event: PointerEvent) => {
+      updateHotspot(event.clientX, event.clientY);
+    };
+    host.addEventListener('pointermove', handlePointer);
+    return () => {
+      host.removeEventListener('pointermove', handlePointer);
+    };
+  }, [navInteractionLevel]);
+
+  useEffect(() => {
+    if (!starfieldEnabled || typeof window === 'undefined') {
+      setStarfieldModule(null);
+      setSwitcherModule(null);
+      return undefined;
+    }
+    let cancelled = false;
+    Promise.all([
+      import('./components/Starfield'),
+      import('./components/StarfieldVariantSwitcher'),
+    ]).then(([starfield, switcher]) => {
+      if (!cancelled) {
+        setStarfieldModule(starfield);
+        setSwitcherModule(switcher);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [starfieldEnabled]);
 
   const activeCompany = useMemo(() => {
     if (!companies || companies.length === 0) {
@@ -153,7 +246,7 @@ const AppShell = ({ navItems, activeItem, onNavigate, companies, isLoadingCompan
     if (typeof document === 'undefined') {
       return undefined;
     }
-    const handleGlobalPress = (event: MouseEvent | TouchEvent) => {
+    const handleGlobalPress = (event: Event) => {
       const target = event.target as Node;
       if (showSwitcher && switcherRef.current && !switcherRef.current.contains(target)) {
         setShowSwitcher(false);
@@ -178,172 +271,217 @@ const AppShell = ({ navItems, activeItem, onNavigate, companies, isLoadingCompan
     };
   }, [accountMenuOpen, closeMenus, showSwitcher]);
 
+  const StarfieldComponent = starfieldModule?.Starfield;
+  const SwitcherComponent = switcherModule?.StarfieldVariantSwitcher;
+
+  const renderCompanyMenu = () => (
+    <View className="space-y-2">
+      <Text className="text-[10px] uppercase tracking-[0.3em] text-slate-400">Current company</Text>
+      <div
+        className="relative"
+        ref={switcherRef}
+        onMouseEnter={() => setSwitcherHover(true)}
+        onMouseLeave={() => setSwitcherHover(false)}
+        onFocus={() => setSwitcherHover(true)}
+        onBlur={() => setSwitcherHover(false)}
+      >
+        <Pressable
+          testID="company-switcher-toggle"
+          onPress={() => {
+            setShowSwitcher((prev) => !prev);
+            setSwitcherHover(false);
+          }}
+          className="rounded-2xl border border-slate-700 bg-slate-950/70 px-3 py-3 text-left text-sm font-semibold text-white"
+          accessibilityRole="button"
+          accessibilityLabel="Select company"
+          aria-expanded={showSwitcher || switcherHover}
+          aria-haspopup="menu"
+        >
+          <Text className="text-base font-semibold text-white">
+            {activeCompany?.name ?? 'Select company'}
+          </Text>
+          <Text className="text-xs text-slate-400">{activeCompany?.plan ?? '—'}</Text>
+        </Pressable>
+        {(showSwitcher || switcherHover) && (
+          <View
+            accessibilityRole="menu"
+            aria-label="Company switcher"
+            testID="company-switcher-menu"
+            className="absolute right-0 bottom-full mb-2 w-48 overflow-hidden rounded-2xl border border-slate-800 bg-slate-950/90 p-1 shadow-sm"
+          >
+            {companies.map((company) => {
+              const isActiveCompany = company.id === activeCompany?.id;
+              const isPending = pendingCompanyId === company.id && switchCompanyMutation.isPending;
+              return (
+                <Pressable
+                  key={company.id}
+                  onPress={() => void handleCompanyChange(company)}
+                  className={cn(
+                    'rounded-xl px-3 py-2 transition-colors',
+                    isActiveCompany ? 'bg-white/10' : 'hover:bg-white/5',
+                    switchCompanyMutation.isPending ? 'opacity-60' : undefined
+                  )}
+                  accessibilityRole="menuitemradio"
+                  accessibilityState={{
+                    selected: company.id === activeCompany?.id,
+                    busy: pendingCompanyId === company.id && switchCompanyMutation.isPending,
+                  }}
+                  disabled={switchCompanyMutation.isPending}
+                >
+                  <Text className={cn('text-sm font-semibold', isActiveCompany ? 'text-white' : 'text-slate-100')}>
+                    {isPending ? 'Switching…' : company.name}
+                  </Text>
+                  <Text className={cn('text-[11px]', isActiveCompany ? 'text-slate-300' : 'text-slate-400')}>
+                    {isPending ? 'Hold tight…' : company.plan}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
+        )}
+      </div>
+      {switchError ? <Text className="text-[11px] text-rose-300">{switchError}</Text> : null}
+    </View>
+  );
+
+  const renderAccountMenu = () => (
+    <View className="mt-4 space-y-2">
+      <Text className="text-[10px] uppercase tracking-[0.3em] text-slate-400">Account</Text>
+      <div className="relative" ref={accountMenuRef}>
+        <Pressable
+          testID="account-menu-toggle"
+          onPress={() => setAccountMenuOpen((prev) => !prev)}
+          accessibilityRole="button"
+          accessibilityLabel="Account options"
+          aria-expanded={accountMenuOpen}
+          aria-haspopup="menu"
+          className="flex flex-row items-center gap-2 rounded-full border border-slate-700 bg-slate-950/80 px-3 py-2"
+        >
+          <View className="h-9 w-9 items-center justify-center rounded-full bg-ink">
+            <Text className="text-sm font-semibold text-white">{initials}</Text>
+          </View>
+          <Text className="text-sm font-semibold text-white">{displayName}</Text>
+          <FontAwesomeIcon icon={faAngleDown} size={12} color="#f8fafc" />
+        </Pressable>
+        {accountMenuOpen && (
+          <View
+            accessibilityRole="menu"
+            aria-label="Account options"
+            testID="account-menu"
+            className="absolute right-0 bottom-full mb-2 min-w-[220px] rounded-2xl border border-slate-800 bg-slate-950/90 p-4 shadow-sm"
+          >
+            <Text className="text-[10px] uppercase tracking-[0.3em] text-slate-400">Signed in as</Text>
+            <View className="mt-1 flex-row items-center gap-2">
+              <FontAwesomeIcon icon={faEnvelope} size={11} color="#94a3b8" />
+              <Text className="text-sm font-semibold text-white" numberOfLines={1} ellipsizeMode="tail">
+                {userEmail}
+              </Text>
+            </View>
+            <Pressable
+              onPress={() => {
+                setOpenInvite(true);
+                setAccountMenuOpen(false);
+                setMobileMenuOpen(false);
+              }}
+              accessibilityRole="menuitem"
+              className="mt-4 flex flex-row items-center justify-center gap-2 rounded-2xl bg-white/10 px-4 py-2"
+            >
+              <FontAwesomeIcon icon={faUserPlus} size={14} color="#f8fafc" />
+              <Text className="text-sm font-semibold text-white">Invite teammates</Text>
+            </Pressable>
+            <Pressable
+              onPress={() => void handleSignOut()}
+              accessibilityRole="menuitem"
+              className="mt-3 flex flex-row items-center justify-center gap-2 rounded-2xl border border-slate-700 px-4 py-2"
+              disabled={isSigningOut}
+            >
+              <FontAwesomeIcon icon={faArrowRightFromBracket} size={14} color="#94a3b8" />
+              <Text className="text-sm font-semibold text-white">
+                {isSigningOut ? 'Signing out…' : 'Logout'}
+              </Text>
+            </Pressable>
+          </View>
+        )}
+      </div>
+    </View>
+  );
+
   const Sidebar = () => (
     <View className="flex h-full flex-col">
-      <View className="px-3">
-        <View className="flex flex-row items-center gap-3">
-          <Logo size={34} color="#f8fafc" />
-        </View>
-      </View>
-      <View className="mt-8 flex flex-1 flex-col gap-2">
-        {navItems.map((item) => {
-          const isActive = item.key === activeItem;
-          return (
-            <Pressable
-              key={item.key}
-              testID={`nav-${item.key}`}
-              accessibilityRole="button"
-              accessibilityState={{ selected: isActive }}
-              aria-current={isActive ? 'page' : undefined}
-              onPress={() => handleNavPress(item.key)}
-              className={cn(
-                'flex flex-row items-start gap-3 rounded-2xl px-4 py-3 transition-colors',
-                isActive ? 'bg-white/10 text-white' : 'text-slate-300 hover:bg-white/5'
-              )}
-            >
-              <View className="pt-1">
-                <FontAwesomeIcon icon={item.icon} size={16} color={isActive ? '#ffffff' : '#b8c2d8'} />
-              </View>
-              <View className="flex-1">
-                <Text className={cn('text-sm font-semibold', isActive ? 'text-white' : 'text-slate-100')}>
-                  {item.label}
-                </Text>
-                <Text className="text-[11px] text-slate-400">{item.description}</Text>
-              </View>
-            </Pressable>
-          );
-        })}
-      </View>
-      <View className="mt-auto border-t border-white/10 pt-6">
-        <View className="space-y-2">
-          <Text className="text-[10px] uppercase tracking-[0.3em] text-slate-400">Current company</Text>
-          <View
-            className="relative"
-            ref={switcherRef}
-            onHoverIn={() => setSwitcherHover(true)}
-            onHoverOut={() => setSwitcherHover(false)}
-          >
-            <Pressable
-              testID="company-switcher-toggle"
-              onPress={() => {
-                setShowSwitcher((prev) => !prev);
-                setSwitcherHover(false);
-              }}
-              className="rounded-2xl border border-slate-700 bg-slate-950/70 px-3 py-3 text-left text-sm font-semibold text-white"
-              accessibilityRole="button"
-              accessibilityLabel="Select company"
-              accessibilityExpanded={showSwitcher || switcherHover}
-              accessibilityHasPopup="menu"
-            >
-              <Text className="text-base font-semibold text-white">
-                {activeCompany?.name ?? 'Select company'}
-              </Text>
-              <Text className="text-xs text-slate-400">{activeCompany?.plan ?? '—'}</Text>
-            </Pressable>
-            {(showSwitcher || switcherHover) && (
-              <View
-                accessibilityRole="menu"
-                aria-label="Company switcher"
-                testID="company-switcher-menu"
-                className="absolute right-0 bottom-full mb-2 w-48 overflow-hidden rounded-2xl border border-slate-800 bg-slate-950/90 p-1 shadow-sm"
-              >
-                {companies.map((company) => {
-                  const isActiveCompany = company.id === activeCompany?.id;
-                  const isPending = pendingCompanyId === company.id && switchCompanyMutation.isPending;
-                  return (
-                    <Pressable
-                      key={company.id}
-                      onPress={() => void handleCompanyChange(company)}
-                      className={cn(
-                        'rounded-xl px-3 py-2 transition-colors',
-                        isActiveCompany ? 'bg-white/10' : 'hover:bg-white/5',
-                        switchCompanyMutation.isPending ? 'opacity-60' : undefined
-                      )}
-                      accessibilityRole="menuitemradio"
-                      accessibilityState={{
-                        selected: company.id === activeCompany?.id,
-                        busy: pendingCompanyId === company.id && switchCompanyMutation.isPending,
-                      }}
-                      disabled={switchCompanyMutation.isPending}
-                    >
-                      <Text
-                        className={cn('text-sm font-semibold', isActiveCompany ? 'text-white' : 'text-slate-100')}
-                      >
-                        {isPending ? 'Switching…' : company.name}
-                      </Text>
-                      <Text className={cn('text-[11px]', isActiveCompany ? 'text-slate-300' : 'text-slate-400')}>
-                        {isPending ? 'Hold tight…' : company.plan}
-                      </Text>
-                    </Pressable>
-                  );
-                })}
-              </View>
-            )}
+      <div
+        ref={(node) => {
+          sidebarContainerRef.current = node;
+        }}
+        className="relative flex h-full flex-col overflow-hidden px-6 py-8 pb-16 text-white"
+      >
+        {starfieldEnabled && StarfieldComponent ? (
+          <StarfieldComponent
+            containerRef={sidebarContainerRef}
+            variant={starfieldVariant}
+            depthCurve={depthCurve}
+            hoverGain={prefersReducedMotion ? 1 : 1.22}
+            density={prefersReducedMotion ? 80 : 140}
+            interactionLevel={navInteractionLevel}
+            hotspot={hotspot ?? undefined}
+            microEventFrequency={STARFIELD_MICRO_EVENT_FREQ}
+            className="pointer-events-none opacity-80"
+          />
+        ) : null}
+        <View className="relative flex h-full flex-col">
+          <View className="flex flex-row items-center gap-3">
+            <Logo size={34} color="#f8fafc" />
           </View>
-          {switchError ? (
-            <Text className="text-[11px] text-rose-300">{switchError}</Text>
-          ) : null}
-        </View>
-        <View className="mt-4 space-y-2">
-          <Text className="text-[10px] uppercase tracking-[0.3em] text-slate-400">Account</Text>
-          <View className="relative" ref={accountMenuRef}>
-            <Pressable
-              testID="account-menu-toggle"
-              onPress={() => setAccountMenuOpen((prev) => !prev)}
-              accessibilityRole="button"
-              accessibilityLabel="Account options"
-              accessibilityExpanded={accountMenuOpen}
-              accessibilityHasPopup="menu"
-              className="flex flex-row items-center gap-2 rounded-full border border-slate-700 bg-slate-950/80 px-3 py-2"
-            >
-              <View className="h-9 w-9 items-center justify-center rounded-full bg-ink">
-                <Text className="text-sm font-semibold text-white">{initials}</Text>
-              </View>
-              <Text className="text-sm font-semibold text-white">{displayName}</Text>
-              <FontAwesomeIcon icon={faAngleDown} size={12} color="#f8fafc" />
-            </Pressable>
-            {accountMenuOpen && (
-              <View
-                accessibilityRole="menu"
-                aria-label="Account options"
-                testID="account-menu"
-                className="absolute right-0 bottom-full mb-2 min-w-[220px] rounded-2xl border border-slate-800 bg-slate-950/90 p-4 shadow-sm"
-              >
-                <Text className="text-[10px] uppercase tracking-[0.3em] text-slate-400">Signed in as</Text>
-                <View className="mt-1 flex-row items-center gap-2">
-                  <FontAwesomeIcon icon={faEnvelope} size={11} color="#94a3b8" />
-                  <Text className="text-sm font-semibold text-white" numberOfLines={1} ellipsizeMode="tail">
-                    {userEmail}
-                  </Text>
-                </View>
+          <View className="mt-8 flex flex-1 flex-col gap-2">
+            {navItems.map((item) => {
+              const isActive = item.key === activeItem;
+              return (
                 <Pressable
-                  onPress={() => {
-                    setOpenInvite(true);
-                    setAccountMenuOpen(false);
-                    setMobileMenuOpen(false);
+                  key={item.key}
+                  testID={`nav-${item.key}`}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: isActive }}
+                  aria-current={isActive ? 'page' : undefined}
+                  onPress={() => handleNavPress(item.key)}
+                  onHoverIn={(event) => {
+                    handleNavEngagement(true);
+                    updateHotspot(event.nativeEvent.pageX, event.nativeEvent.pageY);
                   }}
-                  accessibilityRole="menuitem"
-                  className="mt-4 flex flex-row items-center justify-center gap-2 rounded-2xl bg-white/10 px-4 py-2"
+                  onHoverOut={() => {
+                    handleNavEngagement(false);
+                    clearHotspot();
+                  }}
+                  onFocus={handleNavFocus}
+                  onBlur={() => {
+                    handleNavEngagement(false);
+                    clearHotspot();
+                  }}
+                  className={cn(
+                    'flex flex-row items-start gap-3 rounded-2xl px-4 py-3 transition-colors',
+                    isActive ? 'bg-white/10 text-white' : 'text-slate-300 hover:bg-white/5'
+                  )}
                 >
-                  <FontAwesomeIcon icon={faUserPlus} size={14} color="#f8fafc" />
-                  <Text className="text-sm font-semibold text-white">Invite teammates</Text>
+                  <View className="pt-1">
+                    <FontAwesomeIcon icon={item.icon} size={16} color={isActive ? '#ffffff' : '#b8c2d8'} />
+                  </View>
+                  <View className="flex-1">
+                    <Text className={cn('text-sm font-semibold', isActive ? 'text-white' : 'text-slate-100')}>
+                      {item.label}
+                    </Text>
+                    <Text className="text-[11px] text-slate-400">{item.description}</Text>
+                  </View>
                 </Pressable>
-                <Pressable
-                  onPress={() => void handleSignOut()}
-                  accessibilityRole="menuitem"
-                  className="mt-3 flex flex-row items-center justify-center gap-2 rounded-2xl border border-slate-700 px-4 py-2"
-                  disabled={isSigningOut}
-                >
-                  <FontAwesomeIcon icon={faArrowRightFromBracket} size={14} color="#94a3b8" />
-                  <Text className="text-sm font-semibold text-white">
-                    {isSigningOut ? 'Signing out…' : 'Logout'}
-                  </Text>
-                </Pressable>
-              </View>
-            )}
+              );
+            })}
+          </View>
+          <View className="mt-auto border-t border-white/10 pt-6">
+            {renderCompanyMenu()}
+            {renderAccountMenu()}
           </View>
         </View>
-      </View>
+        {starfieldEnabled && SwitcherComponent ? (
+          <SwitcherComponent current={starfieldVariant} onChange={setStarfieldVariant} />
+        ) : null}
+      </div>
     </View>
   );
 
@@ -363,6 +501,11 @@ const AppShell = ({ navItems, activeItem, onNavigate, companies, isLoadingCompan
           >
             <FontAwesomeIcon icon={faBars} size={18} color="#0f172a" />
           </Pressable>
+        </View>
+        <View className="hidden flex-row items-center justify-end border-b border-slate-200 bg-white/90 px-6 py-4 backdrop-blur lg:flex">
+          <Button size="sm" variant="primary" onPress={() => setOpenInvite(true)} disabled={isLoadingCompanies}>
+            Invite teammates
+          </Button>
         </View>
         <ScrollView className="flex-1">
           <View className="flex-1 gap-6 px-4 py-6 md:px-8">{children}</View>
@@ -391,3 +534,4 @@ const AppShell = ({ navItems, activeItem, onNavigate, companies, isLoadingCompan
 };
 
 export default AppShell;
+
