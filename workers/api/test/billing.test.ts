@@ -173,6 +173,45 @@ describe('Account billing endpoints', () => {
     expect(data.products).toHaveLength(2);
   });
 
+  it('normalizes Stripe products for the public catalog endpoint and prefers real price IDs', async () => {
+    const env = createMockEnv({
+      STRIPE_PRODUCTS: JSON.stringify([
+        {
+          id: 'prod_legacy',
+          name: 'Legacy',
+          description: 'Legacy fallback',
+          priceId: 'legacy:legacy-plan',
+          unitAmount: 1000,
+          currency: 'USD',
+          interval: 'month',
+        },
+        {
+          id: 'prod_scale',
+          name: ' Scale ',
+          description: 'Scale plan',
+          priceId: '  price_scale_monthly  ',
+          unitAmount: 5400,
+          currency: 'USD',
+          interval: 'MONTHLY',
+        },
+      ]),
+    });
+    const request = new Request('http://127.0.0.1/api/stripe/products');
+
+    const response = await runFetch(request, env);
+    expect(response.status).toBe(200);
+    const data = await parseJson<{ products: BillingProduct[] }>(response);
+    expect(data.products).toHaveLength(1);
+    expect(data.products[0]).toEqual(
+      expect.objectContaining({
+        id: 'prod_scale',
+        priceId: 'price_scale_monthly',
+        currency: 'usd',
+        interval: 'month',
+      })
+    );
+  });
+
   it('handles malformed STRIPE_PRODUCTS gracefully', async () => {
     const env = createMockEnv({ STRIPE_PRODUCTS: '{ totally invalid' });
     const request = new Request('http://127.0.0.1/api/accounts/justevery/billing/products');

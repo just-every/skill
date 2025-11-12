@@ -22,6 +22,7 @@
 - Smoke/curl: `curl -I https://starter.justevery.com` and `curl -I https://starter.justevery.com/app` (return 200).  
 - Screenshots: `docs/assets/landing.png`, `docs/assets/app.png` capture the landing and /app states.  
 - GitHub Actions: `deploy.yml` now documents the automated workflows; recent run `19263977479` (Workflow `Deploy (ENV_BLOB)`) succeeded with smoke checks against `/api/status` and `/api/stripe/products` and published artifacts `deploy-19263977479.zip` plus `test-results/**`.  
+- Deploy run `19268410510` (2025-11-11 14:16 UTC) verified `/api/status` (ok + BNE colo) and `/api/stripe/products` returning real price IDs (`price_1SQWcDGD1Q57MReNLuvln86m`, `price_1SQWcDGD1Q57MReNhTRLLXWa`) after the normalization fix, so Billing “Select” buttons stay enabled.  
 - Browser Smoke (2025-11-11): loaded https://starter.justevery.com and https://starter.justevery.com/app via the deployed worker; landing renders correctly, /app redirects to Better Auth login, console logs show only the expected auth-required warning.  
 
 ## Authenticated E2E

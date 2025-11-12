@@ -12,7 +12,7 @@
     "preinstall": "node ./scripts/sync-fontawesome-token.mjs",
     "dev:web": "npm run dev --workspace apps/web",
     "dev:worker": "npm run dev --workspace workers/api",
-    "build": "npm run build --workspaces",
+    "build": "npm run build --workspaces --if-present",
     "lint": "echo 'No linting configured yet.'",
     "format": "echo 'No formatter configured yet.'",
     "bootstrap:preflight": "pnpm --filter @justevery/bootstrap-cli preflight",

@@ -139,7 +139,7 @@ function deriveAppBaseUrl(env: BootstrapEnv): string {
   return env.APP_BASE_URL ?? '/app';
 }
 
-function deriveAppUrl(env: BootstrapEnv): string {
+export function deriveAppUrl(env: BootstrapEnv): string {
   if (env.APP_URL) return env.APP_URL;
   if (env.PROJECT_DOMAIN) {
     const trimmed = trimTrailingSlash(env.PROJECT_DOMAIN);
@@ -148,7 +148,7 @@ function deriveAppUrl(env: BootstrapEnv): string {
   return '/app';
 }
 
-function deriveWorkerOrigin(env: BootstrapEnv, resolvedAppUrl: string): string {
+export function deriveWorkerOrigin(env: BootstrapEnv, resolvedAppUrl: string): string {
   if (env.WORKER_ORIGIN) return env.WORKER_ORIGIN;
   if (resolvedAppUrl) return originFromUrl(resolvedAppUrl);
   if (env.PROJECT_DOMAIN) return originFromUrl(env.PROJECT_DOMAIN);

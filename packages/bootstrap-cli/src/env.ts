@@ -78,7 +78,6 @@ export interface LoadEnvironmentResult {
 const BASE_KEYS = new Set(Object.keys(BaseEnvSchema.shape));
 const GENERATED_KEYS = new Set(Object.keys(GeneratedEnvSchema.shape));
 const GENERATED_OVERRIDE_BLOCKLIST = new Set([
-  'STRIPE_PRODUCTS',
   'STRIPE_WEBHOOK_SECRET',
   'STRIPE_WEBHOOK_URL'
 ]);

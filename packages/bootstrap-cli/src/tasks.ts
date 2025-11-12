@@ -27,7 +27,7 @@ import {
   type StripePlan,
   type StripeProvisionResult
 } from './providers/stripe.js';
-import { buildGeneratedFiles } from './env/files.js';
+import { buildGeneratedFiles, deriveAppUrl, deriveWorkerOrigin } from './env/files.js';
 import {
   writeFileIfChanged,
   type FileWriteResult

@@ -2521,13 +2521,7 @@ async function handleBillingProducts(
 
   try {
     const products = parseStripeProducts(env.STRIPE_PRODUCTS);
-    const cleaned = products.map((product) => ({
-      ...product,
-      name: sanitizeString(product.name),
-      currency: sanitizeString(product.currency),
-      interval: product.interval ? sanitizeString(product.interval) : undefined,
-    }));
-    return jsonResponse({ products: cleaned });
+    return jsonResponse({ products: normaliseProductsForResponse(products) });
   } catch (error) {
     return jsonResponse({ error: (error as Error).message }, 500);
   }
@@ -2584,13 +2578,7 @@ async function handleBillingInvoices(
 async function handleStripeProducts(env: Env): Promise<Response> {
   try {
     const products = parseStripeProducts(env.STRIPE_PRODUCTS);
-    const cleaned = products.map((product) => ({
-      ...product,
-      name: sanitizeString(product.name),
-      currency: sanitizeString(product.currency),
-      interval: product.interval ? sanitizeString(product.interval) : undefined,
-    }));
-    return jsonResponse({ products: cleaned });
+    return jsonResponse({ products: normaliseProductsForResponse(products) });
   } catch (error) {
     console.warn('stripe products parse error', error);
     return jsonResponse({ error: (error as Error).message }, 500);
@@ -3172,6 +3160,55 @@ function sanitizeString(value: string): string {
   }
   const sanitized = trimmed.replace(/^[\\"']+/, '').replace(/[\\"']+$/, '');
   return sanitized.trim();
+}
+
+function normaliseProductsForResponse(products: BillingProduct[]): BillingProduct[] {
+  if (products.length === 0) {
+    return products;
+  }
+
+  const hasRealPriceIds = products.some((product) => !product.priceId.startsWith('legacy:'));
+
+  return products
+    .filter((product) => (hasRealPriceIds ? !product.priceId.startsWith('legacy:') : true))
+    .map((product) => {
+      const name = sanitizeString(product.name);
+      const priceId = sanitizeString(product.priceId);
+      if (!priceId) {
+        return null;
+      }
+      const currency = normaliseCurrency(product.currency);
+      const interval = normaliseInterval(product.interval);
+
+      return {
+        ...product,
+        name,
+        priceId,
+        currency,
+        interval,
+      } satisfies BillingProduct;
+    })
+    .filter((product): product is BillingProduct => Boolean(product));
+}
+
+function normaliseCurrency(value?: string): string {
+  const raw = value ?? 'usd';
+  const cleaned = sanitizeString(raw || 'usd');
+  return (cleaned || 'usd').toLowerCase();
+}
+
+function normaliseInterval(value: string | undefined): string | undefined {
+  const sanitised = sanitizeString((value ?? '').toString()).toLowerCase();
+  if (!sanitised) {
+    return 'month';
+  }
+  if (['monthly', 'mo'].includes(sanitised)) {
+    return 'month';
+  }
+  if (['yearly', 'annual', 'annually', 'yr'].includes(sanitised)) {
+    return 'year';
+  }
+  return sanitised;
 }
 
 function normalizeMetadata(value: unknown): Record<string, string> | undefined {
