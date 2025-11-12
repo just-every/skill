@@ -1501,6 +1501,71 @@ function fallbackAssetsList(): AssetObject[] {
   ];
 }
 
+function fallbackInvoices(account: AccountRecord) {
+  const baseAmount = account.stats?.mrr ?? 4200;
+  const now = Date.now();
+  const statuses: Array<'paid' | 'open' | 'draft'> = ['paid', 'open', 'draft'];
+  return statuses.map((status, index) => {
+    const created = Math.floor((now - index * 30 * 24 * 60 * 60 * 1000) / 1000);
+    const dueDate = status === 'open' ? created + 14 * 24 * 60 * 60 : null;
+    return {
+      id: `in_${account.slug}_${index + 1}`,
+      number: `INV-${account.slug.toUpperCase()}-${String(index + 1).padStart(3, '0')}`,
+      status,
+      amountDue: baseAmount,
+      amountPaid: status === 'paid' ? baseAmount : 0,
+      currency: 'usd',
+      created,
+      dueDate,
+      hostedInvoiceUrl: `https://billing.justevery.dev/invoices/${account.slug}/${index + 1}`,
+      invoicePdf: `https://billing.justevery.dev/invoices/${account.slug}/${index + 1}.pdf`,
+    };
+  });
+}
+
+function buildPlaceholderCheckoutSession(account: AccountRecord, priceId: string, successUrl: string) {
+  const slugSegment = normaliseIdentifier(account.slug, 'account');
+  const priceSegment = normaliseIdentifier(priceId, 'price');
+  const sessionId = `mock_checkout_${slugSegment}_${priceSegment}_${Date.now().toString(36)}`;
+  let redirectUrl = replaceCheckoutPlaceholder(successUrl, sessionId);
+  redirectUrl = appendUrlParams(redirectUrl, {
+    mockCheckout: 'true',
+    plan: priceSegment,
+  });
+  return { sessionId, url: redirectUrl };
+}
+
+function buildPlaceholderPortalUrl(returnUrl: string, account: AccountRecord): string {
+  return appendUrlParams(returnUrl, {
+    mockPortal: 'true',
+    account: normaliseIdentifier(account.slug, 'account'),
+  });
+}
+
+function replaceCheckoutPlaceholder(urlString: string, sessionId: string): string {
+  if (urlString.includes('{CHECKOUT_SESSION_ID}')) {
+    return urlString.replace(/{CHECKOUT_SESSION_ID}/g, encodeURIComponent(sessionId));
+  }
+  return appendUrlParams(urlString, { session_id: sessionId });
+}
+
+function appendUrlParams(urlString: string, params: Record<string, string>): string {
+  try {
+    const url = new URL(urlString);
+    for (const [key, value] of Object.entries(params)) {
+      url.searchParams.set(key, value);
+    }
+    return url.toString();
+  } catch {
+    return urlString;
+  }
+}
+
+function normaliseIdentifier(value: string, fallback: string): string {
+  const cleaned = value.toLowerCase().replace(/[^a-z0-9]/g, '');
+  return cleaned.length > 0 ? cleaned : fallback;
+}
+
 function extractHostname(value?: string): string | null {
   if (!value) {
     return null;
@@ -2567,17 +2632,17 @@ async function handleAccountBilling(
       if (!canReadBilling) {
         return jsonResponse({ error: 'forbidden', hint: 'Billing role required' }, 403);
       }
-      return handleBillingInvoices(request, env, account);
+      return handleBillingInvoices(request, env, account, allowFallback);
     case 'checkout':
       if (!canWriteBilling) {
         return jsonResponse({ error: 'forbidden', hint: 'Owner or Admin role required' }, 403);
       }
-      return handleBillingCheckout(request, env, account);
+      return handleBillingCheckout(request, env, account, allowFallback);
     case 'portal':
       if (!canWriteBilling) {
         return jsonResponse({ error: 'forbidden', hint: 'Owner or Admin role required' }, 403);
       }
-      return handleBillingPortal(request, env, account);
+      return handleBillingPortal(request, env, account, allowFallback);
     default:
       return jsonResponse({ error: 'Invalid billing action' }, 404);
   }
@@ -2586,11 +2651,9 @@ async function handleAccountBilling(
 async function handleBillingCheckout(
   request: Request,
   env: Env,
-  account: AccountRecord
+  account: AccountRecord,
+  allowFallback: boolean
 ): Promise<Response> {
-  if (!env.STRIPE_SECRET_KEY) {
-    return jsonResponse({ error: 'Stripe not configured' }, 503);
-  }
   if (request.method !== 'POST') {
     return jsonResponse({ error: 'Method Not Allowed' }, 405);
   }
@@ -2616,6 +2679,18 @@ async function handleBillingCheckout(
 
   if (!successUrl || !cancelUrl) {
     return jsonResponse({ error: 'successUrl and cancelUrl are required' }, 400);
+  }
+
+  if (!env.STRIPE_SECRET_KEY) {
+    if (!allowFallback) {
+      return jsonResponse({ error: 'Stripe not configured' }, 503);
+    }
+    console.warn('handleBillingCheckout: returning placeholder session because Stripe is not configured', {
+      accountId: account.id,
+      priceId,
+    });
+    const placeholderSession = buildPlaceholderCheckoutSession(account, priceId, successUrl);
+    return jsonResponse(placeholderSession);
   }
 
   // Ensure Stripe customer exists
@@ -2657,11 +2732,9 @@ async function handleBillingCheckout(
 async function handleBillingPortal(
   request: Request,
   env: Env,
-  account: AccountRecord
+  account: AccountRecord,
+  allowFallback: boolean
 ): Promise<Response> {
-  if (!env.STRIPE_SECRET_KEY) {
-    return jsonResponse({ error: 'Stripe not configured' }, 503);
-  }
   if (request.method !== 'POST') {
     return jsonResponse({ error: 'Method Not Allowed' }, 405);
   }
@@ -2677,6 +2750,16 @@ async function handleBillingPortal(
 
   if (!returnUrl) {
     return jsonResponse({ error: 'returnUrl is required' }, 400);
+  }
+
+  if (!env.STRIPE_SECRET_KEY) {
+    if (!allowFallback) {
+      return jsonResponse({ error: 'Stripe not configured' }, 503);
+    }
+    console.warn('handleBillingPortal: returning placeholder portal URL because Stripe is not configured', {
+      accountId: account.id,
+    });
+    return jsonResponse({ url: buildPlaceholderPortalUrl(returnUrl, account) });
   }
 
   // Ensure Stripe customer exists
@@ -2729,14 +2812,22 @@ async function handleBillingProducts(
 async function handleBillingInvoices(
   request: Request,
   env: Env,
-  account: AccountRecord
+  account: AccountRecord,
+  allowFallback: boolean
 ): Promise<Response> {
-  if (!env.STRIPE_SECRET_KEY) {
-    return jsonResponse({ error: 'Stripe not configured' }, 503);
-  }
 
   if (request.method !== 'GET') {
     return jsonResponse({ error: 'Method Not Allowed' }, 405);
+  }
+
+  if (!env.STRIPE_SECRET_KEY) {
+    if (!allowFallback) {
+      return jsonResponse({ error: 'Stripe not configured' }, 503);
+    }
+    console.warn('handleBillingInvoices: returning placeholder invoices because Stripe is not configured', {
+      accountId: account.id,
+    });
+    return jsonResponse({ invoices: fallbackInvoices(account) });
   }
 
   const customerId = await ensureStripeCustomer(env, account);
