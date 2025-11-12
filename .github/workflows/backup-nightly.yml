@@ -61,7 +61,7 @@ jobs:
       - name: Export D1 backup (remote)
         run: |
           mkdir -p backups
-          pnpm --filter @justevery/worker exec wrangler d1 export "$D1_DATABASE_NAME" --remote --config workers/api/wrangler.toml --output backups/d1-nightly-${{ github.run_id }}.sql
+          pnpm --filter @justevery/worker exec wrangler d1 export "$D1_DATABASE_NAME" --remote --config wrangler.toml --output backups/d1-nightly-${{ github.run_id }}.sql
 
       - name: Upload backup artifact
         uses: actions/upload-artifact@v4
