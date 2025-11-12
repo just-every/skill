@@ -295,6 +295,26 @@ describe('Account billing endpoints', () => {
     expect(response.status).toBe(403);
   });
 
+  it('returns a placeholder checkout session when Stripe is not configured but mock data is allowed', async () => {
+    const env = createMockEnv({ STRIPE_SECRET_KEY: undefined });
+    const request = new Request('http://127.0.0.1/api/accounts/justevery/billing/checkout', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        priceId: 'price_launch_monthly',
+        successUrl: 'https://app.local/app/billing/success?session_id={CHECKOUT_SESSION_ID}',
+        cancelUrl: 'https://app.local/app/billing/cancel',
+      }),
+    });
+
+    const response = await runFetch(request, env);
+    expect(response.status).toBe(200);
+    const data = await parseJson<{ sessionId?: string; url: string }>(response);
+    expect(data.sessionId).toBeDefined();
+    expect(data?.sessionId).toContain('mock_checkout');
+    expect(data.url).toContain('mockCheckout=true');
+  });
+
   it('creates a portal session for Admin role', async () => {
     const env = createMockEnv();
     queueStripeResponse({ url: 'https://billing.stripe.com/session' });
@@ -317,6 +337,20 @@ describe('Account billing endpoints', () => {
 
     const response = await runFetch(request, env);
     expect(response.status).toBe(400);
+  });
+
+  it('returns a placeholder portal URL when Stripe is not configured but mock data is allowed', async () => {
+    const env = createMockEnv({ STRIPE_SECRET_KEY: undefined });
+    const request = new Request('http://127.0.0.1/api/accounts/justevery/billing/portal', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ returnUrl: 'https://app.local/app/billing' }),
+    });
+
+    const response = await runFetch(request, env);
+    expect(response.status).toBe(200);
+    const data = await parseJson<{ url: string }>(response);
+    expect(data.url).toContain('mockPortal=true');
   });
 
   it('returns invoices for Billing+ read access', async () => {
@@ -346,6 +380,19 @@ describe('Account billing endpoints', () => {
     }>(response);
     expect(data.invoices).toHaveLength(1);
     expect(data.invoices[0]).toMatchObject({ id: 'in_123', amountDue: 5000 });
+  });
+
+  it('returns placeholder invoices when Stripe is not configured but mock data is allowed', async () => {
+    setViewerEmail('eloise@justevery.com');
+    const env = createMockEnv({ STRIPE_SECRET_KEY: undefined });
+    const request = new Request('http://127.0.0.1/api/accounts/justevery/billing/invoices');
+
+    const response = await runFetch(request, env);
+    expect(response.status).toBe(200);
+    const data = await parseJson<{ invoices: Array<{ id: string }> }>(response);
+    expect(Array.isArray(data.invoices)).toBe(true);
+    expect(data.invoices.length).toBeGreaterThan(0);
+    expect(data.invoices[0].id).toContain('in_justevery');
   });
 
   it('enforces Billing+ guard on invoices', async () => {
