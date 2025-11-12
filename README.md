@@ -71,11 +71,9 @@ pipeline and immediately publishes a refreshed `ENV_BLOB` secret to the
 `production` environment (requires `gh auth login` or a `GH_TOKEN`). After that,
 CI’s `deploy.yml` handles all incremental deploys.
 
-### Workflows
+### Workflow
 
-- `.github/workflows/deploy.yml` – runs on push to `main`; decodes ENV_BLOB, runs Wrangler migrations, calls `pnpm bootstrap:deploy`, and uploads artifacts.
-- `.github/workflows/release.yml` – publishes packages when Changesets report pending releases.
-- `.github/workflows/smoke.yml` – scheduled smoke + bootstrap validation (preflight/env/migrations dry run + Playwright probes).
+- `.github/workflows/deploy.yml` – runs on push to `main`; decodes ENV_BLOB, runs Wrangler migrations, calls `pnpm bootstrap:deploy`, uploads artifacts, and (when a test cookie exists) runs the authenticated Playwright suite.
 
 ### Rollback
 

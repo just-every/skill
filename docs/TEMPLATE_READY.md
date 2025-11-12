@@ -8,11 +8,11 @@
 | Session/sidebar UI | `apps/web/src/app/AppShell.tsx` | Sidebar nav sits above; bottom-anchored company/account drop-ups show email/logout and hover-switch with soft shadows. Accessibility labels added.|
 
 ## Validation
-- Worker tests: `npm test --workspace workers/api` (includes billing, checkout, stripe parsing) – last run 2025-11-11 (~2.3s).&nbsp;[logs reference run 19261571845? should mention run id? that's deploy but tests run locally.]
-- Web build: `pnpm --filter @justevery/web run build` (passed).&nbsp;
-- Deploy smoke (run 19261571845 / job 55067369467): `/api/status` returns `{"status":"ok"...}`, `/api/stripe/products` returns enriched plan list. These steps ensure runtime health and Stripe metadata.|
+- Worker tests: `npm test --workspace workers/api` (includes billing, checkout, stripe parsing) – last run 2025-11-11 (~2.3s).
+- Web build: `pnpm --filter @justevery/web run build` (passed).
+- Post-deploy verification: curl `https://starter.justevery.com/api/status` (expect `{"status":"ok"}`) and `https://starter.justevery.com/api/stripe/products` (expect enriched plan list) immediately after each deploy.
 
-## Deploy & smoke steps
+## Deploy verification steps
 1. `gh workflow run deploy.yml --field mode=deploy` (latest successful run 19261571845, job 55067369467).
 2. After deploy, curl `https://starter.justevery.com/api/status` and ensure `status: ok` plus worker origin present.
 3. Curl `https://starter.justevery.com/api/stripe/products` – should return JSON array with enriched entries (priceId/currency/interval).
