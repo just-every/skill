@@ -226,7 +226,9 @@ const AppShell = ({ navItems, activeItem, onNavigate, companies, isLoadingCompan
                   accessibilityExpanded={showSwitcher || switcherHover}
                   accessibilityHasPopup="menu"
                 >
-                  <Text>{activeCompany?.name ?? 'Select company'}</Text>
+                  <Text className="text-base font-semibold text-white">
+                    {activeCompany?.name ?? 'Select company'}
+                  </Text>
                   <Text className="text-xs text-slate-400">{activeCompany?.plan ?? '—'}</Text>
                 </Pressable>
                 {(showSwitcher || switcherHover) && (
@@ -236,15 +238,16 @@ const AppShell = ({ navItems, activeItem, onNavigate, companies, isLoadingCompan
                     testID="company-switcher-menu"
                     className="absolute right-0 bottom-full mb-2 w-48 overflow-hidden rounded-2xl border border-slate-800 bg-slate-950/90 p-1 shadow-sm"
                   >
-                    {companies.map((company) => (
+                    {companies.map((company) => {
+                      const isActiveCompany = company.id === activeCompany?.id;
+                      const isPending = pendingCompanyId === company.id && switchCompanyMutation.isPending;
+                      return (
                       <Pressable
                         key={company.id}
                         onPress={() => void handleCompanyChange(company)}
                         className={cn(
                           'rounded-xl px-3 py-2 transition-colors',
-                          company.id === activeCompany?.id
-                            ? 'bg-white/10 text-white'
-                            : 'text-slate-200 hover:bg-white/5',
+                          isActiveCompany ? 'bg-white/10' : 'hover:bg-white/5',
                           switchCompanyMutation.isPending ? 'opacity-60' : undefined
                         )}
                         accessibilityRole="menuitemradio"
@@ -254,14 +257,25 @@ const AppShell = ({ navItems, activeItem, onNavigate, companies, isLoadingCompan
                         }}
                         disabled={switchCompanyMutation.isPending}
                       >
-                        <Text className="text-sm font-semibold">
-                          {pendingCompanyId === company.id && switchCompanyMutation.isPending ? 'Switching…' : company.name}
+                        <Text
+                          className={cn(
+                            'text-sm font-semibold',
+                            isActiveCompany ? 'text-white' : 'text-slate-100'
+                          )}
+                        >
+                          {isPending ? 'Switching…' : company.name}
                         </Text>
-                        <Text className="text-[11px] text-slate-400">
-                          {pendingCompanyId === company.id && switchCompanyMutation.isPending ? 'Hold tight…' : company.plan}
+                        <Text
+                          className={cn(
+                            'text-[11px]',
+                            isActiveCompany ? 'text-slate-300' : 'text-slate-400'
+                          )}
+                        >
+                          {isPending ? 'Hold tight…' : company.plan}
                         </Text>
                       </Pressable>
-                    ))}
+                    );
+                    })}
                   </View>
                 )}
               </View>
