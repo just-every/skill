@@ -59,7 +59,7 @@ export interface SmokeCheckReport {
 }
 
 const DEFAULT_OUTPUT_ROOT = join('test-results', 'smoke');
-const DEFAULT_ROUTES = ['/', '/login', '/callback', '/logout', '/app', '/payments'];
+const DEFAULT_ROUTES = ['/', '/pricing', '/contact', '/callback', '/logout', '/app'];
 const WORKSPACE_ROOT = findWorkspaceRoot(process.env.INIT_CWD ?? process.cwd());
 
 export async function runSmokeChecks(options: SmokeCheckOptions): Promise<SmokeCheckReport> {
