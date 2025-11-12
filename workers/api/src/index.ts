@@ -25,6 +25,7 @@ export interface Env {
   STRIPE_WEBHOOK_SECRET?: string;
   EXPO_PUBLIC_WORKER_ORIGIN?: string;
   ALLOW_PLACEHOLDER_DATA?: string;
+  ALLOW_SAMPLE_ACCOUNT_AUTO_MEMBERS?: string;
   ASSETS?: AssetFetcher;
 }
 
@@ -772,6 +773,16 @@ async function resolveViewerRoleForAccount(
     if (fallbackMember) {
       return fallbackMember.role;
     }
+
+    if (SAMPLE_ACCOUNT_IDS.has(accountId) && shouldAutoGrantSampleAccess(env)) {
+      console.warn(
+        'resolveViewerRoleForAccount: granting Owner role via sample fallback for',
+        accountId,
+        'because no membership matched',
+        email
+      );
+      return 'Owner';
+    }
   }
 
   return null;
@@ -806,6 +817,17 @@ function shouldAllowPlaceholderData(request: Request, env: Env): boolean {
     return false;
   }
   return false;
+}
+
+function shouldAutoGrantSampleAccess(env: Env): boolean {
+  const flag = env.ALLOW_SAMPLE_ACCOUNT_AUTO_MEMBERS?.toLowerCase();
+  if (flag === 'true') {
+    return true;
+  }
+  if (flag === 'false') {
+    return false;
+  }
+  return !env.DB;
 }
 
 const CONTENT_TYPE_BY_EXTENSION: Record<string, string> = {
