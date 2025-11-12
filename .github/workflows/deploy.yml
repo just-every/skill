@@ -1,4 +1,4 @@
-name: Deploy (ENV_BLOB)
+name: Deploy
 
 on:
   push:
@@ -81,17 +81,20 @@ jobs:
             if [ -z "$line" ]; then
               continue
             fi
-          var="${line%%=*}"; value="${line#*=}"
-          if [ -z "$var" ]; then
-            echo "Skipping malformed env line: $line" >&2
-            continue
-          fi
-          trimmed="${value%\r}"
-          if [ "${trimmed#\"}" != "$trimmed" ] && [ "${trimmed%\"}" != "$trimmed" ]; then
-            trimmed="${trimmed#\"}"
-            trimmed="${trimmed%\"}"
-          fi
-          printf '%s=%s\n' "$var" "$trimmed" >> $GITHUB_ENV
+            var="${line%%=*}"; value="${line#*=}"
+            if [ -z "$var" ]; then
+              echo "Skipping malformed env line: $line" >&2
+              continue
+            fi
+            trimmed="${value%$'\r'}"
+            if [ "${trimmed#\"}" != "$trimmed" ] && [ "${trimmed%\"}" != "$trimmed" ]; then
+              trimmed="${trimmed#\"}"
+              trimmed="${trimmed%\"}"
+            elif [ "${trimmed#\'}" != "$trimmed" ] && [ "${trimmed%\'}" != "$trimmed" ]; then
+              trimmed="${trimmed#\'}"
+              trimmed="${trimmed%\'}"
+            fi
+            printf '%s=%s\n' "$var" "$trimmed" >> $GITHUB_ENV
           done < <(grep -v '^#' .env.ci)
 
       - name: Seed placeholder env for dry-run
@@ -241,17 +244,20 @@ jobs:
             if [ -z "$line" ]; then
               continue
             fi
-          var="${line%%=*}"; value="${line#*=}"
-          if [ -z "$var" ]; then
-            echo "Skipping malformed env line: $line" >&2
-            continue
-          fi
-          trimmed="${value%\r}"
-          if [ "${trimmed#\"}" != "$trimmed" ] && [ "${trimmed%\"}" != "$trimmed" ]; then
-            trimmed="${trimmed#\"}"
-            trimmed="${trimmed%\"}"
-          fi
-          printf '%s=%s\n' "$var" "$trimmed" >> $GITHUB_ENV
+            var="${line%%=*}"; value="${line#*=}"
+            if [ -z "$var" ]; then
+              echo "Skipping malformed env line: $line" >&2
+              continue
+            fi
+            trimmed="${value%$'\r'}"
+            if [ "${trimmed#\"}" != "$trimmed" ] && [ "${trimmed%\"}" != "$trimmed" ]; then
+              trimmed="${trimmed#\"}"
+              trimmed="${trimmed%\"}"
+            elif [ "${trimmed#\'}" != "$trimmed" ] && [ "${trimmed%\'}" != "$trimmed" ]; then
+              trimmed="${trimmed#\'}"
+              trimmed="${trimmed%\'}"
+            fi
+            printf '%s=%s\n' "$var" "$trimmed" >> $GITHUB_ENV
           done < <(grep -v '^#' .env.ci)
 
       - name: Enable Corepack for pnpm
