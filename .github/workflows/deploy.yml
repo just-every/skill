@@ -118,6 +118,9 @@ jobs:
           EXPO_NO_INTERACTIVE: '1'
         run: pnpm --filter @justevery/web run build
 
+      - name: Smoke check exported client bundle
+        run: pnpm smoke:client
+
       - name: Render Wrangler config (dry run)
         run: pnpm bootstrap:deploy -- --dry-run
 

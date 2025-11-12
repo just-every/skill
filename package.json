@@ -24,6 +24,7 @@
     "bootstrap:deploy:new": "pnpm bootstrap:deploy && pnpm publish:env-blob",
     "bootstrap:smoke": "pnpm --filter @justevery/bootstrap-cli run smoke",
     "smoke": "pnpm bootstrap:smoke",
+    "smoke:client": "node ./scripts/smoke-client-script.cjs",
     "smoke:local": "node scripts/smoke-local.cjs",
     "validate:bootstrap": "pnpm bootstrap:preflight -- --check && pnpm bootstrap:env -- --check",
     "test:e2e": "playwright test --config tests/e2e/playwright.config.ts",
