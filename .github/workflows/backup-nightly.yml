@@ -25,9 +25,22 @@ jobs:
           fi
           echo "$ENV_BLOB" | base64 --decode > .env.ci
           while IFS= read -r line; do
+            line="${line%%$'\r'}"
+            if [ -z "$line" ] || [[ "$line" =~ ^# ]]; then
+              continue
+            fi
             var="${line%%=*}"; value="${line#*=}"
-            printf '%s=%s\n' "$var" "$value" >> $GITHUB_ENV
-          done < <(grep -v '^#' .env.ci)
+            if [ -z "$var" ]; then
+              echo "Skipping malformed env line: $line" >&2
+              continue
+            fi
+            trimmed="${value%$'\r'}"
+            if [ "${trimmed#\"}" != "$trimmed" ] && [ "${trimmed%\"}" != "$trimmed" ]; then
+              trimmed="${trimmed#\"}"
+              trimmed="${trimmed%\"}"
+            fi
+            printf '%s=%s\n' "$var" "$trimmed" >> $GITHUB_ENV
+          done < .env.ci
 
       - name: Enable Corepack for pnpm
         run: corepack enable pnpm
