@@ -20,21 +20,43 @@ jobs:
     permissions:
       contents: read
     env:
-      SMOKE_BASE_URL: ${{ inputs.base || secrets.SMOKE_BASE_URL || secrets.PROJECT_DOMAIN || '' }}
-      SMOKE_MODE: ${{ inputs.mode || secrets.SMOKE_MODE || '' }}
-      PROJECT_DOMAIN: ${{ secrets.PROJECT_DOMAIN || '' }}
-      LOGTO_TOKEN: ${{ secrets.LOGTO_TOKEN || '' }}
-      SMOKE_BEARER_TOKEN: ${{ secrets.LOGTO_TOKEN || '' }}
-      PROJECT_ID: ${{ secrets.PROJECT_ID || '' }}
-      D1_DATABASE_NAME: ${{ secrets.D1_DATABASE_NAME || '' }}
-      STRIPE_WEBHOOK_SECRET: ${{ secrets.STRIPE_WEBHOOK_SECRET || '' }}
-      SMOKE_SKIP_WRANGLER: ${{ secrets.SMOKE_SKIP_WRANGLER || '' }}
-      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID || '' }}
-      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN || '' }}
-      CLOUDFLARE_ZONE_ID: ${{ secrets.CLOUDFLARE_ZONE_ID || '' }}
+      ENV_BLOB: ${{ secrets.ENV_BLOB || '' }}
+      SMOKE_BASE_OVERRIDE: ${{ (github.event_name == 'workflow_dispatch' && github.event.inputs.base) || secrets.SMOKE_BASE_URL || secrets.PROJECT_DOMAIN || '' }}
+      SMOKE_MODE_OVERRIDE: ${{ (github.event_name == 'workflow_dispatch' && github.event.inputs.mode) || secrets.SMOKE_MODE || '' }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Ensure ENV_BLOB secret exists
+        run: |
+          if [ -z "$ENV_BLOB" ]; then
+            echo "ENV_BLOB secret is required" >&2
+            exit 1
+          fi
+
+      - name: Decode ENV_BLOB to .env.ci
+        run: echo "$ENV_BLOB" | base64 --decode > .env.ci
+
+      - name: Export env vars
+        run: |
+          set -euo pipefail
+          while IFS= read -r line; do
+            line="${line%%$'\r'}"
+            if [ -z "$line" ]; then
+              continue
+            fi
+            var="${line%%=*}"; value="${line#*=}"
+            if [ -z "$var" ]; then
+              echo "Skipping malformed env line: $line" >&2
+              continue
+            fi
+            trimmed="${value%\r}"
+            if [ "${trimmed#\"}" != "$trimmed" ] && [ "${trimmed%\"}" != "$trimmed" ]; then
+              trimmed="${trimmed#\"}"
+              trimmed="${trimmed%\"}"
+            fi
+            printf '%s=%s\n' "$var" "$trimmed" >> "$GITHUB_ENV"
+          done < <(grep -v '^#' .env.ci)
 
       - name: Enable corepack
         run: corepack enable
@@ -64,18 +86,21 @@ jobs:
         run: pnpm exec playwright install --with-deps
 
       - name: Run smoke suite
+        env:
+          SMOKE_BASE_OVERRIDE: ${{ env.SMOKE_BASE_OVERRIDE }}
+          SMOKE_MODE_OVERRIDE: ${{ env.SMOKE_MODE_OVERRIDE }}
         run: |
           set -euo pipefail
 
-          BASE="${SMOKE_BASE_URL:-$PROJECT_DOMAIN}"
+          BASE="${SMOKE_BASE_OVERRIDE:-${SMOKE_BASE_URL:-${PROJECT_DOMAIN:-}}}"
           if [ -z "$BASE" ]; then
-            echo "SMOKE_BASE_URL or PROJECT_DOMAIN secret is required"
+            echo "Provide SMOKE_BASE_OVERRIDE, SMOKE_BASE_URL, or PROJECT_DOMAIN via ENV_BLOB" >&2
             exit 1
           fi
 
-          MODE="$SMOKE_MODE"
+          MODE="${SMOKE_MODE_OVERRIDE:-${SMOKE_MODE:-}}"
           if [ -z "$MODE" ]; then
-            if [ -z "$D1_DATABASE_NAME" ] || [ -z "$STRIPE_WEBHOOK_SECRET" ]; then
+            if [ -z "${D1_DATABASE_NAME:-}" ] || [ -z "${STRIPE_WEBHOOK_SECRET:-}" ]; then
               MODE="minimal"
             else
               MODE="full"
@@ -83,17 +108,18 @@ jobs:
           fi
 
           CMD=(pnpm bootstrap:smoke -- --base "$BASE" --mode "$MODE")
-          if [ -n "$PROJECT_ID" ]; then
+          if [ -n "${PROJECT_ID:-}" ]; then
             CMD+=(--project-id "$PROJECT_ID")
           fi
-          if [ -n "$D1_DATABASE_NAME" ]; then
+          if [ -n "${D1_DATABASE_NAME:-}" ]; then
             CMD+=(--d1-name "$D1_DATABASE_NAME")
           fi
-          if [ -n "$LOGTO_TOKEN" ]; then
+          if [ -n "${LOGTO_TOKEN:-}" ]; then
             CMD+=(--token "$LOGTO_TOKEN")
           fi
-          if [ -n "$R2_BUCKET" ]; then
-            CMD+=(--r2-bucket "$R2_BUCKET")
+          BUCKET="${R2_BUCKET:-${CLOUDFLARE_R2_BUCKET:-}}"
+          if [ -n "$BUCKET" ]; then
+            CMD+=(--r2-bucket "$BUCKET")
           fi
           if [ "$MODE" = "minimal" ]; then
             CMD+=(--skip-wrangler)
