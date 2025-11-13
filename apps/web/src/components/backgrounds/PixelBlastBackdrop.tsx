@@ -1,7 +1,5 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useMemo, useRef } from 'react';
 import { Platform } from 'react-native';
-
-import './PixelBlastBackdrop.css';
 
 type Color = {
   readonly r: number;
@@ -180,8 +178,26 @@ const PixelBlastBackdrop: React.FC<PixelBlastBackdropProps> = ({
     };
   }, [color, highlightColor, pixelSize, rippleColor, speed]);
 
-  const classNames = ['pixel-blast-backdrop', className].filter(Boolean).join(' ');
-  return <div ref={containerRef} className={classNames} style={style} aria-hidden="true" />;
+  const baseStyle: React.CSSProperties = useMemo(
+    () => ({
+      position: 'absolute',
+      inset: 0,
+      width: '100%',
+      height: '100%',
+      pointerEvents: 'none'
+    }),
+    []
+  );
+  const mergedStyle = useMemo(
+    () => ({
+      ...baseStyle,
+      ...style
+    }),
+    [baseStyle, style]
+  );
+
+  const classNames = [className].filter(Boolean).join(' ');
+  return <div ref={containerRef} className={classNames} style={mergedStyle} aria-hidden="true" />;
 };
 
 export default PixelBlastBackdrop;
