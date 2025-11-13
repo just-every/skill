@@ -44,7 +44,7 @@ test.describe('dev sidebar starfield', () => {
     await expect(card).toHaveAttribute('data-hotspot-active', 'true');
   });
 
-  test('feature flag off hides canvas and switcher', async ({ browser }) => {
+  test('starfield renders even when the env flag is flipped', async ({ browser }) => {
     const context = await browser.newContext({ baseURL: resolveTestBaseUrl() });
     await context.addInitScript(() => {
       window.__JUSTEVERY_ENV__ = { starfieldEnabled: false };
@@ -54,8 +54,8 @@ test.describe('dev sidebar starfield', () => {
     );
     const page = await context.newPage();
     await page.goto('/dev/sidebar');
-    await expect(page.getByTestId('starfield-switcher')).toHaveCount(0);
-    await expect(page.locator('canvas[data-testid^="starfield-layer-"]')).toHaveCount(0);
+    await expect(page.getByTestId('starfield-switcher')).toBeVisible();
+    await expect(page.locator('canvas[data-testid^="starfield-layer-"]')).toBeVisible();
     await context.close();
   });
 

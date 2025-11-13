@@ -14,7 +14,6 @@ import { usePrefersReducedMotion } from '../lib/usePrefersReducedMotion';
 import { STARFIELD_VARIANTS, Starfield, type Hotspot } from '../app/components/Starfield';
 import { StarfieldVariantSwitcher } from '../app/components/StarfieldVariantSwitcher';
 import { useStarfieldVariant } from '../app/hooks/useStarfieldVariant';
-import { usePublicEnv } from '../runtimeEnv';
 
 type ControlRowProps = {
   label: string;
@@ -79,8 +78,6 @@ const DevSidebarSandbox = () => {
   const [sandboxHotspot, setSandboxHotspot] = useState<Hotspot | null>(null);
   const [demoInteraction, setDemoInteraction] = useState(0);
   const reducesMotion = prefersReducedMotion || forceReducedMotion;
-  const env = usePublicEnv();
-  const starfieldEnabled = env.starfieldEnabled;
 
   useEffect(() => {
     if (typeof window === 'undefined') {
@@ -205,20 +202,18 @@ const DevSidebarSandbox = () => {
             data-hotspot-active={sandboxHotspot ? 'true' : 'false'}
             className="relative mx-auto flex w-full max-w-[360px] flex-col overflow-hidden rounded-3xl border border-white/15 bg-gradient-to-b from-slate-950/90 via-slate-950 to-slate-900/70 p-6 text-white shadow-[0_30px_60px_rgba(2,6,23,0.65)]"
           >
-            {starfieldEnabled && (
-              <Starfield
-                containerRef={sidebarRef}
-                variant={starfieldVariant}
-                hoverGain={effectiveHoverGain}
-                density={effectiveDensity}
-                depthCurve={(value) => 0.25 + value * 0.75}
-                interactionLevel={demoInteraction}
-                reduceMotionOverride={reducesMotion}
-                hotspot={sandboxHotspot ?? undefined}
-                microEventFrequency={microEventFrequency}
-                className="pointer-events-none opacity-80"
-              />
-            )}
+            <Starfield
+              containerRef={sidebarRef}
+              variant={starfieldVariant}
+              hoverGain={effectiveHoverGain}
+              density={effectiveDensity}
+              depthCurve={(value) => 0.25 + value * 0.75}
+              interactionLevel={demoInteraction}
+              reduceMotionOverride={reducesMotion}
+              hotspot={sandboxHotspot ?? undefined}
+              microEventFrequency={microEventFrequency}
+              className="pointer-events-none opacity-80"
+            />
             <View className="relative flex h-full min-h-[520px] flex-col">
               <Text className="text-sm font-semibold tracking-[0.4em] text-slate-400">JustEvery Dev</Text>
               <Text className="mt-6 text-3xl font-bold leading-tight text-white">Sidebar preview</Text>
@@ -300,14 +295,12 @@ const DevSidebarSandbox = () => {
                 </View>
               </View>
             </View>
-            {starfieldEnabled && <StarfieldVariantSwitcher current={starfieldVariant} onChange={setStarfieldVariant} />}
-            {starfieldEnabled && (
-              <View className="mt-3 space-y-1 text-xs text-slate-300">
-                <Text className="text-[10px] uppercase tracking-[0.4em] text-slate-400">Active variant</Text>
-                <Text className="text-sm font-semibold tracking-[0.2em] text-white">{variantMeta.label}</Text>
-                <Text className="text-[11px] text-slate-400">{variantMeta.description}</Text>
-              </View>
-            )}
+            <StarfieldVariantSwitcher current={starfieldVariant} onChange={setStarfieldVariant} />
+            <View className="mt-3 space-y-1 text-xs text-slate-300">
+              <Text className="text-[10px] uppercase tracking-[0.4em] text-slate-400">Active variant</Text>
+              <Text className="text-sm font-semibold tracking-[0.2em] text-white">{variantMeta.label}</Text>
+              <Text className="text-[11px] text-slate-400">{variantMeta.description}</Text>
+            </View>
             <View className="mt-2 flex items-center justify-between text-[11px] text-slate-300">
               <Text>Micro-events: {(microEventFrequency * 1000).toFixed(1)} / second</Text>
               <View className="flex flex-row gap-1">

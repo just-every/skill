@@ -17,7 +17,6 @@ import { useAuth } from '../auth/AuthProvider';
 import { usePrefersReducedMotion } from '../lib/usePrefersReducedMotion';
 import type { Hotspot } from './components/Starfield';
 import { useStarfieldVariant } from './hooks/useStarfieldVariant';
-import { usePublicEnv } from '../runtimeEnv';
 
 export type AppNavItem = {
   key: string;
@@ -57,8 +56,6 @@ const AppShell = ({ navItems, activeItem, onNavigate, companies, isLoadingCompan
   const prefersReducedMotion = usePrefersReducedMotion();
   const [starfieldVariant, setStarfieldVariant] = useStarfieldVariant();
   const sidebarContainerRef = useRef<HTMLDivElement | null>(null);
-  const env = usePublicEnv();
-  const starfieldEnabled = env.starfieldEnabled;
   const [starfieldModule, setStarfieldModule] = useState<null | typeof import('./components/Starfield')>(null);
   const [switcherModule, setSwitcherModule] = useState<null | typeof import('./components/StarfieldVariantSwitcher')>(null);
   const [hotspot, setHotspot] = useState<Hotspot | null>(null);
@@ -67,18 +64,12 @@ const AppShell = ({ navItems, activeItem, onNavigate, companies, isLoadingCompan
 
   const handleNavEngagement = useCallback(
     (active: boolean) => {
-      if (!starfieldEnabled) {
-        return;
-      }
       setNavInteractionLevel(active ? 1 : 0);
     },
-    [starfieldEnabled]
+    []
   );
 
   const updateHotspot = (clientX: number, clientY: number) => {
-    if (!starfieldEnabled) {
-      return;
-    }
     const sidebarRect = sidebarContainerRef.current?.getBoundingClientRect();
     if (!sidebarRect) {
       return;
@@ -119,7 +110,7 @@ const AppShell = ({ navItems, activeItem, onNavigate, companies, isLoadingCompan
   }, [navInteractionLevel]);
 
   useEffect(() => {
-    if (!starfieldEnabled || typeof window === 'undefined') {
+    if (typeof window === 'undefined') {
       setStarfieldModule(null);
       setSwitcherModule(null);
       return undefined;
@@ -137,7 +128,7 @@ const AppShell = ({ navItems, activeItem, onNavigate, companies, isLoadingCompan
     return () => {
       cancelled = true;
     };
-  }, [starfieldEnabled]);
+  }, []);
 
   const activeCompany = useMemo(() => {
     if (!companies || companies.length === 0) {
@@ -414,7 +405,7 @@ const AppShell = ({ navItems, activeItem, onNavigate, companies, isLoadingCompan
         }}
         className="relative flex h-full flex-col overflow-hidden px-6 py-8 pb-16 text-white"
       >
-        {starfieldEnabled && StarfieldComponent ? (
+        {StarfieldComponent ? (
           <StarfieldComponent
             containerRef={sidebarContainerRef}
             variant={starfieldVariant}
@@ -478,7 +469,7 @@ const AppShell = ({ navItems, activeItem, onNavigate, companies, isLoadingCompan
             {renderAccountMenu()}
           </View>
         </View>
-        {starfieldEnabled && SwitcherComponent ? (
+        {SwitcherComponent ? (
           <SwitcherComponent current={starfieldVariant} onChange={setStarfieldVariant} />
         ) : null}
       </div>
@@ -534,4 +525,3 @@ const AppShell = ({ navItems, activeItem, onNavigate, companies, isLoadingCompan
 };
 
 export default AppShell;
-
