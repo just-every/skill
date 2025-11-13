@@ -122,7 +122,7 @@ jobs:
         run: pnpm smoke:client
 
       - name: Render Wrangler config (dry run)
-        run: pnpm bootstrap:deploy -- --dry-run
+        run: pnpm bootstrap:deploy:dry-run
 
       - name: Run migrations (remote)
         if: env.MODE == 'deploy'
