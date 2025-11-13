@@ -27,6 +27,8 @@ export interface Env {
   ALLOW_PLACEHOLDER_DATA?: string;
   ALLOW_SAMPLE_ACCOUNT_AUTO_MEMBERS?: string;
   ASSETS?: AssetFetcher;
+  TRIAL_PERIOD_DAYS?: string;
+  STRIPE_REDIRECT_ALLOWLIST?: string;
 }
 
 type AccountBranding = {
@@ -430,6 +432,7 @@ async function ensureAccountProvisionedForSession(env: Env, session: Authenticat
   const subscriptionId = `sub-${generateSessionId()}`;
   const plan = 'Launch';
   const timestamp = new Date().toISOString();
+  const trialPeriodEnd = calculateTrialPeriodEnd(env.TRIAL_PERIOD_DAYS);
 
   const statements = [
     env.DB.prepare(
@@ -447,8 +450,8 @@ async function ensureAccountProvisionedForSession(env: Env, session: Authenticat
     ).bind(companyId, timestamp),
     env.DB.prepare(
       `INSERT INTO company_subscriptions (id, company_id, plan_name, status, seats, mrr_cents, current_period_start, current_period_end)
-       VALUES (?1, ?2, ?3, 'trialing', 5, 0, ?4, ?4)`
-    ).bind(subscriptionId, companyId, plan, timestamp),
+       VALUES (?1, ?2, ?3, 'trialing', 5, 0, ?4, ?5)`
+    ).bind(subscriptionId, companyId, plan, timestamp, trialPeriodEnd),
   ];
 
   try {
@@ -456,6 +459,12 @@ async function ensureAccountProvisionedForSession(env: Env, session: Authenticat
   } catch (error) {
     logDbError('ensureAccountProvisionedForSession', error);
   }
+}
+
+function calculateTrialPeriodEnd(envValue?: string): string {
+  const parsed = envValue ? Number.parseInt(envValue, 10) : DEFAULT_TRIAL_PERIOD_DAYS;
+  const durationDays = Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_TRIAL_PERIOD_DAYS;
+  return new Date(Date.now() + durationDays * MS_IN_DAY).toISOString();
 }
 
 async function hasMembershipForUser(env: Env, userId: string | null, email: string): Promise<boolean> {
@@ -705,8 +714,10 @@ async function fetchSubscriptionSummaryFromDb(env: Env, companyId: string): Prom
     if (!row) {
       return null;
     }
+    const status = stringFrom(row.status, 'active');
+    const active = !INACTIVE_SUBSCRIPTION_STATUSES.has(status);
     return {
-      active: stringFrom(row.status, 'active') === 'active',
+      active,
       plan: row.plan_name ? String(row.plan_name) : null,
       renewsOn: row.current_period_end ? String(row.current_period_end) : null,
       seats: numberFrom(row.seats)
@@ -1014,6 +1025,9 @@ const CONTENT_TYPE_BY_EXTENSION: Record<string, string> = {
 };
 
 const textEncoder = new TextEncoder();
+const MS_IN_DAY = 86_400_000;
+const DEFAULT_TRIAL_PERIOD_DAYS = 30;
+const INACTIVE_SUBSCRIPTION_STATUSES = new Set(['canceled', 'incomplete_expired']);
 
 const STATIC_ASSET_PREFIXES = ["/_expo/", "/assets/"];
 const STATIC_ASSET_PATHS = new Set(["/favicon.ico", "/index.html", "/manifest.json"]);
@@ -1387,7 +1401,14 @@ const Worker: ExportedHandler<Env> = {
 };
 
 export default Worker;
-export { ensureAccountProvisionedForSession };
+export {
+  ensureAccountProvisionedForSession,
+  handleSubscriptionWebhookEvent,
+  fetchSubscriptionSummaryFromDb,
+  handleBillingCheckout,
+  handleBillingPortal,
+  ensureStripeCustomer,
+};
 
 function normalisePath(pathname: string): string {
   if (pathname === "/") return "/";
@@ -2182,8 +2203,18 @@ async function handleAccountUpdate(
   }
 
   const rawValue = payload.billingEmail;
-  const trimmedValue = typeof rawValue === 'string' ? rawValue.trim() : null;
-  const normalizedEmail = trimmedValue === '' ? null : trimmedValue;
+  let normalizedEmail: string | null;
+  if (typeof rawValue === 'string') {
+    const trimmed = rawValue.trim();
+    if (trimmed.length === 0) {
+      return jsonResponse({ error: 'billing_email_invalid', hint: 'Provide a non-empty email or null to clear this field.' }, 400);
+    }
+    normalizedEmail = trimmed;
+  } else if (rawValue === null) {
+    normalizedEmail = null;
+  } else {
+    normalizedEmail = null;
+  }
 
   if (!env.DB && !allowFallback) {
     return dataUnavailableResponse(env);
@@ -2681,6 +2712,17 @@ async function handleBillingCheckout(
     return jsonResponse({ error: 'successUrl and cancelUrl are required' }, 400);
   }
 
+  const allowedOrigins = buildAllowedRedirectOrigins(env);
+  try {
+    assertRedirectUrlAllowed(successUrl, 'successUrl', allowedOrigins);
+    assertRedirectUrlAllowed(cancelUrl, 'cancelUrl', allowedOrigins);
+  } catch (error) {
+    if (isInvalidRedirectUrlError(error)) {
+      return jsonResponse({ error: 'invalid_redirect_origin', hint: `Allowed origins: ${formatAllowedOrigins(allowedOrigins)}` }, 400);
+    }
+    throw error;
+  }
+
   if (!env.STRIPE_SECRET_KEY) {
     if (!allowFallback) {
       return jsonResponse({ error: 'Stripe not configured' }, 503);
@@ -2694,7 +2736,15 @@ async function handleBillingCheckout(
   }
 
   // Ensure Stripe customer exists
-  const customerId = await ensureStripeCustomer(env, account);
+  let customerId: string | null = null;
+  try {
+    customerId = await ensureStripeCustomer(env, account);
+  } catch (error) {
+    if (isBillingEmailRequiredError(error)) {
+      return jsonResponse({ error: 'billing_email_required', hint: 'Add a billing contact email before starting checkout.' }, 400);
+    }
+    throw error;
+  }
 
   if (!customerId) {
     return jsonResponse({ error: 'Failed to create or retrieve Stripe customer' }, 500);
@@ -2752,6 +2802,16 @@ async function handleBillingPortal(
     return jsonResponse({ error: 'returnUrl is required' }, 400);
   }
 
+  const allowedOrigins = buildAllowedRedirectOrigins(env);
+  try {
+    assertRedirectUrlAllowed(returnUrl, 'returnUrl', allowedOrigins);
+  } catch (error) {
+    if (isInvalidRedirectUrlError(error)) {
+      return jsonResponse({ error: 'invalid_redirect_origin', hint: `Allowed origins: ${formatAllowedOrigins(allowedOrigins)}` }, 400);
+    }
+    throw error;
+  }
+
   if (!env.STRIPE_SECRET_KEY) {
     if (!allowFallback) {
       return jsonResponse({ error: 'Stripe not configured' }, 503);
@@ -2763,7 +2823,15 @@ async function handleBillingPortal(
   }
 
   // Ensure Stripe customer exists
-  const customerId = await ensureStripeCustomer(env, account);
+  let customerId: string | null = null;
+  try {
+    customerId = await ensureStripeCustomer(env, account);
+  } catch (error) {
+    if (isBillingEmailRequiredError(error)) {
+      return jsonResponse({ error: 'billing_email_required', hint: 'Add a billing contact email before opening the Stripe portal.' }, 400);
+    }
+    throw error;
+  }
 
   if (!customerId) {
     return jsonResponse({ error: 'Failed to retrieve Stripe customer' }, 500);
@@ -2830,7 +2898,15 @@ async function handleBillingInvoices(
     return jsonResponse({ invoices: fallbackInvoices(account) });
   }
 
-  const customerId = await ensureStripeCustomer(env, account);
+  let customerId: string | null = null;
+  try {
+    customerId = await ensureStripeCustomer(env, account);
+  } catch (error) {
+    if (isBillingEmailRequiredError(error)) {
+      return jsonResponse({ error: 'billing_email_required', hint: 'Add a billing contact email before viewing invoices.' }, 400);
+    }
+    throw error;
+  }
   if (!customerId) {
     return jsonResponse({ error: 'stripe_customer_missing', hint: 'Unable to resolve Stripe customer' }, 502);
   }
@@ -3053,7 +3129,7 @@ async function handleSubscriptionWebhookEvent(
         cancel_at = excluded.cancel_at,
         cancel_at_period_end = excluded.cancel_at_period_end,
         updated_at = CURRENT_TIMESTAMP`
-    )
+      )
       .bind(
         `sub-${generateSessionId()}`,
         companyId,
@@ -3069,6 +3145,14 @@ async function handleSubscriptionWebhookEvent(
         cancelAtPeriodEnd
       )
       .run();
+
+    if (planName) {
+      try {
+        await env.DB.prepare(`UPDATE companies SET plan = ? WHERE id = ?`).bind(planName, companyId).run();
+      } catch (planError) {
+        logDbError('handleSubscriptionWebhookEvent.planSync', planError);
+      }
+    }
 
   } catch (error) {
     console.error('Failed to upsert subscription', error);
@@ -3736,10 +3820,9 @@ async function ensureStripeCustomer(
     return existingCustomerId;
   }
 
-  const customerEmail = account.billingEmail ?? (companyRow?.billing_email ? String(companyRow.billing_email) : undefined);
+  const customerEmail = await resolveStripeCustomerEmail(env, account, companyRow);
   if (!customerEmail) {
-    console.warn('Cannot create Stripe customer without email', { companyId });
-    return null;
+    throw new BillingEmailRequiredError();
   }
 
   try {
@@ -3814,4 +3897,122 @@ function mapStripeInvoice(invoice: StripeInvoice) {
     hostedInvoiceUrl: typeof invoice.hosted_invoice_url === 'string' ? invoice.hosted_invoice_url : null,
     invoicePdf: typeof invoice.invoice_pdf === 'string' ? invoice.invoice_pdf : null,
   };
+}
+
+class BillingEmailRequiredError extends Error {
+  constructor() {
+    super('billing_email_required');
+    this.name = 'BillingEmailRequiredError';
+  }
+}
+
+class InvalidRedirectUrlError extends Error {
+  field: string;
+  url: string;
+
+  constructor(field: string, url: string) {
+    super('invalid_redirect_origin');
+    this.name = 'InvalidRedirectUrlError';
+    this.field = field;
+    this.url = url;
+  }
+}
+
+function isBillingEmailRequiredError(error: unknown): error is BillingEmailRequiredError {
+  return error instanceof BillingEmailRequiredError;
+}
+
+function isInvalidRedirectUrlError(error: unknown): error is InvalidRedirectUrlError {
+  return error instanceof InvalidRedirectUrlError;
+}
+
+function normalizeEmailInput(value: unknown): string | null {
+  if (typeof value !== 'string') {
+    return null;
+  }
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+async function fetchOwnerEmail(env: Env, companyId: string): Promise<string | null> {
+  if (!env.DB) {
+    return null;
+  }
+  const ownerRow = await queryFirst(env.DB, `SELECT email FROM company_members WHERE company_id = ? AND role = 'owner' ORDER BY created_at ASC LIMIT 1`, [companyId]);
+  if (!ownerRow) {
+    return null;
+  }
+  const ownerEmail = typeof ownerRow.email === 'string'
+    ? ownerRow.email
+    : typeof (ownerRow as { EMAIL?: string }).EMAIL === 'string'
+      ? (ownerRow as { EMAIL?: string }).EMAIL
+      : null;
+  return normalizeEmailInput(ownerEmail);
+}
+
+async function resolveStripeCustomerEmail(env: Env, account: AccountRecord, companyRow: DbRow | null): Promise<string | null> {
+  const accountEmail = normalizeEmailInput(account.billingEmail);
+  if (accountEmail) {
+    return accountEmail;
+  }
+  const companyEmail = normalizeEmailInput(companyRow?.billing_email ?? null);
+  if (companyEmail) {
+    return companyEmail;
+  }
+  return await fetchOwnerEmail(env, account.id);
+}
+
+function safeParseUrl(value: string): URL | null {
+  try {
+    return new URL(value);
+  } catch {
+    return null;
+  }
+}
+
+function buildAllowedRedirectOrigins(env: Env): Set<string> {
+  const origins = new Set<string>();
+  const candidates: Array<string | undefined> = [
+    env.APP_BASE_URL,
+    env.PROJECT_DOMAIN,
+    env.EXPO_PUBLIC_WORKER_ORIGIN,
+    env.LOGIN_ORIGIN,
+  ];
+  if (env.STRIPE_REDIRECT_ALLOWLIST) {
+    for (const entry of env.STRIPE_REDIRECT_ALLOWLIST.split(',')) {
+      const candidate = entry.trim();
+      if (candidate.length > 0) {
+        candidates.push(candidate);
+      }
+    }
+  }
+
+  for (const candidate of candidates) {
+    if (!candidate) {
+      continue;
+    }
+    const parsed = safeParseUrl(candidate);
+    if (parsed) {
+      origins.add(parsed.origin.toLowerCase());
+    }
+  }
+  return origins;
+}
+
+function assertRedirectUrlAllowed(url: string, field: string, allowedOrigins: Set<string>): void {
+  const parsed = safeParseUrl(url);
+  if (!parsed) {
+    throw new InvalidRedirectUrlError(field, url);
+  }
+  const origin = parsed.origin.toLowerCase();
+  if (!allowedOrigins.has(origin)) {
+    throw new InvalidRedirectUrlError(field, url);
+  }
+}
+
+function formatAllowedOrigins(origins: Set<string>): string {
+  if (origins.size === 0) {
+    return 'no allowed origins are configured';
+  }
+  return Array.from(origins).join(', ');
 }

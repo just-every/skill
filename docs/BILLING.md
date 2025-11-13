@@ -11,6 +11,8 @@ Add these to `~/.env` (bootstrap CLI) **and** `workers/api/.dev.vars` (local Wra
 | `STRIPE_SECRET_KEY` | Stripe API key (Dashboard → Developers → API keys → Secret key) |
 | `STRIPE_WEBHOOK_SECRET` | Signing secret from the webhook endpoint you create below |
 | `STRIPE_PRODUCTS` | JSON array describing the plans/prices the dashboard should list (each entry must include `priceId`, `unitAmount`, and `currency`; `id`, `name`, `description`, `interval`, and `metadata` are optional) |
+| `TRIAL_PERIOD_DAYS` | Optional integer (default **30**). Controls the seeded `current_period_end` when a brand-new account is provisioned before Stripe fires real webhooks. Set shorter values (e.g., `14`) when demoing rapid trial expirations; keep ≥30 in prod to mirror your Stripe trial length. |
+| `STRIPE_REDIRECT_ALLOWLIST` | Optional comma-separated list of absolute URLs or origins that are allowed for `successUrl`, `cancelUrl`, and `returnUrl`. Each entry should include the scheme+host (e.g., `https://starter.justevery.com,https://app.local`) and is matched by origin. Use this to permit additional dev tunnels or staging domains; leave unset to fall back to the first-party origins (`APP_BASE_URL`, `PROJECT_DOMAIN`, `EXPO_PUBLIC_WORKER_ORIGIN`, `LOGIN_ORIGIN`). |
 
 Example `.dev.vars` snippet:
 
@@ -22,6 +24,9 @@ STRIPE_PRODUCTS='[
   {"id":"prod_scale","name":"Scale","description":"Scale plan","priceId":"price_scale_monthly","unitAmount":5400,"currency":"usd","interval":"month","metadata":{"tier":"scale"}},
   {"id":"prod_launch","name":"Launch","description":"Launch plan","priceId":"price_launch_monthly","unitAmount":2100,"currency":"usd","interval":"month","metadata":{"tier":"launch"}}
 ]'
+TRIAL_PERIOD_DAYS=30
+# Allow localhost + deployed origin
+STRIPE_REDIRECT_ALLOWLIST="https://starter.justevery.com,https://app.local"
 ```
 
 Restart `npm run dev:worker` after editing secrets so Wrangler reloads them.
@@ -114,3 +119,12 @@ Replace `justevery` with your account slug and include a valid session cookie (`
 - **Webhook signature errors**: ensure `STRIPE_WEBHOOK_SECRET` matches the value shown in the Stripe Dashboard after creating/updating the endpoint.
 
 For more deployment context see `docs/QUICKSTART.md` and `docs/SECRETS_CLOUDFLARE.md`.
+- **Redirect allowlist tips**
+  - Keep `STRIPE_REDIRECT_ALLOWLIST` as tight as possible—each origin you list becomes a valid redirect target for Checkout/Portal flows.
+  - Dev example: `STRIPE_REDIRECT_ALLOWLIST="https://starter.justevery.com,https://app.local,https://<your-ngrok>.ngrok.io"`.
+  - Prod example: leave unset (defaults to `APP_BASE_URL`, `PROJECT_DOMAIN`, `LOGIN_ORIGIN`) or explicitly enumerate your public domains.
+  - If a client supplies a URL outside the allowlist, the worker returns `400 invalid_redirect_origin`, preventing spoofed redirects.
+
+- **Trial provisioning**
+  - `TRIAL_PERIOD_DAYS` only affects the initial row inserted into `company_subscriptions` before Stripe responds. Once webhooks arrive, the canonical period dates overwrite the seed values.
+  - Match this value to the Stripe product’s trial length so dashboard messaging (“Renews on…”) lines up before the first webhook. For environments with no trial in Stripe, set `TRIAL_PERIOD_DAYS=1` to nudge users into billing faster.

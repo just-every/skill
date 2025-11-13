@@ -245,6 +245,20 @@ describe('Account billing endpoints', () => {
     expect(statement.bindings[1]).toBeTruthy();
   });
 
+  it('rejects blank billing email updates', async () => {
+    const env = createMockEnv({ DB: createDbMock() });
+    const request = new Request('http://127.0.0.1/api/accounts/justevery', {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ billingEmail: '   ' }),
+    });
+
+    const response = await runFetch(request, env);
+    expect(response.status).toBe(400);
+    const body = await parseJson<{ error?: string }>(response);
+    expect(body.error).toBe('billing_email_invalid');
+  });
+
   it('creates a checkout session for Owner/Admin roles', async () => {
     const env = createMockEnv();
     queueStripeResponse({ id: 'cs_test_123', url: 'https://checkout.stripe.com/test' });

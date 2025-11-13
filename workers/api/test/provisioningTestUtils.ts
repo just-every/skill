@@ -30,7 +30,14 @@ export class ProvisioningDbMock implements D1Database {
     role: string;
   }> = [];
   brandings: Array<{ company_id: string; updated_at: string }> = [];
-  subscriptions: Array<{ id: string; company_id: string; plan_name: string }> = [];
+  subscriptions: Array<{
+    id: string;
+    company_id: string;
+    plan_name: string;
+    status: string;
+    current_period_start: string;
+    current_period_end: string;
+  }> = [];
 
   prepare(query: string): D1PreparedStatement {
     const context: QueryContext = { sql: query, bindings: [] };
@@ -266,8 +273,21 @@ export class ProvisioningDbMock implements D1Database {
     }
 
     if (normalized.startsWith('INSERT INTO COMPANY_SUBSCRIPTIONS')) {
-      const [id, companyId, planName] = bindings as [string, string, string];
-      this.subscriptions.push({ id, company_id: companyId, plan_name: planName });
+      const [id, companyId, planName, currentPeriodStart, currentPeriodEnd] = bindings as [
+        string,
+        string,
+        string,
+        string,
+        string,
+      ];
+      this.subscriptions.push({
+        id,
+        company_id: companyId,
+        plan_name: planName,
+        status: 'trialing',
+        current_period_start: currentPeriodStart,
+        current_period_end: currentPeriodEnd,
+      });
       return this.buildResult([], { rows_written: 1, changes: 1, changed_db: true });
     }
 
