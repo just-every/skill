@@ -15,8 +15,7 @@ import { Logo } from '../components/Logo';
 import { cn } from '../lib/cn';
 import { useAuth } from '../auth/AuthProvider';
 import { usePrefersReducedMotion } from '../lib/usePrefersReducedMotion';
-import { useStarfieldVariant } from './hooks/useStarfieldVariant';
-import type { StarfieldVariant } from './components/Starfield';
+import { DEFAULT_STARFIELD_VARIANT } from './components/Starfield';
 
 export type AppNavItem = {
   key: string;
@@ -52,27 +51,20 @@ const AppShell = ({ navItems, activeItem, onNavigate, companies, isLoadingCompan
   const { session, signOut } = useAuth();
   const switchCompanyMutation = useSwitchCompanyMutation();
   const prefersReducedMotion = usePrefersReducedMotion();
-  const [starfieldVariant, setStarfieldVariant] = useStarfieldVariant();
   const sidebarContainerRef = useRef<HTMLDivElement | null>(null);
   const [starfieldModule, setStarfieldModule] = useState<null | typeof import('./components/Starfield')>(null);
-  const [switcherModule, setSwitcherModule] = useState<null | typeof import('./components/StarfieldVariantSwitcher')>(null);
   const navInteractionLevel = isMobileMenuOpen ? 1 : 0;
   const depthCurve = useMemo(() => (depth: number) => 0.25 + depth * 0.75, []);
 
   useEffect(() => {
     if (typeof window === 'undefined') {
       setStarfieldModule(null);
-      setSwitcherModule(null);
       return undefined;
     }
     let cancelled = false;
-    Promise.all([
-      import('./components/Starfield'),
-      import('./components/StarfieldVariantSwitcher'),
-    ]).then(([starfield, switcher]) => {
+    import('./components/Starfield').then((starfield) => {
       if (!cancelled) {
         setStarfieldModule(starfield);
-        setSwitcherModule(switcher);
       }
     });
     return () => {
@@ -213,7 +205,6 @@ const AppShell = ({ navItems, activeItem, onNavigate, companies, isLoadingCompan
   }, [accountMenuOpen, closeMenus, showSwitcher]);
 
   const StarfieldComponent = starfieldModule?.Starfield;
-  const SwitcherComponent = switcherModule?.StarfieldVariantSwitcher;
 
   const renderCompanyMenu = useCallback(() => (
     <View className="space-y-2">
@@ -373,15 +364,12 @@ const AppShell = ({ navItems, activeItem, onNavigate, companies, isLoadingCompan
   return (
     <View className="relative flex min-h-screen flex-row bg-surface">
       <View className="hidden w-72 border-r border-slate-900/30 bg-gradient-to-b from-slate-950 via-slate-900 to-slate-950 px-3 py-8 text-white lg:flex">
-        <Sidebar
-          sidebarContainerRef={sidebarContainerRef}
-          StarfieldComponent={StarfieldComponent}
-          SwitcherComponent={SwitcherComponent}
-          starfieldVariant={starfieldVariant}
-          setStarfieldVariant={setStarfieldVariant}
-          prefersReducedMotion={prefersReducedMotion}
-          navInteractionLevel={navInteractionLevel}
-          depthCurve={depthCurve}
+          <Sidebar
+            sidebarContainerRef={sidebarContainerRef}
+            StarfieldComponent={StarfieldComponent}
+            prefersReducedMotion={prefersReducedMotion}
+            navInteractionLevel={navInteractionLevel}
+            depthCurve={depthCurve}
           navItems={navItems}
           activeItem={activeItem}
           handleNavPress={handleNavPress}
@@ -421,9 +409,6 @@ const AppShell = ({ navItems, activeItem, onNavigate, companies, isLoadingCompan
               <Sidebar
                 sidebarContainerRef={sidebarContainerRef}
                 StarfieldComponent={StarfieldComponent}
-                SwitcherComponent={SwitcherComponent}
-                starfieldVariant={starfieldVariant}
-                setStarfieldVariant={setStarfieldVariant}
                 prefersReducedMotion={prefersReducedMotion}
                 navInteractionLevel={navInteractionLevel}
                 depthCurve={depthCurve}
@@ -446,9 +431,6 @@ const AppShell = ({ navItems, activeItem, onNavigate, companies, isLoadingCompan
 type SidebarProps = {
   sidebarContainerRef: React.RefObject<HTMLDivElement | null>;
   StarfieldComponent?: typeof import('./components/Starfield')['Starfield'];
-  SwitcherComponent?: typeof import('./components/StarfieldVariantSwitcher')['StarfieldVariantSwitcher'];
-  starfieldVariant: StarfieldVariant;
-  setStarfieldVariant: (next: StarfieldVariant) => void;
   prefersReducedMotion: boolean;
   navInteractionLevel: number;
   depthCurve: (depth: number) => number;
@@ -463,9 +445,6 @@ type SidebarProps = {
 function Sidebar({
   sidebarContainerRef,
   StarfieldComponent,
-  SwitcherComponent,
-  starfieldVariant,
-  setStarfieldVariant,
   prefersReducedMotion,
   navInteractionLevel,
   depthCurve,
@@ -487,7 +466,7 @@ function Sidebar({
         {StarfieldComponent ? (
           <StarfieldComponent
             containerRef={sidebarContainerRef}
-            variant={starfieldVariant}
+            variant={DEFAULT_STARFIELD_VARIANT}
             depthCurve={depthCurve}
             hoverGain={prefersReducedMotion ? 1 : 1.08}
             density={prefersReducedMotion ? 80 : 140}
@@ -534,9 +513,6 @@ function Sidebar({
             {renderAccountMenu()}
           </View>
         </View>
-        {SwitcherComponent ? (
-          <SwitcherComponent current={starfieldVariant} onChange={setStarfieldVariant} />
-        ) : null}
       </div>
     </View>
   );

@@ -61,9 +61,6 @@
   --starfield-pixel-2: rgba(217, 70, 239, 0.45);
   --starfield-pixel-micro: rgba(248, 113, 113, 0.95);
 
-  --starfield-prism-1: rgba(165, 243, 252, 0.55);
-  --starfield-prism-2: rgba(252, 211, 77, 0.4);
-  --starfield-prism-micro: rgba(190, 242, 100, 0.9);
 }
 
 @media (prefers-color-scheme: dark) {
@@ -91,9 +88,6 @@
     --starfield-pixel-2: rgba(79, 70, 229, 0.55);
     --starfield-pixel-micro: rgba(248, 250, 252, 0.95);
 
-    --starfield-prism-1: rgba(103, 232, 249, 0.65);
-    --starfield-prism-2: rgba(250, 204, 21, 0.55);
-    --starfield-prism-micro: rgba(190, 242, 100, 0.95);
   }
 }
 

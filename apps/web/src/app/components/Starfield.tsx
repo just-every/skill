@@ -5,9 +5,7 @@ import { usePrefersReducedMotion } from '../../lib/usePrefersReducedMotion';
 import { usePrefersCoarsePointer } from '../../lib/usePrefersCoarsePointer';
 import { usePrefersDataSaver } from '../../lib/usePrefersDataSaver';
 
-export type StarfieldVariant = 'quietPulse' | 'prismMist';
-
-type VariantBehavior = 'trails' | 'mist';
+export type StarfieldVariant = 'quietPulse';
 
 type StarfieldVariantDefinition = {
   readonly label: string;
@@ -20,12 +18,9 @@ type StarfieldVariantDefinition = {
   readonly opacityRange: [number, number];
   readonly driftAmplitude: number;
   readonly colorRamp: string[];
-  readonly behavior: VariantBehavior;
   readonly microBehavior: string;
+  readonly microColorToken: string;
   readonly depthCurve?: (depth: number) => number;
-  readonly extra?: {
-    readonly mistOffsets?: number[];
-  };
 };
 
 const resolveColorValue = (value: string): string => {
@@ -34,11 +29,6 @@ const resolveColorValue = (value: string): string => {
   }
   const computed = getComputedStyle(document.documentElement).getPropertyValue(value).trim();
   return computed || value;
-};
-
-const microEventColorTokens: Record<VariantBehavior, string> = {
-  trails: '--starfield-quiet-micro',
-  mist: '--starfield-prism-micro'
 };
 
 const STARFIELD_VARIANTS: Record<StarfieldVariant, StarfieldVariantDefinition> = {
@@ -53,31 +43,12 @@ const STARFIELD_VARIANTS: Record<StarfieldVariant, StarfieldVariantDefinition> =
     opacityRange: [0.05, 0.22],
     driftAmplitude: 0.02,
     colorRamp: ['--starfield-quiet-1', '--starfield-quiet-2'],
-    behavior: 'trails',
     microBehavior: 'trailEcho',
+    microColorToken: '--starfield-quiet-micro',
     depthCurve: (depth) => 0.5 + depth * 0.6
-  },
-  prismMist: {
-    label: 'Prism mist',
-    description: 'Chromatic sub-pixel mist with a slow pulse.',
-    swatch: 'linear-gradient(145deg, rgba(165,243,252,0.45), rgba(252,211,77,0.35))',
-    parallaxStrength: 0.26,
-    density: 110,
-    speed: 0.037,
-    sizeRange: [1, 1.9],
-    opacityRange: [0.04, 0.2],
-    driftAmplitude: 0.033,
-    colorRamp: ['--starfield-prism-1', '--starfield-prism-2'],
-    behavior: 'mist',
-    microBehavior: 'spectrumBreath',
-    extra: { mistOffsets: [-0.4, 0, 0.4] }
   }
 } as const;
-
-export const STARFIELD_VARIANT_KEYS = Object.keys(STARFIELD_VARIANTS) as StarfieldVariant[];
 export const DEFAULT_STARFIELD_VARIANT: StarfieldVariant = 'quietPulse';
-export const isStarfieldVariant = (value: string): value is StarfieldVariant =>
-  STARFIELD_VARIANT_KEYS.includes(value as StarfieldVariant);
 export { STARFIELD_VARIANTS };
 
 type StarShape = 'pixel' | 'line' | 'flare' | 'ring';
@@ -144,12 +115,7 @@ const buildStars = (count: number, config: StarfieldVariantDefinition, palette: 
       meta: {}
     };
 
-    if (config.behavior === 'trails') {
-      star.meta.last = { x: star.baseX, y: star.baseY };
-    }
-    if (config.behavior === 'mist') {
-      star.meta.offsets = config.extra?.mistOffsets ?? [-0.4, 0, 0.4];
-    }
+    star.meta.last = { x: star.baseX, y: star.baseY };
 
     return star;
   });
@@ -280,7 +246,7 @@ const StarfieldLayer = React.memo((props: StarfieldLayerProps) => {
 
     const resolvedDensity = Math.max(40, Math.round(densityOverride ?? config.density));
     const palette = config.colorRamp.map(resolveColorValue);
-    const microEventColor = resolveColorValue(microEventColorTokens[config.behavior] ?? '#ffffff');
+    const microEventColor = resolveColorValue(config.microColorToken ?? '#ffffff');
     const stars = buildStars(resolvedDensity, config, palette);
     const resolvedDepth = depthCurveRef.current ?? ((value: number) => value);
     let displayWidth = Math.max(120, host.clientWidth);
@@ -365,7 +331,6 @@ const StarfieldLayer = React.memo((props: StarfieldLayerProps) => {
               variant,
               displayWidth,
               displayHeight,
-              config.behavior,
               microEventColor,
               config.microBehavior,
               intensity
@@ -473,7 +438,7 @@ type RenderVariantParams = {
 type MicroEvent = {
   x: number;
   y: number;
-  type: 'streak' | 'twinkle' | 'shimmer';
+  type: 'twinkle';
   progress: number;
   duration: number;
   color: string;
@@ -504,58 +469,27 @@ const renderVariant = (context: CanvasRenderingContext2D, params: RenderVariantP
   context.strokeStyle = star.color;
 
   context.globalAlpha = clamp(star.opacity * hoverScalar, 0.02, 0.75);
-  switch (config.behavior) {
-    case 'trails': {
-      const trail = star.meta.last;
-      context.lineWidth = Math.max(0.5, star.size);
-      context.beginPath();
-      context.moveTo(trail?.x ?? x, trail?.y ?? y);
-      context.lineTo(x, y);
-      context.stroke();
-      context.fillRect(x, y, Math.max(1, star.size), Math.max(1, star.size));
-      star.meta.last = { x, y };
-      break;
-    }
-    case 'mist': {
-      const mistSize = star.size * (1.2 + intensity * 0.8);
-      context.shadowBlur = star.size * 8;
-      (star.meta.offsets ?? [0]).forEach((offset: number, channel: number) => {
-        const color = channel === 0 ? '#f472b6' : channel === 1 ? '#a5f3fc' : '#fcd34d';
-        context.fillStyle = color;
-        context.beginPath();
-        context.arc(x + offset * mistSize, y + offset * mistSize, mistSize, 0, Math.PI * 2);
-        context.fill();
-      });
-      context.shadowBlur = 0;
-      break;
-    }
-    default: {
-      context.fillRect(x, y, Math.max(1, star.size), Math.max(1, star.size));
-    }
-  }
+  const trail = star.meta.last;
+  context.lineWidth = Math.max(0.5, star.size);
+  context.beginPath();
+  context.moveTo(trail?.x ?? x, trail?.y ?? y);
+  context.lineTo(x, y);
+  context.stroke();
+  context.fillRect(x, y, Math.max(1, star.size), Math.max(1, star.size));
+  star.meta.last = { x, y };
 
   context.restore();
-};
-
-const chooseMicroEventType = (behavior: VariantBehavior): MicroEvent['type'] => {
-  switch (behavior) {
-    case 'mist':
-      return 'shimmer';
-    default:
-      return 'twinkle';
-  }
 };
 
 const spawnMicroEvent = (
   variant: StarfieldVariant,
   displayWidth: number,
   displayHeight: number,
-  behavior: VariantBehavior,
   color: string,
   microBehavior: string,
   energy: number
 ): MicroEvent => {
-  const type = chooseMicroEventType(behavior);
+  const type: MicroEvent['type'] = 'twinkle';
   const angle = Math.random() * Math.PI * 2;
   const length = 6 + Math.random() * 12;
   const baseX = Math.random() * displayWidth;
@@ -591,34 +525,10 @@ const renderMicroEvents = (
     context.globalAlpha = alpha;
     context.strokeStyle = event.color;
     context.fillStyle = event.color;
-    switch (event.type) {
-      case 'streak': {
-        context.lineWidth = 1;
-        context.beginPath();
-        const x2 = event.x + Math.cos(event.angle ?? 0) * (event.length ?? 8);
-        const y2 = event.y + Math.sin(event.angle ?? 0) * (event.length ?? 8);
-        context.moveTo(event.x, event.y);
-        context.lineTo(x2, y2);
-        context.stroke();
-        break;
-      }
-      case 'twinkle': {
-        const radius = 1 + 2 * (1 - event.progress);
-        context.beginPath();
-        context.arc(event.x, event.y, radius, 0, Math.PI * 2);
-        context.fill();
-        break;
-      }
-    case 'shimmer': {
-      const radius = 2 + 3 * (1 - event.progress);
-      context.beginPath();
-      context.arc(event.x, event.y, radius, 0, Math.PI * 2);
-      context.strokeStyle = `rgba(255,255,255,${alpha})`;
-      context.lineWidth = 0.5;
-      context.stroke();
-      break;
-    }
-  }
+    const radius = 1 + 2 * (1 - event.progress);
+    context.beginPath();
+    context.arc(event.x, event.y, radius, 0, Math.PI * 2);
+    context.fill();
     renderMicroBehavior(context, event);
     context.restore();
     remaining.push(event);
@@ -665,14 +575,6 @@ const renderMicroBehavior = (context: CanvasRenderingContext2D, event: MicroEven
       for (let i = 0; i < 3; i += 1) {
         context.fillRect(event.x + i * 0.8, event.y - i * 0.6, size, size);
       }
-      break;
-    case 'spectrumBreath':
-      const breath = Math.sin(event.progress * Math.PI) * 4;
-      context.lineWidth = 0.8;
-      context.strokeStyle = `rgba(255,${Math.round(180 + breath * 15)},${Math.round(200 - breath * 40)},${0.4 + strength * 0.1})`;
-      context.beginPath();
-      context.arc(event.x, event.y, 3 + breath, 0, Math.PI * 2);
-      context.stroke();
       break;
     default:
       break;

@@ -11,9 +11,7 @@ import {
 
 import { cn } from '../lib/cn';
 import { usePrefersReducedMotion } from '../lib/usePrefersReducedMotion';
-import { STARFIELD_VARIANTS, Starfield } from '../app/components/Starfield';
-import { StarfieldVariantSwitcher } from '../app/components/StarfieldVariantSwitcher';
-import { useStarfieldVariant } from '../app/hooks/useStarfieldVariant';
+import { DEFAULT_STARFIELD_VARIANT, STARFIELD_VARIANTS, Starfield } from '../app/components/Starfield';
 
 type ControlRowProps = {
   label: string;
@@ -68,7 +66,6 @@ const CONTROL_LIMITS = {
 const clampNumber = (value: number, min: number, max: number) => Math.min(Math.max(value, min), max);
 
 const DevSidebarSandbox = () => {
-  const [starfieldVariant, setStarfieldVariant] = useStarfieldVariant();
   const [forceReducedMotion, setForceReducedMotion] = useState(false);
   const prefersReducedMotion = usePrefersReducedMotion();
   const [density, setDensity] = useState(defaults.density);
@@ -148,7 +145,7 @@ const DevSidebarSandbox = () => {
     [reducesMotion]
   );
 
-  const variantMeta = STARFIELD_VARIANTS[starfieldVariant];
+  const variantMeta = STARFIELD_VARIANTS[DEFAULT_STARFIELD_VARIANT];
 
   const handleDemoEngagement = (active: boolean) => {
     setDemoInteraction(active ? 1 : 0);
@@ -196,7 +193,7 @@ const DevSidebarSandbox = () => {
           >
             <Starfield
               containerRef={sidebarRef}
-              variant={starfieldVariant}
+              variant={DEFAULT_STARFIELD_VARIANT}
               hoverGain={effectiveHoverGain}
               density={effectiveDensity}
               depthCurve={(value) => 0.25 + value * 0.75}
@@ -233,7 +230,7 @@ const DevSidebarSandbox = () => {
               <View className="mt-auto space-y-2 border-t border-white/15 pt-6">
                 <Text className="text-[10px] uppercase tracking-[0.4em] text-slate-500">Sandbox controls</Text>
                 <Text className="text-[12px] text-slate-300">
-                  Both variants should feel airy at rest and bloom gently when the menu is active.
+                  The starfield should feel airy at rest and bloom gently when the menu is active.
                   Adjust density, hover gain, and micro-event frequency below (values persist) while the motion pill reflects reduced-motion.
                 </Text>
                 <View className="flex flex-col gap-2 pt-2">
@@ -273,7 +270,6 @@ const DevSidebarSandbox = () => {
                 </View>
               </View>
             </View>
-            <StarfieldVariantSwitcher current={starfieldVariant} onChange={setStarfieldVariant} />
             <View className="mt-3 space-y-1 text-xs text-slate-300">
               <Text className="text-[10px] uppercase tracking-[0.4em] text-slate-400">Active variant</Text>
               <Text className="text-sm font-semibold tracking-[0.2em] text-white">{variantMeta.label}</Text>
@@ -301,7 +297,7 @@ const DevSidebarSandbox = () => {
         <View className="rounded-2xl border border-white/10 bg-slate-900/60 p-4 text-xs text-slate-300">
           <Text className="font-semibold text-white">UX check</Text>
           <Text className="mt-1 text-[11px]">
-            The canvas should sit behind the nav with pointer events off, the switcher stays bottom-left, keyboard nav works, and localStorage keeps the previous variant.
+            The canvas should sit behind the nav with pointer events off, and keyboard nav should continue to work as density and hover settings change.
           </Text>
         </View>
       </View>
