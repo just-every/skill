@@ -461,7 +461,7 @@ function Sidebar({
         ref={(node) => {
           sidebarContainerRef.current = node;
         }}
-        className="relative flex h-full flex-col overflow-hidden pt-2 pb-4 text-white"
+        className="relative flex h-full flex-col overflow-hidden py-3 pb-4 text-white"
       >
         {StarfieldComponent ? (
           <StarfieldComponent
