@@ -32,6 +32,7 @@ hit the DNS origin directly and time out.
    set -a; source ~/.env; set +a
    ```
    Annotated keys live in `docs/ENVIRONMENT_VARIABLE_MAPPING.md`. See `docs/SECRETS_CLOUDFLARE.md` for instructions on obtaining Cloudflare API credentials.
+   `CLOUDFLARE_*`, `STRIPE_*`, and Better Auth secrets stay exclusively in `~/.env`; the checked-in `.env.example` only documents non-sensitive defaults.
 3. Bootstrap infrastructure
    ```bash
    pnpm bootstrap:preflight
@@ -53,6 +54,10 @@ hit the DNS origin directly and time out.
    ```
 
 More detail: `docs/QUICKSTART.md`. Prefer the `pnpm bootstrap:*` commands—the legacy shell scripts have been archived for reference only. For marketing SSR + bot validation notes, see `docs/SSR_MARKETING.md`.
+
+### Using this repo as a template
+
+`docs/STARTER_TEMPLATE.md` walks through cloning this repository for a new product, renaming the project, running the bootstrap CLI, and validating the Worker + Expo surfaces. Share that doc with downstream teams so every fork follows the same provisioning + verification steps.
 
 ## GitHub Actions (ENV_BLOB)
 

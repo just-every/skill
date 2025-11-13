@@ -35,7 +35,7 @@ Minimal flow to go from clone → deploy in 10–15 minutes.
    ```bash
    set -a; source ~/.env; set +a
    ```
-   The bootstrap CLI and install hooks mirror `FONT_AWESOME_PACKAGE_TOKEN` into `.npmrc` automatically, so private Font Awesome packages are available both locally and in CI.
+   The bootstrap CLI and install hooks mirror `FONT_AWESOME_PACKAGE_TOKEN` into `.npmrc` automatically, so private Font Awesome packages are available both locally and in CI. Keep all `CLOUDFLARE_*`, `STRIPE_*`, and Better Auth secrets in `~/.env`; do not commit them or place them in `.env.example`.
    _See `docs/SECRETS_CLOUDFLARE.md` for instructions on obtaining your Cloudflare Account ID and API Token. See `docs/BILLING.md` for Stripe configuration. Bootstrap calculates `PROJECT_HOST` from `PROJECT_DOMAIN` automatically and uses it when claiming Worker routes (wrangler template routes default to `{{PROJECT_ID}}.justevery.com`)._
 
 3. Bootstrap (preflight → env → deploy)

@@ -2,7 +2,9 @@
 
 `ENV_BLOB` is a single base64-encoded blob that GitHub Actions decodes into `.env.ci`
 before exporting every key into the job environment. Regenerate it whenever you rotate
-credentials or bootstrap new infrastructure IDs.
+credentials or bootstrap new infrastructure IDs. The authoritative copy of sensitive
+keys (`CLOUDFLARE_*`, `STRIPE_*`, Better Auth secrets) lives in `~/.env`; the blob is
+only an encoded snapshot for CI.
 
 ## Required Keys
 
