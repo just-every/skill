@@ -206,91 +206,8 @@ const AppShell = ({ navItems, activeItem, onNavigate, companies, isLoadingCompan
 
   const StarfieldComponent = starfieldModule?.Starfield;
 
-  const renderCompanyMenu = useCallback(() => (
-    <View className="space-y-2">
-      <Text className="text-[10px] uppercase tracking-[0.3em] text-slate-400">Current company</Text>
-      <div
-        className="relative"
-        ref={switcherRef}
-        onMouseEnter={() => setSwitcherHover(true)}
-        onMouseLeave={() => setSwitcherHover(false)}
-        onFocus={() => setSwitcherHover(true)}
-        onBlur={() => setSwitcherHover(false)}
-      >
-        <Pressable
-          testID="company-switcher-toggle"
-          onPress={() => {
-            setShowSwitcher((prev) => !prev);
-            setSwitcherHover(false);
-          }}
-          className="rounded-2xl border border-slate-700 bg-slate-950/70 px-3 py-3 text-left text-sm font-semibold text-white"
-          accessibilityRole="button"
-          accessibilityLabel="Select company"
-          aria-expanded={showSwitcher || switcherHover}
-          aria-haspopup="menu"
-        >
-          <Text className="text-base font-semibold text-white">
-            {activeCompany?.name ?? 'Select company'}
-          </Text>
-          <Text className="text-xs text-slate-400">{activeCompany?.plan ?? '—'}</Text>
-        </Pressable>
-        {(showSwitcher || switcherHover) && (
-          <View
-            accessibilityRole="menu"
-            aria-label="Company switcher"
-            testID="company-switcher-menu"
-            className="absolute right-0 bottom-full mb-2 w-48 overflow-hidden rounded-2xl border border-slate-800 bg-slate-950/90 p-1 shadow-sm"
-          >
-            {companies.map((company) => {
-              const isActiveCompany = company.id === activeCompany?.id;
-              const isPending = pendingCompanyId === company.id && switchCompanyMutation.isPending;
-              return (
-                <Pressable
-                  key={company.id}
-                  onPress={() => void handleCompanyChange(company)}
-                  className={cn(
-                    'rounded-xl px-3 py-2 transition-colors',
-                    isActiveCompany ? 'bg-white/10' : 'hover:bg-white/5',
-                    switchCompanyMutation.isPending ? 'opacity-60' : undefined
-                  )}
-                  accessibilityRole="menuitemradio"
-                  accessibilityState={{
-                    selected: company.id === activeCompany?.id,
-                    busy: pendingCompanyId === company.id && switchCompanyMutation.isPending,
-                  }}
-                  disabled={switchCompanyMutation.isPending}
-                >
-                  <Text className={cn('text-sm font-semibold', isActiveCompany ? 'text-white' : 'text-slate-100')}>
-                    {isPending ? 'Switching…' : company.name}
-                  </Text>
-                  <Text className={cn('text-[11px]', isActiveCompany ? 'text-slate-300' : 'text-slate-400')}>
-                    {isPending ? 'Hold tight…' : company.plan}
-                  </Text>
-                </Pressable>
-              );
-            })}
-          </View>
-        )}
-      </div>
-      {switchError ? <Text className="text-[11px] text-rose-300">{switchError}</Text> : null}
-    </View>
-  ), [
-    activeCompany,
-    companies,
-    handleCompanyChange,
-    pendingCompanyId,
-    showSwitcher,
-    switchCompanyMutation.isPending,
-    switchError,
-    switcherHover,
-    setShowSwitcher,
-    setSwitcherHover,
-    switcherRef,
-  ]);
-
   const renderAccountMenu = useCallback(() => (
     <View className="mt-4 space-y-2">
-      <Text className="text-[10px] uppercase tracking-[0.3em] text-slate-400">Account</Text>
       <div className="relative" ref={accountMenuRef}>
         <Pressable
           testID="account-menu-toggle"
@@ -312,7 +229,7 @@ const AppShell = ({ navItems, activeItem, onNavigate, companies, isLoadingCompan
             accessibilityRole="menu"
             aria-label="Account options"
             testID="account-menu"
-            className="absolute right-0 bottom-full mb-2 min-w-[220px] rounded-2xl border border-slate-800 bg-slate-950/90 p-4 shadow-sm"
+            className="absolute right-0 bottom-full mb-2 min-w-[260px] rounded-2xl border border-slate-800 bg-slate-950/90 p-4 shadow-sm"
           >
             <Text className="text-[10px] uppercase tracking-[0.3em] text-slate-400">Signed in as</Text>
             <View className="mt-1 flex-row items-center gap-2">
@@ -320,6 +237,73 @@ const AppShell = ({ navItems, activeItem, onNavigate, companies, isLoadingCompan
               <Text className="text-sm font-semibold text-white" numberOfLines={1} ellipsizeMode="tail">
                 {userEmail}
               </Text>
+            </View>
+            <View className="mt-4 space-y-2">
+              <Text className="text-[10px] uppercase tracking-[0.3em] text-slate-400">Current company</Text>
+              <div
+                className="relative"
+                ref={switcherRef}
+                onMouseEnter={() => setSwitcherHover(true)}
+                onMouseLeave={() => setSwitcherHover(false)}
+                onFocus={() => setSwitcherHover(true)}
+                onBlur={() => setSwitcherHover(false)}
+              >
+                <Pressable
+                  testID="company-switcher-toggle"
+                  onPress={() => {
+                    setShowSwitcher((prev) => !prev);
+                    setSwitcherHover(false);
+                  }}
+                  className="rounded-2xl border border-slate-800 bg-slate-950/70 px-3 py-3 text-left text-sm font-semibold text-white"
+                  accessibilityRole="button"
+                  accessibilityLabel="Select company"
+                  aria-expanded={showSwitcher || switcherHover}
+                  aria-haspopup="menu"
+                >
+                  <Text className="text-base font-semibold text-white">
+                    {activeCompany?.name ?? 'Select company'}
+                  </Text>
+                  <Text className="text-xs text-slate-400">{activeCompany?.plan ?? '—'}</Text>
+                </Pressable>
+                {(showSwitcher || switcherHover) && (
+                  <View
+                    accessibilityRole="menu"
+                    aria-label="Company switcher"
+                    testID="company-switcher-menu"
+                    className="absolute left-0 top-full mt-2 w-full overflow-hidden rounded-2xl border border-slate-800 bg-slate-950/95 p-1 shadow-sm"
+                  >
+                    {companies.map((company) => {
+                      const isActiveCompany = company.id === activeCompany?.id;
+                      const isPending = pendingCompanyId === company.id && switchCompanyMutation.isPending;
+                      return (
+                        <Pressable
+                          key={company.id}
+                          onPress={() => void handleCompanyChange(company)}
+                          className={cn(
+                            'rounded-xl px-3 py-2 transition-colors',
+                            isActiveCompany ? 'bg-white/10' : 'hover:bg-white/5',
+                            switchCompanyMutation.isPending ? 'opacity-60' : undefined
+                          )}
+                          accessibilityRole="menuitemradio"
+                          accessibilityState={{
+                            selected: company.id === activeCompany?.id,
+                            busy: pendingCompanyId === company.id && switchCompanyMutation.isPending,
+                          }}
+                          disabled={switchCompanyMutation.isPending}
+                        >
+                          <Text className={cn('text-sm font-semibold', isActiveCompany ? 'text-white' : 'text-slate-100')}>
+                            {isPending ? 'Switching…' : company.name}
+                          </Text>
+                          <Text className={cn('text-[11px]', isActiveCompany ? 'text-slate-300' : 'text-slate-400')}>
+                            {isPending ? 'Hold tight…' : company.plan}
+                          </Text>
+                        </Pressable>
+                      );
+                    })}
+                  </View>
+                )}
+              </div>
+              {switchError ? <Text className="text-[11px] text-rose-300">{switchError}</Text> : null}
             </View>
             <Pressable
               onPress={() => {
@@ -350,13 +334,24 @@ const AppShell = ({ navItems, activeItem, onNavigate, companies, isLoadingCompan
     </View>
   ), [
     accountMenuOpen,
+    activeCompany,
+    companies,
     displayName,
+    handleCompanyChange,
     handleSignOut,
     initials,
     isSigningOut,
+    pendingCompanyId,
+    setShowSwitcher,
+    setSwitcherHover,
     setAccountMenuOpen,
     setMobileMenuOpen,
     setOpenInvite,
+    showSwitcher,
+    switchCompanyMutation.isPending,
+    switchError,
+    switcherHover,
+    switcherRef,
     userEmail,
     accountMenuRef,
   ]);
@@ -364,16 +359,15 @@ const AppShell = ({ navItems, activeItem, onNavigate, companies, isLoadingCompan
   return (
     <View className="relative flex min-h-screen flex-row bg-surface">
       <View className="hidden w-72 border-r border-slate-900/30 bg-gradient-to-b from-slate-950 via-slate-900 to-slate-950 px-3 py-8 text-white lg:flex">
-          <Sidebar
-            sidebarContainerRef={sidebarContainerRef}
-            StarfieldComponent={StarfieldComponent}
-            prefersReducedMotion={prefersReducedMotion}
-            navInteractionLevel={navInteractionLevel}
-            depthCurve={depthCurve}
+        <Sidebar
+          sidebarContainerRef={sidebarContainerRef}
+          StarfieldComponent={StarfieldComponent}
+          prefersReducedMotion={prefersReducedMotion}
+          navInteractionLevel={navInteractionLevel}
+          depthCurve={depthCurve}
           navItems={navItems}
           activeItem={activeItem}
           handleNavPress={handleNavPress}
-          renderCompanyMenu={renderCompanyMenu}
           renderAccountMenu={renderAccountMenu}
           microEventFrequency={STARFIELD_MICRO_EVENT_FREQ}
         />
@@ -415,7 +409,6 @@ const AppShell = ({ navItems, activeItem, onNavigate, companies, isLoadingCompan
                 navItems={navItems}
                 activeItem={activeItem}
                 handleNavPress={handleNavPress}
-                renderCompanyMenu={renderCompanyMenu}
                 renderAccountMenu={renderAccountMenu}
                 microEventFrequency={STARFIELD_MICRO_EVENT_FREQ}
               />
@@ -437,7 +430,6 @@ type SidebarProps = {
   navItems: AppNavItem[];
   activeItem: string;
   handleNavPress: (key: string) => void;
-  renderCompanyMenu: () => React.ReactNode;
   renderAccountMenu: () => React.ReactNode;
   microEventFrequency: number;
 };
@@ -451,7 +443,6 @@ function Sidebar({
   navItems,
   activeItem,
   handleNavPress,
-  renderCompanyMenu,
   renderAccountMenu,
   microEventFrequency,
 }: SidebarProps) {
@@ -508,10 +499,9 @@ function Sidebar({
               );
             })}
           </View>
-          <View className="mt-auto border-t border-white/10 pt-6">
-            {renderCompanyMenu()}
-            {renderAccountMenu()}
-          </View>
+        <View className="mt-auto border-t border-white/10 pt-6">
+          {renderAccountMenu()}
+        </View>
         </View>
       </div>
     </View>
