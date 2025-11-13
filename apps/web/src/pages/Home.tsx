@@ -6,6 +6,7 @@ import { usePublicEnv } from '../runtimeEnv';
 import { useRouterContext } from '../router/RouterProvider';
 import { Button, Card, CardContent, CardHeader } from '../components/ui';
 import { Typography } from '../components/Typography';
+import PixelBlastBackdrop from '../components/backgrounds/PixelBlastBackdrop';
 
 const heroFeatures = [
   {
@@ -69,70 +70,83 @@ const Home = () => {
 
   return (
     <View className="flex flex-col gap-14 py-10">
-      <Card className="border-transparent bg-gradient-to-br from-ink via-ink to-brand-900">
-        <CardHeader className="space-y-3">
-          <View className="self-start rounded-full border border-white/20 bg-white/10 px-4 py-1">
-            <Typography variant="caption" className="text-white/80">
-              Built for Cloudflare + Stripe teams
+      <View className="relative overflow-hidden rounded-3xl">
+        {Platform.OS === 'web' && (
+          <PixelBlastBackdrop
+            className="pointer-events-none absolute inset-0"
+            style={{ opacity: 0.55 }}
+            color="#7255F7"
+            highlightColor="#EDE3FF"
+            rippleColor="rgba(255,255,255,0.6)"
+            pixelSize={5}
+            speed={0.4}
+          />
+        )}
+        <Card className="relative z-10 border-transparent bg-gradient-to-br from-ink via-ink to-brand-900">
+          <CardHeader className="space-y-3">
+            <View className="self-start rounded-full border border-white/20 bg-white/10 px-4 py-1">
+              <Typography variant="caption" className="text-white/80">
+                Built for Cloudflare + Stripe teams
+              </Typography>
+            </View>
+            <Typography variant="eyebrow" className="text-accent">
+              justevery
             </Typography>
-          </View>
-          <Typography variant="eyebrow" className="text-accent">
-            justevery
-          </Typography>
-          <Typography variant="h1" className="text-white">
-            Launch front door, auth, and billing on day one.
-          </Typography>
-          <Typography variant="body" className="text-white/80 max-w-2xl">
-            Scaffold a Cloudflare-native SaaS starter complete with Worker APIs, Better Auth-managed login, Stripe-ready pricing journeys,
-            and now a single push-to-deploy flow that mirrors local prerenders exactly.
-          </Typography>
-        </CardHeader>
+            <Typography variant="h1" className="text-white">
+              Launch front door, auth, and billing on day one.
+            </Typography>
+            <Typography variant="body" className="text-white/80 max-w-2xl">
+              Scaffold a Cloudflare-native SaaS starter complete with Worker APIs, Better Auth-managed login, Stripe-ready pricing journeys,
+              and now a single push-to-deploy flow that mirrors local prerenders exactly.
+            </Typography>
+          </CardHeader>
 
-        <CardContent className="gap-8 pt-4">
-          <View className="mt-2 flex-row flex-wrap gap-3">
-            <Button onPress={() => void handleOpenDashboard()}>
-              Open dashboard
-            </Button>
-            <Button
-              variant="ghost"
-              onPress={() => navigate('/pricing')}
-              className="border-white/30 bg-white/5"
-              textClassName="text-white"
-            >
-              Preview pricing
-            </Button>
-          </View>
+          <CardContent className="gap-8 pt-4">
+            <View className="mt-2 flex-row flex-wrap gap-3">
+              <Button onPress={() => void handleOpenDashboard()}>
+                Open dashboard
+              </Button>
+              <Button
+                variant="ghost"
+                onPress={() => navigate('/pricing')}
+                className="border-white/30 bg-white/5"
+                textClassName="text-white"
+              >
+                Preview pricing
+              </Button>
+            </View>
 
-          <View className="flex flex-row flex-wrap gap-6 pt-2">
-            {heroStats.map((stat) => (
-              <View key={stat.label} className="min-w-[140px] flex-1 rounded-2xl border border-white/10 bg-white/5 p-4">
-                <Typography variant="h3" className="text-white">
-                  {stat.value}
-                </Typography>
-                <Typography variant="caption" className="text-white/70">
-                  {stat.label}
-                </Typography>
-              </View>
-            ))}
-          </View>
+            <View className="flex flex-row flex-wrap gap-6 pt-2">
+              {heroStats.map((stat) => (
+                <View key={stat.label} className="min-w-[140px] flex-1 rounded-2xl border border-white/10 bg-white/5 p-4">
+                  <Typography variant="h3" className="text-white">
+                    {stat.value}
+                  </Typography>
+                  <Typography variant="caption" className="text-white/70">
+                    {stat.label}
+                  </Typography>
+                </View>
+              ))}
+            </View>
 
-          {Platform.OS === 'web' ? (
-            heroImage ? (
-              <Image
-                source={{ uri: heroImage }}
-                resizeMode="cover"
-                className="h-80 w-full rounded-3xl border border-white/20"
-              />
-            ) : (
-              <View className="w-full items-center justify-center rounded-3xl border border-white/20 bg-white/10 p-6">
-                <Typography variant="body" className="text-center text-slate-200">
-                  Upload `marketing/hero.png` to your Worker assets bucket or configure `EXPO_PUBLIC_WORKER_ORIGIN` to preview the marketing hero locally.
-                </Typography>
-              </View>
-            )
-          ) : null}
-        </CardContent>
-      </Card>
+            {Platform.OS === 'web' ? (
+              heroImage ? (
+                <Image
+                  source={{ uri: heroImage }}
+                  resizeMode="cover"
+                  className="h-80 w-full rounded-3xl border border-white/20"
+                />
+              ) : (
+                <View className="w-full items-center justify-center rounded-3xl border border-white/20 bg-white/10 p-6">
+                  <Typography variant="body" className="text-center text-slate-200">
+                    Upload `marketing/hero.png` to your Worker assets bucket or configure `EXPO_PUBLIC_WORKER_ORIGIN` to preview the marketing hero locally.
+                  </Typography>
+                </View>
+              )
+            ) : null}
+          </CardContent>
+        </Card>
+      </View>
 
       <View className="flex flex-col gap-6">
         <Typography variant="h2">
