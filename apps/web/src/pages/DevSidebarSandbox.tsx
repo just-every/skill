@@ -11,7 +11,7 @@ import {
 
 import { cn } from '../lib/cn';
 import { usePrefersReducedMotion } from '../lib/usePrefersReducedMotion';
-import { STARFIELD_VARIANTS, Starfield, type Hotspot } from '../app/components/Starfield';
+import { STARFIELD_VARIANTS, Starfield } from '../app/components/Starfield';
 import { StarfieldVariantSwitcher } from '../app/components/StarfieldVariantSwitcher';
 import { useStarfieldVariant } from '../app/hooks/useStarfieldVariant';
 
@@ -75,7 +75,6 @@ const DevSidebarSandbox = () => {
   const [hoverGain, setHoverGain] = useState(defaults.hoverGain);
   const [microEventFreqValue, setMicroEventFreqValue] = useState(defaults.microFreq);
   const sidebarRef = useRef<HTMLDivElement | null>(null);
-  const [sandboxHotspot, setSandboxHotspot] = useState<Hotspot | null>(null);
   const [demoInteraction, setDemoInteraction] = useState(0);
   const reducesMotion = prefersReducedMotion || forceReducedMotion;
 
@@ -155,18 +154,6 @@ const DevSidebarSandbox = () => {
     setDemoInteraction(active ? 1 : 0);
   };
 
-  const updateSandboxHotspot = (clientX: number, clientY: number) => {
-    const rect = sidebarRef.current?.getBoundingClientRect();
-    if (!rect) {
-      return;
-    }
-    const x = Math.min(Math.max((clientX - rect.left) / rect.width, 0), 1);
-    const y = Math.min(Math.max((clientY - rect.top) / rect.height, 0), 1);
-    setSandboxHotspot({ x, y, intensity: 0.9, radius: 0.35 });
-  };
-
-  const clearSandboxHotspot = () => setSandboxHotspot(null);
-
   const MICRO_FREQ_STEP = 0.0005;
   const handleMicroEventFrequencyChange = (delta: number) => {
     setMicroFreqValue(microEventFreqValue + delta * MICRO_FREQ_STEP);
@@ -174,10 +161,6 @@ const DevSidebarSandbox = () => {
 
   const handleSandboxFocus = () => {
     handleDemoEngagement(true);
-    const rect = sidebarRef.current?.getBoundingClientRect();
-    if (rect) {
-      updateSandboxHotspot(rect.left + rect.width / 2, rect.top + rect.height / 2);
-    }
   };
 
   return (
@@ -199,7 +182,16 @@ const DevSidebarSandbox = () => {
               sidebarRef.current = node;
             }}
             data-testid="sidebar-card"
-            data-hotspot-active={sandboxHotspot ? 'true' : 'false'}
+            data-nav-engaged={demoInteraction > 0 ? 'true' : 'false'}
+            onPointerEnter={() => handleDemoEngagement(true)}
+            onPointerLeave={() => handleDemoEngagement(false)}
+            onFocusCapture={handleSandboxFocus}
+            onBlurCapture={(event) => {
+              const nextTarget = event.relatedTarget as Node | null;
+              if (!nextTarget || !event.currentTarget.contains(nextTarget)) {
+                handleDemoEngagement(false);
+              }
+            }}
             className="relative mx-auto flex w-full max-w-[360px] flex-col overflow-hidden rounded-3xl border border-white/15 bg-gradient-to-b from-slate-950/90 via-slate-950 to-slate-900/70 p-6 text-white shadow-[0_30px_60px_rgba(2,6,23,0.65)]"
           >
             <Starfield
@@ -210,7 +202,6 @@ const DevSidebarSandbox = () => {
               depthCurve={(value) => 0.25 + value * 0.75}
               interactionLevel={demoInteraction}
               reduceMotionOverride={reducesMotion}
-              hotspot={sandboxHotspot ?? undefined}
               microEventFrequency={microEventFrequency}
               className="pointer-events-none opacity-80"
             />
@@ -225,19 +216,6 @@ const DevSidebarSandbox = () => {
                     className={cn(
                       'flex flex-row items-center gap-3 rounded-2xl px-4 py-3 text-sm font-semibold text-white transition bg-white/5 bg-opacity-10 hover:bg-opacity-30'
                     )}
-                    onHoverIn={(event) => {
-                      handleDemoEngagement(true);
-                      updateSandboxHotspot(event.nativeEvent.pageX, event.nativeEvent.pageY);
-                    }}
-                    onHoverOut={() => {
-                      handleDemoEngagement(false);
-                      clearSandboxHotspot();
-                    }}
-                    onFocus={handleSandboxFocus}
-                    onBlur={() => {
-                      handleDemoEngagement(false);
-                      clearSandboxHotspot();
-                    }}
                     accessibilityRole="button"
                   >
                     <View className="pt-0.5">
@@ -255,7 +233,7 @@ const DevSidebarSandbox = () => {
               <View className="mt-auto space-y-2 border-t border-white/15 pt-6">
                 <Text className="text-[10px] uppercase tracking-[0.4em] text-slate-500">Sandbox controls</Text>
                 <Text className="text-[12px] text-slate-300">
-                  All six variants should feel airy at rest and bloom gently on hover/focus inside the menu.
+                  Both variants should feel airy at rest and bloom gently when the menu is active.
                   Adjust density, hover gain, and micro-event frequency below (values persist) while the motion pill reflects reduced-motion.
                 </Text>
                 <View className="flex flex-col gap-2 pt-2">

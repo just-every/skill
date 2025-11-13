@@ -1,20 +1,13 @@
 import React, { useEffect, useRef, useState } from 'react';
-import type { MutableRefObject } from 'react';
 
 import { cn } from '../../lib/cn';
 import { usePrefersReducedMotion } from '../../lib/usePrefersReducedMotion';
 import { usePrefersCoarsePointer } from '../../lib/usePrefersCoarsePointer';
 import { usePrefersDataSaver } from '../../lib/usePrefersDataSaver';
 
-export type StarfieldVariant =
-  | 'quietPulse'
-  | 'emberVeil'
-  | 'gridGlow'
-  | 'orbitTrail'
-  | 'pixelBloom'
-  | 'prismMist';
+export type StarfieldVariant = 'quietPulse' | 'prismMist';
 
-type VariantBehavior = 'trails' | 'ember' | 'grid' | 'orbit' | 'cluster' | 'mist';
+type VariantBehavior = 'trails' | 'mist';
 
 type StarfieldVariantDefinition = {
   readonly label: string;
@@ -31,9 +24,6 @@ type StarfieldVariantDefinition = {
   readonly microBehavior: string;
   readonly depthCurve?: (depth: number) => number;
   readonly extra?: {
-    readonly gridSize?: number;
-    readonly clusterCount?: number;
-    readonly orbitRadiusRange?: [number, number];
     readonly mistOffsets?: number[];
   };
 };
@@ -48,10 +38,6 @@ const resolveColorValue = (value: string): string => {
 
 const microEventColorTokens: Record<VariantBehavior, string> = {
   trails: '--starfield-quiet-micro',
-  ember: '--starfield-ember-micro',
-  grid: '--starfield-grid-micro',
-  orbit: '--starfield-orbit-micro',
-  cluster: '--starfield-pixel-micro',
   mist: '--starfield-prism-micro'
 };
 
@@ -70,66 +56,6 @@ const STARFIELD_VARIANTS: Record<StarfieldVariant, StarfieldVariantDefinition> =
     behavior: 'trails',
     microBehavior: 'trailEcho',
     depthCurve: (depth) => 0.5 + depth * 0.6
-  },
-  emberVeil: {
-    label: 'Ember veil',
-    description: 'Warm, vertical streaks with soft blur pulses.',
-    swatch: 'linear-gradient(145deg, rgba(255,182,118,0.7), rgba(245,158,11,0.35))',
-    parallaxStrength: 0.28,
-    density: 100,
-    speed: 0.035,
-    sizeRange: [1.4, 2.6],
-    opacityRange: [0.04, 0.18],
-    driftAmplitude: 0.03,
-    colorRamp: ['--starfield-ember-1', '--starfield-ember-2'],
-    behavior: 'ember',
-    microBehavior: 'emberUpdraft',
-    depthCurve: (depth) => depth * 0.75 + 0.25
-  },
-  gridGlow: {
-    label: 'Grid glow',
-    description: 'Quantized lines that shimmer like a minimalist data grid.',
-    swatch: 'linear-gradient(145deg, rgba(148,163,184,0.6), rgba(241,245,249,0.25))',
-    parallaxStrength: 0.24,
-    density: 90,
-    speed: 0.015,
-    sizeRange: [1.6, 2.8],
-    opacityRange: [0.05, 0.22],
-    driftAmplitude: 0.02,
-    colorRamp: ['--starfield-grid-1', '--starfield-grid-2'],
-    behavior: 'grid',
-    microBehavior: 'latticePin',
-    extra: { gridSize: 20 }
-  },
-  orbitTrail: {
-    label: 'Orbit trail',
-    description: 'Edge orbiters that trace the menu border with delicate halos.',
-    swatch: 'linear-gradient(145deg, rgba(148,163,184,0.4), rgba(14,165,233,0.25))',
-    parallaxStrength: 0.36,
-    density: 80,
-    speed: 0.04,
-    sizeRange: [1.2, 2.2],
-    opacityRange: [0.08, 0.22],
-    driftAmplitude: 0.03,
-    colorRamp: ['--starfield-orbit-1', '--starfield-orbit-2'],
-    behavior: 'orbit',
-    microBehavior: 'perihelionFlare',
-    extra: { orbitRadiusRange: [0.03, 0.12] }
-  },
-  pixelBloom: {
-    label: 'Pixel bloom',
-    description: 'Clustered pixel bursts that bloom on hover.',
-    swatch: 'linear-gradient(145deg, rgba(191,219,254,0.35), rgba(217,70,239,0.25))',
-    parallaxStrength: 0.33,
-    density: 140,
-    speed: 0.03,
-    sizeRange: [1, 2.4],
-    opacityRange: [0.03, 0.18],
-    driftAmplitude: 0.028,
-    colorRamp: ['--starfield-pixel-1', '--starfield-pixel-2'],
-    behavior: 'cluster',
-    microBehavior: 'clusterCascade',
-    extra: { clusterCount: 6 }
   },
   prismMist: {
     label: 'Prism mist',
@@ -174,19 +100,6 @@ type Star = {
   meta: Record<string, any>;
 };
 
-type PointerState = {
-  x: number;
-  y: number;
-  active: boolean;
-};
-
-export type Hotspot = {
-  x: number;
-  y: number;
-  intensity: number;
-  radius: number;
-};
-
 type StarfieldMode = 'normal' | 'conserve' | 'static';
 
 type StarfieldProps = {
@@ -199,7 +112,6 @@ type StarfieldProps = {
   readonly className?: string;
   readonly reduceMotionOverride?: boolean;
   readonly transitionDurationMs?: number;
-  readonly hotspot?: Hotspot;
   readonly microEventFrequency?: number;
 };
 
@@ -212,14 +124,8 @@ type LayerState = {
 const clamp = (value: number, min: number, max: number): number => Math.min(Math.max(value, min), max);
 const wrapUnit = (value: number): number => ((value % 1) + 1) % 1;
 const randomBetween = (range: [number, number]): number => range[0] + Math.random() * (range[1] - range[0]);
-const generateClusterCenters = (count: number): Array<{ x: number; y: number }> =>
-  Array.from({ length: count }, () => ({ x: Math.random(), y: Math.random() }));
-
 const buildStars = (count: number, config: StarfieldVariantDefinition, palette: string[]): Star[] => {
-  const clusters = config.behavior === 'cluster' ? generateClusterCenters(config.extra?.clusterCount ?? 5) : [];
-
   return Array.from({ length: count }, () => {
-    const orbitRadius = config.behavior === 'orbit' ? randomBetween(config.extra?.orbitRadiusRange ?? [0.03, 0.12]) : undefined;
     const star: Star = {
       baseX: Math.random(),
       baseY: Math.random(),
@@ -232,25 +138,17 @@ const buildStars = (count: number, config: StarfieldVariantDefinition, palette: 
       driftAmplitude: config.driftAmplitude * (0.5 + Math.random()),
       driftDirection: Math.random() * Math.PI * 2,
       shape: ['pixel', 'line', 'flare', 'ring'][Math.floor(Math.random() * 4)] as StarShape,
-      orbitRadius,
+      orbitRadius: undefined,
       orbitPhase: Math.random() * Math.PI * 2,
       orbitSpeed: 0.8 + Math.random() * 0.6,
       meta: {}
     };
 
-    if (config.behavior === 'cluster') {
-      const selected = clusters[Math.floor(Math.random() * clusters.length)];
-      star.meta.cluster = selected;
-      star.meta.bloomPhase = Math.random() * Math.PI * 2;
-    }
     if (config.behavior === 'trails') {
       star.meta.last = { x: star.baseX, y: star.baseY };
     }
     if (config.behavior === 'mist') {
       star.meta.offsets = config.extra?.mistOffsets ?? [-0.4, 0, 0.4];
-    }
-    if (config.behavior === 'orbit') {
-      star.meta.edgeAngle = Math.random() * Math.PI * 2;
     }
 
     return star;
@@ -258,6 +156,10 @@ const buildStars = (count: number, config: StarfieldVariantDefinition, palette: 
 };
 
 const LAYER_TRANSITION_MS = 360;
+const IDLE_BRIGHTNESS = 0.92;
+const IDLE_SPEED_MULTIPLIER = 0.45;
+const ACTIVE_SPEED_MULTIPLIER = 0.72;
+const interpolate = (start: number, end: number, factor: number): number => start + (end - start) * clamp(factor, 0, 1);
 
 type StarfieldLayerProps = {
   variant: StarfieldVariant;
@@ -266,12 +168,10 @@ type StarfieldLayerProps = {
   hoverGain: number;
   depthCurve?: (depth: number) => number;
   densityOverride?: number;
-  pointerRef: MutableRefObject<PointerState>;
   hostRef?: React.RefObject<HTMLElement | null>;
   prefersReducedMotion: boolean;
   isActive: boolean;
   transitionMs: number;
-  hotspot?: Hotspot;
   microEventFrequency?: number;
   className?: string;
   mode?: StarfieldMode;
@@ -285,12 +185,10 @@ const StarfieldLayer = React.memo((props: StarfieldLayerProps) => {
     hoverGain,
     depthCurve,
     densityOverride,
-    pointerRef,
     hostRef,
     prefersReducedMotion,
     isActive,
     transitionMs,
-    hotspot,
     microEventFrequency,
     className,
     mode
@@ -299,6 +197,7 @@ const StarfieldLayer = React.memo((props: StarfieldLayerProps) => {
   const interactionRef = useRef(interactionLevel);
   const depthCurveRef = useRef(depthCurve);
   const microEventsRef = useRef<MicroEvent[]>([]);
+  const pointerPresenceRef = useRef(0);
   const microEventFreq = microEventFrequency ?? 0.002;
 
   useEffect(() => {
@@ -308,6 +207,64 @@ const StarfieldLayer = React.memo((props: StarfieldLayerProps) => {
   useEffect(() => {
     depthCurveRef.current = depthCurve;
   }, [depthCurve]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return undefined;
+    }
+    const host = hostRef?.current;
+    if (!host) {
+      return undefined;
+    }
+
+    let touchReleaseTimer: number | null = null;
+    const activate = () => {
+      pointerPresenceRef.current = 1;
+    };
+    const deactivate = () => {
+      pointerPresenceRef.current = 0;
+    };
+
+    const handlePointerEnter = () => activate();
+    const handlePointerLeave = () => deactivate();
+    const handlePointerDown = () => activate();
+    const handlePointerUp = (event: PointerEvent) => {
+      if (event.pointerType === 'touch') {
+        if (touchReleaseTimer) {
+          window.clearTimeout(touchReleaseTimer);
+        }
+        touchReleaseTimer = window.setTimeout(() => {
+          pointerPresenceRef.current = 0;
+        }, 800);
+      }
+    };
+    const handleFocusIn = () => activate();
+    const handleFocusOut = (event: FocusEvent) => {
+      const nextTarget = event.relatedTarget as Node | null;
+      if (!nextTarget || !host.contains(nextTarget)) {
+        deactivate();
+      }
+    };
+
+    host.addEventListener('pointerenter', handlePointerEnter);
+    host.addEventListener('pointerleave', handlePointerLeave);
+    host.addEventListener('pointerdown', handlePointerDown);
+    host.addEventListener('pointerup', handlePointerUp);
+    host.addEventListener('focusin', handleFocusIn);
+    host.addEventListener('focusout', handleFocusOut);
+
+    return () => {
+      host.removeEventListener('pointerenter', handlePointerEnter);
+      host.removeEventListener('pointerleave', handlePointerLeave);
+      host.removeEventListener('pointerdown', handlePointerDown);
+      host.removeEventListener('pointerup', handlePointerUp);
+      host.removeEventListener('focusin', handleFocusIn);
+      host.removeEventListener('focusout', handleFocusOut);
+      if (touchReleaseTimer) {
+        window.clearTimeout(touchReleaseTimer);
+      }
+    };
+  }, [hostRef]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -331,7 +288,7 @@ const StarfieldLayer = React.memo((props: StarfieldLayerProps) => {
     let pixelRatio = window.devicePixelRatio || 1;
     let frameId: number | null = null;
     let latestTime = performance.now();
-    let hoverProgress = 0;
+    let smoothedIntensity = interactionRef.current;
     const MICRO_EVENT_LIMIT = 40;
     let visibilityPaused = false;
 
@@ -354,20 +311,22 @@ const StarfieldLayer = React.memo((props: StarfieldLayerProps) => {
 
     const drawScene = (delta: number) => {
       context.clearRect(0, 0, displayWidth, displayHeight);
-      hoverProgress = clamp(hoverProgress + (pointerRef.current.active ? 0.08 : -0.08), 0, 1);
-      const intensity = interactionRef.current;
-      const hoverScalar = 1 + (hoverGain - 1) * Math.max(0.05, intensity);
+      const targetIntensity = Math.max(interactionRef.current, pointerPresenceRef.current);
+      const lerpFactor = clamp(delta / 900, 0, 1);
+      smoothedIntensity = interpolate(smoothedIntensity, targetIntensity, lerpFactor);
+      const intensity = smoothedIntensity;
+      const brightnessScalar = interpolate(IDLE_BRIGHTNESS, hoverGain, intensity);
+      const speedScalar = interpolate(IDLE_SPEED_MULTIPLIER, ACTIVE_SPEED_MULTIPLIER, intensity);
 
       stars.forEach((star, index) => {
         if (!prefersReducedMotion) {
-          star.phase += (delta * star.speed) / 160;
+          star.baseY = wrapUnit(star.baseY - (delta * star.speed * speedScalar) / 8000);
+          star.phase += (delta * star.speed) / 180;
         }
         const depthValue = clamp(resolvedDepth(star.depth), 0, 1);
         const driftRadius = star.driftAmplitude * depthValue;
         const driftX = Math.cos(star.driftDirection + star.phase) * driftRadius;
-        const driftY = Math.sin(star.driftDirection + star.phase * 0.8) * driftRadius;
-        const pointerX = (pointerRef.current.x - 0.5) * 2 * config.parallaxStrength * depthValue;
-        const pointerY = (pointerRef.current.y - 0.5) * 2 * config.parallaxStrength * depthValue;
+        const driftY = Math.sin(star.driftDirection + star.phase * 0.8) * driftRadius * 0.5;
         const orbitX = star.orbitRadius
           ? Math.cos(star.phase * (star.orbitSpeed ?? 1) + (star.orbitPhase ?? 0)) * star.orbitRadius
           : 0;
@@ -375,51 +334,45 @@ const StarfieldLayer = React.memo((props: StarfieldLayerProps) => {
           ? Math.sin(star.phase * (star.orbitSpeed ?? 1) + (star.orbitPhase ?? 0)) * star.orbitRadius
           : 0;
 
-      const rawX = wrapUnit(star.baseX + pointerX + driftX + orbitX) * displayWidth;
-      const rawY = wrapUnit(star.baseY + pointerY + driftY + orbitY) * displayHeight;
-      const x = Math.round(rawX * pixelRatio) / pixelRatio;
-      const y = Math.round(rawY * pixelRatio) / pixelRatio;
-      renderVariant(context, {
-        variant,
-        config,
-        star,
-        x,
-        y,
-        depthValue,
-        intensity,
-        hoverScalar,
-        pointer: pointerRef.current,
-        index,
-        displayWidth,
-        displayHeight,
-        hotspot,
-      });
+        const rawX = wrapUnit(star.baseX + driftX + orbitX) * displayWidth;
+        const rawY = wrapUnit(star.baseY + driftY + orbitY) * displayHeight;
+        const x = Math.round(rawX * pixelRatio) / pixelRatio;
+        const y = Math.round(rawY * pixelRatio) / pixelRatio;
+        renderVariant(context, {
+          variant,
+          config,
+          star,
+          x,
+          y,
+          depthValue,
+          intensity,
+          hoverScalar: brightnessScalar,
+          index,
+          displayWidth,
+          displayHeight,
+        });
       });
 
       if (!prefersReducedMotion) {
-        const hotspotStrength = hotspot
-          ? clamp(1 - Math.hypot(pointerRef.current.x - hotspot.x, pointerRef.current.y - hotspot.y) / hotspot.radius, 0, 1)
-          : 0;
-        const chance = microEventFreq * delta * (1 + intensity * 0.6 + hotspotStrength);
-      if (Math.random() < chance) {
-        const queue = microEventsRef.current;
-        if (queue.length >= MICRO_EVENT_LIMIT) {
-          queue.shift();
+        const chance = microEventFreq * delta * (0.7 + intensity * 0.8);
+        if (Math.random() < chance) {
+          const queue = microEventsRef.current;
+          if (queue.length >= MICRO_EVENT_LIMIT) {
+            queue.shift();
+          }
+          queue.push(
+            spawnMicroEvent(
+              variant,
+              displayWidth,
+              displayHeight,
+              config.behavior,
+              microEventColor,
+              config.microBehavior,
+              intensity
+            )
+          );
         }
-        queue.push(
-          spawnMicroEvent(
-            variant,
-            displayWidth,
-            displayHeight,
-            pointerRef.current,
-            config.behavior,
-            microEventColor,
-            config.microBehavior,
-            hotspotStrength
-          )
-        );
-      }
-      renderMicroEvents(context, microEventsRef.current, delta, displayWidth, displayHeight);
+        renderMicroEvents(context, microEventsRef.current, delta);
       }
     };
 
@@ -482,7 +435,7 @@ const StarfieldLayer = React.memo((props: StarfieldLayerProps) => {
         document.removeEventListener('visibilitychange', handleVisibility);
       }
     };
-  }, [variant, config, densityOverride, depthCurve, hoverGain, prefersReducedMotion, hostRef, pointerRef, hotspot, microEventFrequency]);
+  }, [variant, config, densityOverride, depthCurve, hoverGain, prefersReducedMotion, hostRef, microEventFrequency]);
 
   return (
     <canvas
@@ -512,11 +465,9 @@ type RenderVariantParams = {
   depthValue: number;
   intensity: number;
   hoverScalar: number;
-  pointer: PointerState;
   index: number;
   displayWidth: number;
   displayHeight: number;
-  hotspot?: Hotspot;
 };
 
 type MicroEvent = {
@@ -530,7 +481,7 @@ type MicroEvent = {
   angle?: number;
   length?: number;
   microBehavior: string;
-  hotspotStrength: number;
+  energy: number;
 };
 
 const renderVariant = (context: CanvasRenderingContext2D, params: RenderVariantParams) => {
@@ -543,23 +494,16 @@ const renderVariant = (context: CanvasRenderingContext2D, params: RenderVariantP
     depthValue,
     intensity,
     hoverScalar,
-    pointer,
     index,
     displayWidth,
-    displayHeight,
-    hotspot
+    displayHeight
   } = params;
   context.save();
   context.lineCap = 'round';
   context.fillStyle = star.color;
   context.strokeStyle = star.color;
 
-  const xRatio = x / displayWidth;
-  const yRatio = y / displayHeight;
-  const hotspotStrength = hotspot
-    ? clamp(1 - Math.hypot(xRatio - hotspot.x, yRatio - hotspot.y) / hotspot.radius, 0, 1) * hotspot.intensity
-    : 0;
-  context.globalAlpha = clamp(star.opacity * hoverScalar + hotspotStrength * 0.28, 0.02, 0.8);
+  context.globalAlpha = clamp(star.opacity * hoverScalar, 0.02, 0.75);
   switch (config.behavior) {
     case 'trails': {
       const trail = star.meta.last;
@@ -570,45 +514,6 @@ const renderVariant = (context: CanvasRenderingContext2D, params: RenderVariantP
       context.stroke();
       context.fillRect(x, y, Math.max(1, star.size), Math.max(1, star.size));
       star.meta.last = { x, y };
-      break;
-    }
-    case 'ember': {
-      const beamHeight = 8 + star.size * 6;
-      context.shadowColor = star.color;
-      context.shadowBlur = star.size * 10;
-      context.fillRect(x - star.size, y - beamHeight * 0.6, star.size * 2, beamHeight);
-      context.shadowBlur = 0;
-      break;
-    }
-    case 'grid': {
-      const spacing = config.extra?.gridSize ?? 18;
-      const gridX = Math.round(x / spacing) * spacing;
-      const gridY = Math.round(y / spacing) * spacing;
-      context.globalCompositeOperation = 'lighter';
-      context.fillRect(gridX, gridY, spacing * 0.8, 0.8);
-      context.fillRect(gridX, gridY, 0.8, spacing * 0.8);
-      context.globalCompositeOperation = 'source-over';
-      break;
-    }
-    case 'orbit': {
-      const haloRadius = 2 + star.size * 1.5 * (1 + intensity * 0.7);
-      context.lineWidth = 0.8;
-      context.strokeStyle = `rgba(255,255,255,${0.15 + intensity * 0.25})`;
-      context.beginPath();
-      context.arc(x, y, haloRadius, 0, Math.PI * 2);
-      context.stroke();
-      context.fillRect(x, y, Math.max(1, star.size), Math.max(1, star.size));
-      break;
-    }
-    case 'cluster': {
-      const bloomFactor = 1 + intensity * 1.2;
-      const cluster = star.meta.cluster ?? { x: star.baseX, y: star.baseY };
-      const offsetX = Math.cos(star.phase * 1.6 + index) * star.size * 0.6;
-      const offsetY = Math.sin(star.phase * 1.2 + index) * star.size * 0.6;
-      const clusterX = cluster.x * displayWidth + offsetX;
-      const clusterY = cluster.y * displayHeight + offsetY;
-      context.fillRect(clusterX, clusterY, star.size * bloomFactor, star.size * bloomFactor);
-      context.fillRect(clusterX + star.size * 0.8, clusterY - star.size * 0.4, star.size * 0.5 * bloomFactor, star.size * 0.5 * bloomFactor);
       break;
     }
     case 'mist': {
@@ -634,9 +539,6 @@ const renderVariant = (context: CanvasRenderingContext2D, params: RenderVariantP
 
 const chooseMicroEventType = (behavior: VariantBehavior): MicroEvent['type'] => {
   switch (behavior) {
-    case 'ember':
-    case 'orbit':
-      return 'streak';
     case 'mist':
       return 'shimmer';
     default:
@@ -648,17 +550,16 @@ const spawnMicroEvent = (
   variant: StarfieldVariant,
   displayWidth: number,
   displayHeight: number,
-  pointer: PointerState,
   behavior: VariantBehavior,
   color: string,
   microBehavior: string,
-  hotspotStrength: number
+  energy: number
 ): MicroEvent => {
   const type = chooseMicroEventType(behavior);
   const angle = Math.random() * Math.PI * 2;
   const length = 6 + Math.random() * 12;
-  const baseX = pointer.active ? pointer.x * displayWidth : Math.random() * displayWidth;
-  const baseY = pointer.active ? pointer.y * displayHeight : Math.random() * displayHeight;
+  const baseX = Math.random() * displayWidth;
+  const baseY = Math.random() * displayHeight;
   return {
     x: baseX,
     y: baseY,
@@ -670,16 +571,14 @@ const spawnMicroEvent = (
     angle,
     length,
     microBehavior,
-    hotspotStrength,
+    energy,
   };
 };
 
 const renderMicroEvents = (
   context: CanvasRenderingContext2D,
   events: MicroEvent[],
-  delta: number,
-  displayWidth: number,
-  displayHeight: number
+  delta: number
 ) => {
   const remaining: MicroEvent[] = [];
   events.forEach((event) => {
@@ -729,7 +628,8 @@ const renderMicroEvents = (
 };
 
 const renderMicroBehavior = (context: CanvasRenderingContext2D, event: MicroEvent) => {
-  const strength = 0.8 + event.hotspotStrength * 1.2;
+  const energy = clamp(event.energy, 0, 1);
+  const strength = 0.8 + energy * 1.2;
   switch (event.microBehavior) {
     case 'trailEcho':
       context.lineWidth = 0.4;
@@ -789,7 +689,6 @@ export const Starfield = ({
   className,
   reduceMotionOverride,
   transitionDurationMs = LAYER_TRANSITION_MS,
-  hotspot,
   microEventFrequency
 }: StarfieldProps) => {
   const selectedVariant = variant ?? DEFAULT_STARFIELD_VARIANT;
@@ -813,7 +712,6 @@ export const Starfield = ({
   const conservatoryDensity = Math.max(40, Math.round(baseDensity * densityMultiplier));
   const conservatoryHoverGain = Math.max(1, hoverGain * hoverMultiplier);
   const conservatoryMicroFreq = microMultiplier === 0 ? 0 : Math.max(0, baseMicroFrequency * microMultiplier);
-  const pointerRef = useRef<PointerState>({ x: 0.5, y: 0.5, active: false });
   const layersRef = useRef(0);
   const [layers, setLayers] = useState<LayerState[]>([
     { id: layersRef.current++, variant: selectedVariant, active: true }
@@ -843,43 +741,6 @@ export const Starfield = ({
     return () => window.clearTimeout(timer);
   }, [layers, transitionDurationMs]);
 
-  useEffect(() => {
-    const host = containerRef?.current;
-    if (!host) {
-      return undefined;
-    }
-    const handlePointerMove = (event: PointerEvent) => {
-      const rect = host.getBoundingClientRect();
-      if (!rect.width || !rect.height) {
-        return;
-      }
-      pointerRef.current.active = true;
-      pointerRef.current.x = clamp((event.clientX - rect.left) / rect.width, 0, 1);
-      pointerRef.current.y = clamp((event.clientY - rect.top) / rect.height, 0, 1);
-    };
-    const handlePointerLeave = () => {
-      pointerRef.current.active = false;
-    };
-    const handleFocusIn = () => {
-      pointerRef.current.active = true;
-    };
-    const handleFocusOut = () => {
-      pointerRef.current.active = false;
-    };
-    host.addEventListener('pointermove', handlePointerMove);
-    host.addEventListener('pointerenter', handlePointerMove);
-    host.addEventListener('pointerleave', handlePointerLeave);
-    host.addEventListener('focusin', handleFocusIn);
-    host.addEventListener('focusout', handleFocusOut);
-    return () => {
-      host.removeEventListener('pointermove', handlePointerMove);
-      host.removeEventListener('pointerenter', handlePointerMove);
-      host.removeEventListener('pointerleave', handlePointerLeave);
-      host.removeEventListener('focusin', handleFocusIn);
-      host.removeEventListener('focusout', handleFocusOut);
-    };
-  }, [containerRef]);
-
   const hostRef = containerRef;
 
   return (
@@ -893,12 +754,10 @@ export const Starfield = ({
           hoverGain={conservatoryHoverGain}
           depthCurve={depthCurve}
           densityOverride={conservatoryDensity}
-          pointerRef={pointerRef}
           hostRef={hostRef}
           prefersReducedMotion={prefersReducedMotion}
           isActive={layer.active}
           transitionMs={transitionDurationMs}
-          hotspot={hotspot}
           microEventFrequency={conservatoryMicroFreq}
           mode={starfieldMode}
           className={className}

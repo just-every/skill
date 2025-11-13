@@ -422,7 +422,7 @@ async function ensureAccountProvisionedForSession(env: Env, session: Authenticat
   }
 
   const persistedUserId = await upsertUserRecord(env, userId, normalizedEmail);
-  const displayName = deriveDisplayName(session.session.user?.name, normalizedEmail);
+  const displayName = deriveDisplayName(session.session?.user?.name, normalizedEmail);
   const companyName = deriveCompanyName(displayName);
   const companySlug = await generateUniqueCompanySlug(env.DB, displayName);
   const companyId = `acct-${generateSessionId()}`;
@@ -1017,7 +1017,7 @@ const textEncoder = new TextEncoder();
 
 const STATIC_ASSET_PREFIXES = ["/_expo/", "/assets/"];
 const STATIC_ASSET_PATHS = new Set(["/favicon.ico", "/index.html", "/manifest.json"]);
-const SPA_EXTRA_ROUTES = ["/callback", "/app", "/logout"];
+const SPA_EXTRA_ROUTES = ["/callback", "/app", "/logout", "/dev/sidebar"];
 const PRERENDER_ROUTES: Record<string, string> = {
   '/': 'index.html',
   '/pricing': 'pricing.html',

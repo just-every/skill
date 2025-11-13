@@ -1,6 +1,6 @@
 name = "starter-worker"
 main = "src/index.ts"
-compatibility_date = "2024-09-01"
+compatibility_date = "2025-11-13"
 compatibility_flags = ["nodejs_compat"]
 send_metrics = false
 

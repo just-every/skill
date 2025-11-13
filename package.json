@@ -36,6 +36,11 @@
   },
   "devDependencies": {
     "@playwright/test": "^1.56.1",
-    "wrangler": "^4.45.3"
+    "wrangler": "^4.47.0"
+  },
+  "pnpm": {
+    "overrides": {
+      "lightningcss": "1.30.1"
+    }
   }
 }

@@ -15,8 +15,8 @@ import { Logo } from '../components/Logo';
 import { cn } from '../lib/cn';
 import { useAuth } from '../auth/AuthProvider';
 import { usePrefersReducedMotion } from '../lib/usePrefersReducedMotion';
-import type { Hotspot } from './components/Starfield';
 import { useStarfieldVariant } from './hooks/useStarfieldVariant';
+import type { StarfieldVariant } from './components/Starfield';
 
 export type AppNavItem = {
   key: string;
@@ -33,8 +33,6 @@ type AppShellProps = {
   readonly isLoadingCompanies: boolean;
   readonly children?: ReactNode;
 };
-
-const clamp01 = (value: number): number => Math.min(Math.max(value, 0), 1);
 
 const STARFIELD_MICRO_EVENT_FREQ = 0.003;
 
@@ -58,56 +56,8 @@ const AppShell = ({ navItems, activeItem, onNavigate, companies, isLoadingCompan
   const sidebarContainerRef = useRef<HTMLDivElement | null>(null);
   const [starfieldModule, setStarfieldModule] = useState<null | typeof import('./components/Starfield')>(null);
   const [switcherModule, setSwitcherModule] = useState<null | typeof import('./components/StarfieldVariantSwitcher')>(null);
-  const [hotspot, setHotspot] = useState<Hotspot | null>(null);
-  const [navInteractionLevel, setNavInteractionLevel] = useState(0);
+  const navInteractionLevel = isMobileMenuOpen ? 1 : 0;
   const depthCurve = useMemo(() => (depth: number) => 0.25 + depth * 0.75, []);
-
-  const handleNavEngagement = useCallback(
-    (active: boolean) => {
-      setNavInteractionLevel(active ? 1 : 0);
-    },
-    []
-  );
-
-  const updateHotspot = (clientX: number, clientY: number) => {
-    const sidebarRect = sidebarContainerRef.current?.getBoundingClientRect();
-    if (!sidebarRect) {
-      return;
-    }
-    const x = clamp01((clientX - sidebarRect.left) / sidebarRect.width);
-    const y = clamp01((clientY - sidebarRect.top) / sidebarRect.height);
-    setHotspot({ x, y, intensity: 0.85, radius: 0.4 });
-  };
-
-  const clearHotspot = () => {
-    setHotspot(null);
-  };
-
-  const handleNavFocus = () => {
-    handleNavEngagement(true);
-    const rect = sidebarContainerRef.current?.getBoundingClientRect();
-    if (rect) {
-      updateHotspot(rect.left + rect.width / 2, rect.top + rect.height / 2);
-    }
-  };
-
-  useEffect(() => {
-    const host = sidebarContainerRef.current;
-    if (!host) {
-      return undefined;
-    }
-    if (navInteractionLevel <= 0) {
-      clearHotspot();
-      return undefined;
-    }
-    const handlePointer = (event: PointerEvent) => {
-      updateHotspot(event.clientX, event.clientY);
-    };
-    host.addEventListener('pointermove', handlePointer);
-    return () => {
-      host.removeEventListener('pointermove', handlePointer);
-    };
-  }, [navInteractionLevel]);
 
   useEffect(() => {
     if (typeof window === 'undefined') {
@@ -265,7 +215,7 @@ const AppShell = ({ navItems, activeItem, onNavigate, companies, isLoadingCompan
   const StarfieldComponent = starfieldModule?.Starfield;
   const SwitcherComponent = switcherModule?.StarfieldVariantSwitcher;
 
-  const renderCompanyMenu = () => (
+  const renderCompanyMenu = useCallback(() => (
     <View className="space-y-2">
       <Text className="text-[10px] uppercase tracking-[0.3em] text-slate-400">Current company</Text>
       <div
@@ -333,9 +283,21 @@ const AppShell = ({ navItems, activeItem, onNavigate, companies, isLoadingCompan
       </div>
       {switchError ? <Text className="text-[11px] text-rose-300">{switchError}</Text> : null}
     </View>
-  );
+  ), [
+    activeCompany,
+    companies,
+    handleCompanyChange,
+    pendingCompanyId,
+    showSwitcher,
+    switchCompanyMutation.isPending,
+    switchError,
+    switcherHover,
+    setShowSwitcher,
+    setSwitcherHover,
+    switcherRef,
+  ]);
 
-  const renderAccountMenu = () => (
+  const renderAccountMenu = useCallback(() => (
     <View className="mt-4 space-y-2">
       <Text className="text-[10px] uppercase tracking-[0.3em] text-slate-400">Account</Text>
       <div className="relative" ref={accountMenuRef}>
@@ -395,31 +357,147 @@ const AppShell = ({ navItems, activeItem, onNavigate, companies, isLoadingCompan
         )}
       </div>
     </View>
-  );
+  ), [
+    accountMenuOpen,
+    displayName,
+    handleSignOut,
+    initials,
+    isSigningOut,
+    setAccountMenuOpen,
+    setMobileMenuOpen,
+    setOpenInvite,
+    userEmail,
+    accountMenuRef,
+  ]);
 
-  const Sidebar = () => (
+  return (
+    <View className="relative flex min-h-screen flex-row bg-surface">
+      <View className="hidden w-72 border-r border-slate-900/30 bg-gradient-to-b from-slate-950 via-slate-900 to-slate-950 px-3 py-8 text-white lg:flex">
+        <Sidebar
+          sidebarContainerRef={sidebarContainerRef}
+          StarfieldComponent={StarfieldComponent}
+          SwitcherComponent={SwitcherComponent}
+          starfieldVariant={starfieldVariant}
+          setStarfieldVariant={setStarfieldVariant}
+          prefersReducedMotion={prefersReducedMotion}
+          navInteractionLevel={navInteractionLevel}
+          depthCurve={depthCurve}
+          navItems={navItems}
+          activeItem={activeItem}
+          handleNavPress={handleNavPress}
+          renderCompanyMenu={renderCompanyMenu}
+          renderAccountMenu={renderAccountMenu}
+          microEventFrequency={STARFIELD_MICRO_EVENT_FREQ}
+        />
+      </View>
+      <View className="flex min-h-screen flex-1 flex-col bg-surface">
+        <View className="flex flex-row items-center justify-between bg-white/95 px-4 py-4 shadow-sm/10 lg:hidden">
+          <Logo size={28} color="#0f172a" />
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Open navigation"
+            onPress={() => setMobileMenuOpen(true)}
+            className="rounded-xl border border-slate-200 bg-white px-3 py-2"
+          >
+            <FontAwesomeIcon icon={faBars} size={18} color="#0f172a" />
+          </Pressable>
+        </View>
+        <ScrollView className="flex-1">
+          <View className="flex-1 gap-6 px-4 py-6 md:px-8">{children}</View>
+        </ScrollView>
+      </View>
+      {isMobileMenuOpen && (
+        <View className="absolute inset-0 z-50 bg-gradient-to-b from-slate-950 via-slate-900 to-slate-950 text-white lg:hidden">
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Close navigation"
+            onPress={closeMenus}
+            className="absolute right-4 top-4 flex h-10 w-10 items-center justify-center rounded-full border border-white/20"
+          >
+            <FontAwesomeIcon icon={faXmark} size={20} color="#f8fafc" />
+          </Pressable>
+          <ScrollView className="h-full pt-14">
+              <View className="min-h-full px-3 pb-12">
+              <Sidebar
+                sidebarContainerRef={sidebarContainerRef}
+                StarfieldComponent={StarfieldComponent}
+                SwitcherComponent={SwitcherComponent}
+                starfieldVariant={starfieldVariant}
+                setStarfieldVariant={setStarfieldVariant}
+                prefersReducedMotion={prefersReducedMotion}
+                navInteractionLevel={navInteractionLevel}
+                depthCurve={depthCurve}
+                navItems={navItems}
+                activeItem={activeItem}
+                handleNavPress={handleNavPress}
+                renderCompanyMenu={renderCompanyMenu}
+                renderAccountMenu={renderAccountMenu}
+                microEventFrequency={STARFIELD_MICRO_EVENT_FREQ}
+              />
+              </View>
+            </ScrollView>
+        </View>
+      )}
+      <InviteModal visible={openInvite} onClose={() => setOpenInvite(false)} onSubmit={handleInviteSubmit} />
+    </View>
+  );
+};
+
+type SidebarProps = {
+  sidebarContainerRef: React.RefObject<HTMLDivElement | null>;
+  StarfieldComponent?: typeof import('./components/Starfield')['Starfield'];
+  SwitcherComponent?: typeof import('./components/StarfieldVariantSwitcher')['StarfieldVariantSwitcher'];
+  starfieldVariant: StarfieldVariant;
+  setStarfieldVariant: (next: StarfieldVariant) => void;
+  prefersReducedMotion: boolean;
+  navInteractionLevel: number;
+  depthCurve: (depth: number) => number;
+  navItems: AppNavItem[];
+  activeItem: string;
+  handleNavPress: (key: string) => void;
+  renderCompanyMenu: () => React.ReactNode;
+  renderAccountMenu: () => React.ReactNode;
+  microEventFrequency: number;
+};
+
+function Sidebar({
+  sidebarContainerRef,
+  StarfieldComponent,
+  SwitcherComponent,
+  starfieldVariant,
+  setStarfieldVariant,
+  prefersReducedMotion,
+  navInteractionLevel,
+  depthCurve,
+  navItems,
+  activeItem,
+  handleNavPress,
+  renderCompanyMenu,
+  renderAccountMenu,
+  microEventFrequency,
+}: SidebarProps) {
+  return (
     <View className="flex h-full flex-col">
       <div
         ref={(node) => {
           sidebarContainerRef.current = node;
         }}
-        className="relative flex h-full flex-col overflow-hidden px-6 py-8 pb-16 text-white"
+        className="relative flex h-full flex-col overflow-hidden pt-2 pb-4 text-white"
       >
         {StarfieldComponent ? (
           <StarfieldComponent
             containerRef={sidebarContainerRef}
             variant={starfieldVariant}
             depthCurve={depthCurve}
-            hoverGain={prefersReducedMotion ? 1 : 1.22}
+            hoverGain={prefersReducedMotion ? 1 : 1.08}
             density={prefersReducedMotion ? 80 : 140}
             interactionLevel={navInteractionLevel}
-            hotspot={hotspot ?? undefined}
-            microEventFrequency={STARFIELD_MICRO_EVENT_FREQ}
+            microEventFrequency={microEventFrequency}
             className="pointer-events-none opacity-80"
           />
         ) : null}
         <View className="relative flex h-full flex-col">
-          <View className="flex flex-row items-center gap-3">
+          <View className="flex flex-row items-center gap-3 px-3">
             <Logo size={34} color="#f8fafc" />
           </View>
           <View className="mt-8 flex flex-1 flex-col gap-2">
@@ -433,19 +511,6 @@ const AppShell = ({ navItems, activeItem, onNavigate, companies, isLoadingCompan
                   accessibilityState={{ selected: isActive }}
                   aria-current={isActive ? 'page' : undefined}
                   onPress={() => handleNavPress(item.key)}
-                  onHoverIn={(event) => {
-                    handleNavEngagement(true);
-                    updateHotspot(event.nativeEvent.pageX, event.nativeEvent.pageY);
-                  }}
-                  onHoverOut={() => {
-                    handleNavEngagement(false);
-                    clearHotspot();
-                  }}
-                  onFocus={handleNavFocus}
-                  onBlur={() => {
-                    handleNavEngagement(false);
-                    clearHotspot();
-                  }}
                   className={cn(
                     'flex flex-row items-start gap-3 rounded-2xl px-4 py-3 transition-colors',
                     isActive ? 'bg-white/10 text-white' : 'text-slate-300 hover:bg-white/5'
@@ -475,53 +540,6 @@ const AppShell = ({ navItems, activeItem, onNavigate, companies, isLoadingCompan
       </div>
     </View>
   );
-
-  return (
-    <View className="relative flex min-h-screen flex-row bg-surface">
-      <View className="hidden w-72 border-r border-slate-900/30 bg-gradient-to-b from-slate-950 via-slate-900 to-slate-950 px-3 py-8 text-white lg:flex">
-        <Sidebar />
-      </View>
-      <View className="flex min-h-screen flex-1 flex-col bg-surface">
-        <View className="flex flex-row items-center justify-between border-b border-slate-200 bg-white/95 px-4 py-4 shadow-sm lg:hidden">
-          <Logo size={28} color="#0f172a" />
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="Open navigation"
-            onPress={() => setMobileMenuOpen(true)}
-            className="rounded-xl border border-slate-200 bg-white px-3 py-2"
-          >
-            <FontAwesomeIcon icon={faBars} size={18} color="#0f172a" />
-          </Pressable>
-        </View>
-        <View className="hidden flex-row items-center justify-end border-b border-slate-200 bg-white/90 px-6 py-4 backdrop-blur lg:flex">
-          <Button size="sm" variant="primary" onPress={() => setOpenInvite(true)} disabled={isLoadingCompanies}>
-            Invite teammates
-          </Button>
-        </View>
-        <ScrollView className="flex-1">
-          <View className="flex-1 gap-6 px-4 py-6 md:px-8">{children}</View>
-        </ScrollView>
-      </View>
-      {isMobileMenuOpen && (
-        <View className="absolute inset-0 z-50 bg-gradient-to-b from-slate-950 via-slate-900 to-slate-950 text-white lg:hidden">
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="Close navigation"
-            onPress={closeMenus}
-            className="absolute right-4 top-4 flex h-10 w-10 items-center justify-center rounded-full border border-white/20"
-          >
-            <FontAwesomeIcon icon={faXmark} size={20} color="#f8fafc" />
-          </Pressable>
-          <ScrollView className="h-full pt-14">
-            <View className="min-h-full px-3 pb-12">
-              <Sidebar />
-            </View>
-          </ScrollView>
-        </View>
-      )}
-      <InviteModal visible={openInvite} onClose={() => setOpenInvite(false)} onSubmit={handleInviteSubmit} />
-    </View>
-  );
-};
+}
 
 export default AppShell;

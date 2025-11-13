@@ -8,13 +8,13 @@
     "deploy": "wrangler deploy --config wrangler.toml",
     "typecheck": "tsc --project tsconfig.json --noEmit",
     "migrate": "wrangler d1 migrations apply starter-d1",
-    "test": "vitest run"
+    "test": "node ./scripts/run-vitest-seq.mjs"
   },
   "devDependencies": {
-    "@cloudflare/workers-types": "^4.20251014.0",
+    "@cloudflare/workers-types": "^4.20251111.0",
     "typescript": "^5.9.3",
-    "vitest": "^4.0.6",
-    "wrangler": "^4.45.3"
+    "vitest": "^4.0.8",
+    "wrangler": "^4.47.0"
   },
   "dependencies": {
     "@justevery/auth-shared": "workspace:*"

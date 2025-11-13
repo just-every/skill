@@ -1,7 +1,16 @@
 import { defineConfig } from '@playwright/test';
+import path from 'node:path';
+
+const LOCAL_STATIC_BASE = 'http://127.0.0.1:4173';
+const serverScript = path.resolve(__dirname, 'serve-dist.mjs');
+const serverCommand = `node ${JSON.stringify(serverScript)}`;
+
+if (!process.env.E2E_BASE_URL) {
+  process.env.E2E_BASE_URL = LOCAL_STATIC_BASE;
+}
 
 const resolveBaseUrl = () => {
-  const raw = process.env.E2E_BASE_URL ?? process.env.PROJECT_DOMAIN;
+  const raw = process.env.E2E_BASE_URL;
   if (raw) {
     try {
       return new URL(raw).toString();
@@ -10,7 +19,7 @@ const resolveBaseUrl = () => {
       return `https://${trimmed}`;
     }
   }
-  return 'http://127.0.0.1:8787';
+  return LOCAL_STATIC_BASE;
 };
 
 const baseURL = resolveBaseUrl();
@@ -27,6 +36,14 @@ export default defineConfig({
   reporter: [['list']],
   retries: 0,
   use: sharedUse,
+  webServer: {
+    command: serverCommand,
+    url: LOCAL_STATIC_BASE,
+    reuseExistingServer: !process.env.CI,
+    stdout: 'pipe',
+    stderr: 'pipe',
+    timeout: 120_000,
+  },
   projects: [
     {
       name: 'chromium-dpr1-light',

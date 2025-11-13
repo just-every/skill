@@ -2,6 +2,7 @@
   "expo": {
     "name": "justevery-web",
     "slug": "justevery-web",
+    "sdkVersion": "54.0.0",
     "scheme": "justevery",
     "platforms": [
       "android",

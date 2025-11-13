@@ -5,7 +5,7 @@ import './global.css';
 
 import { AuthProvider } from './src/auth/AuthProvider';
 import Layout from './src/components/Layout';
-import { Callback, Contact, Dashboard, Home, Pricing } from './src/pages';
+import { Callback, Contact, Dashboard, DevSidebarSandbox, Home, Pricing } from './src/pages';
 import { RouterProvider, useRouterContext } from './src/router/RouterProvider';
 import { usePublicEnv } from './src/runtimeEnv';
 
@@ -14,6 +14,10 @@ const RoutedView = () => {
 
   if (path === '/callback') {
     return <Callback />;
+  }
+
+  if (path.startsWith('/dev/sidebar')) {
+    return <DevSidebarSandbox />;
   }
 
   if (path.startsWith('/app')) {

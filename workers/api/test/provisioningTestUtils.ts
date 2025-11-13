@@ -1,8 +1,22 @@
-import type { D1Database, D1PreparedStatement, D1Result } from '@cloudflare/workers-types';
+import type {
+  D1Database,
+  D1DatabaseSession,
+  D1ExecResult,
+  D1Meta,
+  D1PreparedStatement,
+  D1Result,
+  D1SessionBookmark,
+  D1SessionConstraint,
+} from '@cloudflare/workers-types';
 import type { Session } from '@justevery/auth-shared';
 
 import type { Env } from '../src/index';
 import type { AuthenticatedSession } from '../src/sessionAuth';
+
+type QueryContext = {
+  sql: string;
+  bindings: unknown[];
+};
 
 export class ProvisioningDbMock implements D1Database {
   users: Array<{ id: string; email: string }> = [];
@@ -19,91 +33,216 @@ export class ProvisioningDbMock implements D1Database {
   subscriptions: Array<{ id: string; company_id: string; plan_name: string }> = [];
 
   prepare(query: string): D1PreparedStatement {
-    const context = { sql: query, bindings: [] as unknown[] };
+    const context: QueryContext = { sql: query, bindings: [] };
+
     const statement: D1PreparedStatement = {
       bind: (...args: unknown[]) => {
         context.bindings = args;
         return statement;
       },
-      first: <T = unknown>() => this.executeFirst<T>(context.sql, context.bindings),
-      all: <T = unknown>() => this.executeAll<T>(context.sql, context.bindings),
-      raw: <T = unknown>() => this.executeRaw<T>(context.sql, context.bindings),
-      run: () => this.executeRun(context.sql, context.bindings),
+      first: ((columnName?: string) =>
+        this.executeFirst(context.sql, context.bindings, columnName)) as D1PreparedStatement['first'],
+      all: <T = Record<string, unknown>>() => this.executeAll<T>(context.sql, context.bindings),
+      raw: ((options?: { columnNames?: boolean }) => {
+        if (options?.columnNames) {
+          return this.executeRaw(context.sql, context.bindings, { columnNames: true });
+        }
+        return this.executeRaw(context.sql, context.bindings, options as { columnNames?: false });
+      }) as D1PreparedStatement['raw'],
+      run: <T = Record<string, unknown>>() => this.executeRun<T>(context.sql, context.bindings),
     };
+
     return statement;
   }
 
-  batch(statements: D1PreparedStatement[]): Promise<D1Result[]> {
-    return Promise.all(statements.map((statement) => statement.run()));
+  batch<T = unknown>(statements: D1PreparedStatement[]): Promise<D1Result<T>[]> {
+    return Promise.all(statements.map((statement) => statement.run<T>()));
+  }
+
+  async exec(query: string): Promise<D1ExecResult> {
+    const result = await this.executeRun(query, []);
+    return {
+      count: result.meta.rows_written,
+      duration: result.meta.duration,
+    };
+  }
+
+  withSession(
+    _constraintOrBookmark?: D1SessionBookmark | D1SessionConstraint,
+  ): D1DatabaseSession {
+    return {
+      prepare: (sql: string) => this.prepare(sql),
+      batch: <T = unknown>(statements: D1PreparedStatement[]) => this.batch<T>(statements),
+      getBookmark: () => null,
+    };
   }
 
   dump(): Promise<ArrayBuffer> {
     return Promise.resolve(new ArrayBuffer(0));
   }
 
-  private async executeFirst<T>(sql: string, bindings: unknown[]): Promise<T | null> {
+  private async executeFirst<T>(
+    sql: string,
+    bindings: unknown[],
+    columnName?: string,
+  ): Promise<T | null> {
     const normalized = sql.trim().toUpperCase();
+    let record: Record<string, unknown> | null = null;
+
     if (normalized.startsWith('SELECT COMPANY_ID FROM COMPANY_MEMBERS WHERE USER_ID')) {
       const [userId] = bindings as [string];
-      const record = this.companyMembers.find((member) => member.user_id === userId);
-      return (record ? { company_id: record.company_id } : null) as T | null;
+      const match = this.companyMembers.find((member) => member.user_id === userId);
+      record = match ? { company_id: match.company_id } : null;
     }
+
     if (normalized.startsWith('SELECT COMPANY_ID FROM COMPANY_MEMBERS WHERE LOWER(EMAIL)')) {
       const [email] = bindings as [string];
-      const record = this.companyMembers.find((member) => member.email.toLowerCase() === email.toLowerCase());
-      return (record ? { company_id: record.company_id } : null) as T | null;
+      const match = this.companyMembers.find(
+        (member) => member.email.toLowerCase() === email.toLowerCase(),
+      );
+      record = match ? { company_id: match.company_id } : null;
     }
+
     if (normalized.startsWith('SELECT SLUG FROM COMPANIES WHERE SLUG')) {
       const [slug] = bindings as [string];
-      const record = this.companies.find((company) => company.slug === slug);
-      return (record ? { slug: record.slug } : null) as T | null;
+      const match = this.companies.find((company) => company.slug === slug);
+      record = match ? { slug: match.slug } : null;
     }
+
     if (normalized.startsWith('SELECT ID FROM USERS WHERE LOWER(EMAIL)')) {
       const [email] = bindings as [string];
-      const record = this.users.find((user) => user.email.toLowerCase() === email.toLowerCase());
-      return (record ? { id: record.id } : null) as T | null;
+      const match = this.users.find((user) => user.email.toLowerCase() === email.toLowerCase());
+      record = match ? { id: match.id } : null;
     }
-    return null;
+
+    if (!record) {
+      return null;
+    }
+
+    if (columnName) {
+      const value = record[columnName];
+      return (value ?? null) as T | null;
+    }
+
+    return record as T;
   }
 
-  private async executeAll<T>(sql: string, bindings: unknown[]): Promise<{ results: T[] }> {
+  private async executeAll<T>(sql: string, bindings: unknown[]): Promise<D1Result<T>> {
     const first = await this.executeFirst<T>(sql, bindings);
-    return { results: first ? [first] : [] };
+    const results = first ? [first] : [];
+    return this.buildResult(results);
   }
 
-  private async executeRaw<T>(sql: string, bindings: unknown[]): Promise<T[]> {
-    const result = await this.executeAll<T>(sql, bindings);
-    return result.results;
+  private async executeRaw<T>(
+    sql: string,
+    bindings: unknown[],
+    options: { columnNames: true },
+  ): Promise<[string[], ...T[]]>;
+  private async executeRaw<T>(
+    sql: string,
+    bindings: unknown[],
+    options?: { columnNames?: false },
+  ): Promise<T[]>;
+  private async executeRaw<T>(
+    sql: string,
+    bindings: unknown[],
+    options?: { columnNames?: boolean },
+  ): Promise<[string[], ...T[]] | T[]> {
+    const { results } = await this.executeAll<T>(sql, bindings);
+    if (options?.columnNames) {
+      const columnNames =
+        results.length && typeof results[0] === 'object' && results[0] !== null
+          ? Object.keys(results[0] as Record<string, unknown>)
+          : [];
+      return [columnNames, ...results] as [string[], ...T[]];
+    }
+    return results;
   }
 
-  private async executeRun(sql: string, bindings: unknown[]): Promise<D1Result> {
+  private buildResult<T = unknown>(
+    results: T[] = [],
+    metaOverrides: Partial<D1Meta> = {},
+  ): D1Result<T> {
+    const baseMeta: D1Meta = {
+      duration: 0,
+      size_after: 0,
+      rows_read: results.length,
+      rows_written: 0,
+      last_row_id: 0,
+      changes: 0,
+      changed_db: false,
+    };
+
+    const meta = {
+      ...baseMeta,
+      ...metaOverrides,
+      changed_db:
+        metaOverrides.changed_db ?? Boolean(metaOverrides.rows_written ?? baseMeta.rows_written),
+    } as D1Meta & Record<string, unknown>;
+
+    return {
+      success: true,
+      results,
+      meta,
+    };
+  }
+
+  private async executeRun<T = Record<string, unknown>>(
+    sql: string,
+    bindings: unknown[],
+  ): Promise<D1Result<T>> {
     const normalized = sql.trim().toUpperCase();
+
     if (normalized.startsWith('INSERT INTO USERS')) {
       const [id, email] = bindings as [string, string];
-      const conflict = this.users.find((user) => user.email.toLowerCase() === email.toLowerCase() && user.id !== id);
+      const conflict = this.users.find(
+        (user) => user.email.toLowerCase() === email.toLowerCase() && user.id !== id,
+      );
       if (conflict) {
         throw new Error('UNIQUE constraint failed: users.email');
       }
       const existing = this.users.find((user) => user.id === id);
       if (existing) {
         existing.email = email;
-      } else {
-        this.users.push({ id, email });
+        return this.buildResult([], { rows_written: 1, changes: 1, changed_db: true });
       }
-      return { success: true, results: [], meta: {} } as D1Result;
+      this.users.push({ id, email });
+      return this.buildResult([], {
+        rows_written: 1,
+        changes: 1,
+        last_row_id: this.users.length,
+        changed_db: true,
+      });
     }
 
     if (normalized.startsWith('INSERT INTO COMPANIES')) {
-      const [id, slug, name, plan, billingEmail] = bindings as [string, string, string, string, string];
+      const [id, slug, name, plan, billingEmail] = bindings as [
+        string,
+        string,
+        string,
+        string,
+        string | null,
+      ];
       if (this.companies.some((company) => company.slug === slug)) {
         throw new Error('UNIQUE constraint failed: companies.slug');
       }
-      this.companies.push({ id, slug, name, plan, billing_email: billingEmail });
-      return { success: true, results: [], meta: {} } as D1Result;
+      this.companies.push({ id, slug, name, plan, billing_email: billingEmail ?? null });
+      return this.buildResult([], {
+        rows_written: 1,
+        changes: 1,
+        last_row_id: this.companies.length,
+        changed_db: true,
+      });
     }
 
     if (normalized.startsWith('INSERT INTO COMPANY_MEMBERS')) {
-      const [id, companyId, userId, email, displayName] = bindings as [string, string, string | null, string, string];
+      const [id, companyId, userId, email, displayName] = bindings as [
+        string,
+        string,
+        string | null,
+        string,
+        string,
+      ];
       this.companyMembers.push({
         id,
         company_id: companyId,
@@ -112,7 +251,7 @@ export class ProvisioningDbMock implements D1Database {
         display_name: displayName,
         role: 'owner',
       });
-      return { success: true, results: [], meta: {} } as D1Result;
+      return this.buildResult([], { rows_written: 1, changes: 1, changed_db: true });
     }
 
     if (normalized.startsWith('INSERT INTO COMPANY_BRANDING_SETTINGS')) {
@@ -123,22 +262,22 @@ export class ProvisioningDbMock implements D1Database {
       } else {
         this.brandings.push({ company_id: companyId, updated_at: updatedAt });
       }
-      return { success: true, results: [], meta: {} } as D1Result;
+      return this.buildResult([], { rows_written: 1, changes: 1, changed_db: true });
     }
 
     if (normalized.startsWith('INSERT INTO COMPANY_SUBSCRIPTIONS')) {
       const [id, companyId, planName] = bindings as [string, string, string];
       this.subscriptions.push({ id, company_id: companyId, plan_name: planName });
-      return { success: true, results: [], meta: {} } as D1Result;
+      return this.buildResult([], { rows_written: 1, changes: 1, changed_db: true });
     }
 
-    throw new Error(`Unsupported SQL in ProvisioningDbMock: ${sql}`);
+    return this.buildResult();
   }
 }
 
 export function createProvisioningEnv(): { env: Env; db: ProvisioningDbMock } {
   const db = new ProvisioningDbMock();
-  const env: Env = {
+  const env = {
     LOGIN_ORIGIN: 'https://login.local',
     APP_BASE_URL: '/app',
     PROJECT_DOMAIN: 'https://app.local',
