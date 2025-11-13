@@ -624,22 +624,44 @@ export function createDeployTasks(options: DeployOptions = {}): Listr<DeployCont
           task.skip?.('Skipping secret sync with placeholder credentials');
           return;
         }
-        const secret = ctx.envResult.env.STRIPE_WEBHOOK_SECRET?.trim();
-        if (!secret || secret === 'whsec_missing_secret') {
-          task.skip?.('STRIPE_WEBHOOK_SECRET not configured');
+
+        const secrets: Array<{ name: string; value?: string | null; placeholder?: string }> = [
+          {
+            name: 'STRIPE_SECRET_KEY',
+            value: ctx.envResult.env.STRIPE_SECRET_KEY?.trim()
+          },
+          {
+            name: 'STRIPE_WEBHOOK_SECRET',
+            value: ctx.envResult.env.STRIPE_WEBHOOK_SECRET?.trim(),
+            placeholder: 'whsec_missing_secret'
+          }
+        ];
+
+        const updates: string[] = [];
+        for (const secret of secrets) {
+          if (!secret.value || (secret.placeholder && secret.value === secret.placeholder)) {
+            updates.push(`${secret.name} skipped (not configured)`);
+            continue;
+          }
+          await execa('wrangler', [
+            '--config',
+            'workers/api/wrangler.toml',
+            'secret',
+            'put',
+            secret.name
+          ], {
+            cwd,
+            input: `${secret.value}\n`
+          });
+          updates.push(`${secret.name} updated`);
+        }
+
+        if (updates.every((entry) => entry.includes('skipped'))) {
+          task.skip?.('Worker secrets not configured; nothing to sync');
           return;
         }
-        await execa('wrangler', [
-          '--config',
-          'workers/api/wrangler.toml',
-          'secret',
-          'put',
-          'STRIPE_WEBHOOK_SECRET'
-        ], {
-          cwd,
-          input: `${secret}\n`
-        });
-        task.output = 'STRIPE_WEBHOOK_SECRET updated';
+
+        task.output = updates.join('\n');
       }
     },
     {
