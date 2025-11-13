@@ -23,6 +23,8 @@ const BaseEnvSchema = z.object({
   LOGIN_ORIGIN: z.string().optional(),
   SESSION_COOKIE_DOMAIN: z.string().optional(),
   STRIPE_SECRET_KEY: z.string().min(1, 'STRIPE_SECRET_KEY is required'),
+  STRIPE_MODE: z.string().optional(),
+  STRIPE_LIVE_SECRET_KEY: z.string().optional(),
   STRIPE_TEST_SECRET_KEY: z.string().optional(),
   FONT_AWESOME_PACKAGE_TOKEN: z.string().optional()
 });
@@ -229,8 +231,18 @@ function applyFallbacksAndDerivations(
   baseLayer: Record<string, string>,
   generatedLayer: Record<string, string>
 ): void {
-  // Fallback: STRIPE_SECRET_KEY ← STRIPE_TEST_SECRET_KEY
-  // Allows developers to use STRIPE_TEST_SECRET_KEY in .env without duplicating the value
+  // Fallbacks for STRIPE secrets: derive from MODE or specific test/live keys.
+  if (!baseLayer.STRIPE_SECRET_KEY) {
+    const mode = baseLayer.STRIPE_MODE?.trim().toLowerCase();
+    if (mode === 'live' && baseLayer.STRIPE_LIVE_SECRET_KEY) {
+      baseLayer.STRIPE_SECRET_KEY = baseLayer.STRIPE_LIVE_SECRET_KEY;
+    } else if (mode === 'test' && baseLayer.STRIPE_TEST_SECRET_KEY) {
+      baseLayer.STRIPE_SECRET_KEY = baseLayer.STRIPE_TEST_SECRET_KEY;
+    }
+  }
+  if (!baseLayer.STRIPE_SECRET_KEY && baseLayer.STRIPE_LIVE_SECRET_KEY) {
+    baseLayer.STRIPE_SECRET_KEY = baseLayer.STRIPE_LIVE_SECRET_KEY;
+  }
   if (!baseLayer.STRIPE_SECRET_KEY && baseLayer.STRIPE_TEST_SECRET_KEY) {
     baseLayer.STRIPE_SECRET_KEY = baseLayer.STRIPE_TEST_SECRET_KEY;
   }

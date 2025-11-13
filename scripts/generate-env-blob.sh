@@ -22,8 +22,10 @@ fi
 MERGED=$(BASE_ENV_FILE="$ENV_FILE" node <<'NODE'
 const fs = require('fs');
 const path = require('path');
+const os = require('os');
 const basePath = path.resolve(process.cwd(), process.env.BASE_ENV_FILE);
 const generatedPath = path.resolve(process.cwd(), process.env.GENERATED_ENV_FILE || '.env.local.generated');
+const homeEnvPath = path.resolve(os.homedir(), '.env');
 
 function parseEnv(file) {
   if (!fs.existsSync(file)) {
@@ -49,9 +51,14 @@ function parseEnv(file) {
   return result;
 }
 
-const base = parseEnv(basePath);
-const generated = parseEnv(generatedPath);
-const combined = { ...base, ...generated };
+const sources = [];
+if (fs.existsSync(homeEnvPath)) {
+  sources.push(parseEnv(homeEnvPath));
+}
+sources.push(parseEnv(basePath));
+sources.push(parseEnv(generatedPath));
+
+const combined = Object.assign({}, ...sources);
 
 const lines = Object.entries(combined)
   .filter(([key, value]) => Boolean(key) && typeof value !== 'undefined' && String(value).length > 0)
