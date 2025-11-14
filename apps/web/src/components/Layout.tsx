@@ -90,8 +90,10 @@ const Layout = ({ children }: LayoutProps) => {
   );
 
   const navWrapperClass = cn(
-    'fixed left-0 right-0 top-0 z-50 transition-all duration-300',
-    navSolid ? 'border-b border-slate-200 bg-white/90 backdrop-blur' : 'border-b border-transparent bg-transparent'
+    'fixed left-0 right-0 top-0 z-50 transition-all duration-500 ease-out',
+    navSolid
+      ? 'border-b border-slate-200 bg-white/95 backdrop-blur'
+      : 'border-b border-transparent bg-gradient-to-b from-slate-950/70 via-slate-950/30 to-transparent'
   );
 
   const navLinkBase = navSolid
@@ -109,7 +111,7 @@ const Layout = ({ children }: LayoutProps) => {
       <View className={navWrapperClass}>
         <Container className="flex flex-row flex-wrap items-center justify-between gap-4 py-4">
           <Pressable onPress={() => navigate('/')} accessibilityRole="link" className="flex-row items-center gap-3">
-            <Logo size={28} />
+            <Logo size={28} color={navSolid ? '#0f172a' : '#ffffff'} />
           </Pressable>
           <View className="flex flex-row flex-wrap items-center gap-2 md:gap-3">
             {NAV_ITEMS.map((item) => {
@@ -121,7 +123,7 @@ const Layout = ({ children }: LayoutProps) => {
                   onPress={() => navigate(item.href)}
                   accessibilityRole="link"
                   className={cn(
-                    'rounded-full px-4 py-2 text-base font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-offset-2',
+                    'rounded-full px-4 py-2 text-base font-medium transition-colors duration-500 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-offset-2',
                     navLinkBase,
                     isActive && navActive
                   )}
@@ -136,7 +138,7 @@ const Layout = ({ children }: LayoutProps) => {
           <Button
             variant="ghost"
             size="sm"
-            className={cn('rounded-full border px-5 py-2', ctaClass)}
+            className={cn('rounded-full border px-5 py-2 transition-colors duration-500 ease-out', ctaClass)}
             onPress={() => navigate('/app')}
           >
             Open app
