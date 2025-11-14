@@ -54,7 +54,7 @@ const PixelBlastBackdrop: React.FC<PixelBlastBackdropProps> = ({
   highlightColor = '#FFFFFF',
   pixelSize = 6,
   rippleColor,
-  speed = 0.5
+  speed = 0.28
 }) => {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const frameRef = useRef<number | null>(null);
@@ -117,21 +117,33 @@ const PixelBlastBackdrop: React.FC<PixelBlastBackdropProps> = ({
       });
     };
 
-    const drawFrame = (timestamp: number) => {
+    const frameInterval = 1000 / 28;
+    let lastFrame = 0;
+
+    const drawPixels = (timestamp: number) => {
       const { width, height } = layout;
       if (!width || !height) {
-        frameRef.current = requestAnimationFrame(drawFrame);
+        frameRef.current = requestAnimationFrame(drawPixels);
         return;
       }
+      if (timestamp - lastFrame < frameInterval) {
+        frameRef.current = requestAnimationFrame(drawPixels);
+        return;
+      }
+      lastFrame = timestamp;
       const flicker = (Math.sin(timestamp * 0.002 * speed) + 1) / 2;
       const brightness = 0.7 + flicker * 0.3;
       ctx.globalCompositeOperation = 'source-over';
       ctx.fillStyle = '#040509';
       ctx.fillRect(0, 0, width, height);
       const cell = Math.max(2, pixelSize);
+      const motion = timestamp * 0.0004 * speed;
       for (let y = 0; y < height; y += cell) {
         for (let x = 0; x < width; x += cell) {
-          const noise = 0.8 + (Math.random() - 0.5) * 0.3;
+          const waveX = Math.sin((x * 0.04 + motion) * 0.9);
+          const waveY = Math.cos((y * 0.04 + motion * 1.3) * 0.7);
+          const pattern = (waveX + waveY) * 0.5;
+          const noise = 0.88 + pattern * 0.12;
           const r = clamp(Math.round(parsedColor.r * brightness * noise), 0, 255);
           const g = clamp(Math.round(parsedColor.g * brightness * noise), 0, 255);
           const b = clamp(Math.round(parsedColor.b * brightness * noise), 0, 255);
@@ -142,9 +154,9 @@ const PixelBlastBackdrop: React.FC<PixelBlastBackdropProps> = ({
       ctx.fillStyle = `rgba(6, 8, 16, ${0.2 + 0.15 * flicker})`;
       ctx.fillRect(0, 0, width, height);
       drawRipples(timestamp);
-      frameRef.current = requestAnimationFrame(drawFrame);
+      frameRef.current = requestAnimationFrame(drawPixels);
     };
-    frameRef.current = requestAnimationFrame(drawFrame);
+    frameRef.current = requestAnimationFrame(drawPixels);
 
     const trackPointer = (event: PointerEvent) => {
       if (!layout.width || !layout.height) {
