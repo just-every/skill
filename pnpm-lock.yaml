@@ -68,6 +68,9 @@ importers:
       nativewind:
         specifier: 5.0.0-preview.2
         version: 5.0.0-preview.2(react-native-css@3.0.1(@expo/metro-config@54.0.9(expo@54.0.23))(lightningcss@1.30.1)(react-native@0.81.5(@babel/core@7.28.5)(@react-native-community/cli@13.6.6)(@types/react@19.1.17)(react@19.1.0))(react@19.1.0))(tailwindcss@4.1.17)
+      postprocessing:
+        specifier: ^6.35.3
+        version: 6.35.3(three@0.163.0)
       react:
         specifier: 19.1.0
         version: 19.1.0
@@ -89,9 +92,6 @@ importers:
       tailwind-merge:
         specifier: ^3.4.0
         version: 3.4.0
-      postprocessing:
-        specifier: ^6.35.3
-        version: 6.35.3(three@0.163.0)
       three:
         specifier: ^0.163.0
         version: 0.163.0
@@ -3729,13 +3729,11 @@ packages:
     resolution: {integrity: sha512-3Ybi1tAuwAP9s0r1UQ2J4n5Y0G05bJkpUIO0/bI9MhwmD70S5aTWbXGBwxHrelT+XM1k6dM0pk+SwNkpTRN7Pg==}
     engines: {node: ^10 || ^12 || >=14}
 
-  postprocessing@6.35.3(three@0.163.0):
+  postprocessing@6.35.3:
     resolution: {integrity: sha512-PH0/gqVYpp+vZjmSAohG/xH0u9FpbjfCGsFMsmsZVd8XXSmqJUR7b5C9ZFE/iMrWhe+tiTOFN9WvcEdjLI8LYQ==}
+    engines: {node: '>= 0.13.2'}
     peerDependencies:
       three: '>= 0.152.0 < 0.164.0'
-    dependencies:
-      three: 0.163.0
-    dev: false
 
   pretty-bytes@5.6.0:
     resolution: {integrity: sha512-FFw039TmrBqFK8ma/7OL3sDz/VytdtJr044/QUJtH0wK9lb9jLq9tJyIxUwtQJHwar2BqtiA4iCWSwo9JLkzFg==}
@@ -3785,10 +3783,6 @@ packages:
   qs@6.14.0:
     resolution: {integrity: sha512-YWWTjgABSKcvs/nWBi9PycY/JiPJqOD4JA6o9Sej2AtvSGarXxKC3OQSk4pAarbdQlKAh5D4FCQkJNkW+GAn3w==}
     engines: {node: '>=0.6'}
-
-  three@0.163.0:
-    resolution: {integrity: sha512-HlMgCb2TF/dTLRtknBnjUTsR8FsDqBY43itYop2+Zg822I+Kd0Ua2vs8CvfBVefXkBdNDrLMoRTGCIIpfCuDew==}
-    dev: false
 
   queue-microtask@1.2.3:
     resolution: {integrity: sha512-NuaNSa6flKT5JaSYQzJok04JzTL1CA6aGhv5rfLW3PgqA+M2ChpZQnAC8h8i4ZFkBS8X5RqkDBHA7r4hej3K9A==}
@@ -4264,6 +4258,9 @@ packages:
 
   thenify@3.3.1:
     resolution: {integrity: sha512-RVZSIV5IG10Hk3enotrhvz0T9em6cyHBLkH/YAZuKqd8hRkKhSfCGIcP2KUY0EPxndzANBmNllzWPwak+bheSw==}
+
+  three@0.163.0:
+    resolution: {integrity: sha512-HlMgCb2TF/dTLRtknBnjUTsR8FsDqBY43itYop2+Zg822I+Kd0Ua2vs8CvfBVefXkBdNDrLMoRTGCIIpfCuDew==}
 
   throat@5.0.0:
     resolution: {integrity: sha512-fcwX4mndzpLQKBS1DVYhGAcYaYt7vsHNIvQV+WXMvnow5cgjPphq5CaayLaGsjRdSCKZFNGt7/GYAuXaNOiYCA==}
@@ -8817,8 +8814,6 @@ snapshots:
       source-map-js: 1.2.1
 
   postprocessing@6.35.3(three@0.163.0):
-    peerDependencies:
-      three: '>= 0.152.0 < 0.164.0'
     dependencies:
       three: 0.163.0
 
