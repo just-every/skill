@@ -1,26 +1,24 @@
 import React, { useCallback } from 'react';
-import { Image, Platform, View } from 'react-native';
+import { Pressable, View } from 'react-native';
 
 import { useAuth } from '../auth/AuthProvider';
-import { usePublicEnv } from '../runtimeEnv';
 import { useRouterContext } from '../router/RouterProvider';
-import { Button, Card, CardContent, CardHeader } from '../components/ui';
+import { Button } from '../components/ui';
 import { Typography } from '../components/Typography';
 import PixelBlastBackdrop from '../components/backgrounds/PixelBlastBackdrop';
 
 const heroFeatures = [
   {
-    title: 'Worker-first architecture',
-    description: 'Ship Cloudflare Workers, D1, and R2 together. Deployments promote both the API and static assets.',
+    title: 'Launch-ready front door',
+    description: 'Marketing shell, dashboard, and auth share one design system with real content and flows.',
   },
   {
-    title: 'Better Auth login worker',
-    description:
-      'Marketing and dashboard flows call the Better Auth worker over HTTPS or jump directly into the hosted UI.',
+    title: 'Cloudflare native ops',
+    description: 'Workers, D1, R2, and Wrangler automation land as one push—no improvised scaffolding.',
   },
   {
-    title: 'Stripe billing hooks',
-    description: 'Preview pricing tiers locally, then sync live products and webhook endpoints with one bootstrap command.',
+    title: 'Billing that ships',
+    description: 'Stripe products, plans, and webhook handlers are seeded locally then promoted via CI.',
   },
 ];
 
@@ -47,18 +45,14 @@ const testimonial = {
 };
 
 const heroStats = [
-  { label: 'Bootstrap to deploy', value: '8 minutes' },
-  { label: 'API & static bundles', value: '1 wrangler publish' },
-  { label: 'Prebuilt flows', value: 'Login, billing, dashboard' },
+  { label: 'Bootstrap to live', value: '≈ 8 minutes' },
+  { label: 'Cloudflare primitives', value: 'Workers · D1 · R2' },
+  { label: 'Billing journeys', value: 'Stripe-hosted + webhooks' },
 ];
 
 const Home = () => {
-  const env = usePublicEnv();
   const { navigate } = useRouterContext();
   const { isAuthenticated, openHostedLogin } = useAuth();
-
-  const workerOrigin = env.workerOrigin ?? env.workerOriginLocal;
-  const heroImage = workerOrigin ? `${workerOrigin.replace(/\/$/, '')}/marketing/hero.png` : undefined;
 
   const handleOpenDashboard = useCallback(() => {
     if (isAuthenticated) {
@@ -69,175 +63,159 @@ const Home = () => {
   }, [isAuthenticated, navigate, openHostedLogin]);
 
   return (
-    <View className="flex flex-col gap-14 py-10">
-      <View className="relative overflow-hidden rounded-3xl border border-transparent bg-gradient-to-br from-ink via-ink to-brand-900 p-[1px]">
-        <Card className="relative overflow-hidden border-white/10 bg-slate-950/60 backdrop-blur-2xl">
-          {Platform.OS === 'web' && (
-            <PixelBlastBackdrop
-              className="pointer-events-none absolute inset-0 z-0"
-              style={{ opacity: 0.85, mixBlendMode: 'screen' }}
-              color="#007bff"
-              variant="square"
-              pixelSize={4}
-              patternScale={2}
-              patternDensity={1}
-              pixelSizeJitter={0}
-              speed={0.5}
-              edgeFade={0.25}
-              enableRipples
-              liquid={false}
-            />
-          )}
-          <CardHeader className="relative z-10 space-y-3">
-            <View className="self-start rounded-full border border-white/20 bg-white/10 px-4 py-1">
-              <Typography variant="caption" className="text-white/80">
-                Built for Cloudflare + Stripe teams
-              </Typography>
-            </View>
-            <Typography variant="eyebrow" className="text-accent">
-              justevery
-            </Typography>
-            <Typography variant="h1" className="text-white">
-              Launch front door, auth, and billing on day one.
-            </Typography>
-            <Typography variant="body" className="text-white/80 max-w-2xl">
-              Scaffold a Cloudflare-native SaaS starter complete with Worker APIs, Better Auth-managed login, Stripe-ready pricing journeys,
-              and now a single push-to-deploy flow that mirrors local prerenders exactly.
-            </Typography>
-          </CardHeader>
-
-          <CardContent className="relative z-10 gap-8 pt-4">
-            <View className="mt-2 flex-row flex-wrap gap-3">
-              <Button onPress={() => void handleOpenDashboard()}>
-                Open dashboard
-              </Button>
-              <Button
-                variant="ghost"
-                onPress={() => navigate('/pricing')}
-                className="border-white/30 bg-white/5"
-                textClassName="text-white"
-              >
-                Preview pricing
-              </Button>
-            </View>
-
-            <View className="flex flex-row flex-wrap gap-6 pt-2">
-              {heroStats.map((stat) => (
-                <View key={stat.label} className="min-w-[140px] flex-1 rounded-2xl border border-white/10 bg-white/5 p-4">
-                  <Typography variant="h3" className="text-white">
-                    {stat.value}
-                  </Typography>
-                  <Typography variant="caption" className="text-white/70">
-                    {stat.label}
-                  </Typography>
-                </View>
-              ))}
-            </View>
-
-            {Platform.OS === 'web' ? (
-              heroImage ? (
-                <Image
-                  source={{ uri: heroImage }}
-                  resizeMode="cover"
-                  className="h-80 w-full rounded-3xl border border-white/20"
-                />
-              ) : (
-                <View className="w-full items-center justify-center rounded-3xl border border-white/20 bg-white/10 p-6">
-                  <Typography variant="body" className="text-center text-slate-200">
-                    Upload `marketing/hero.png` to your Worker assets bucket or configure `EXPO_PUBLIC_WORKER_ORIGIN` to preview the marketing hero locally.
-                  </Typography>
-                </View>
-              )
-            ) : null}
-          </CardContent>
-        </Card>
-      </View>
-
-      {Platform.OS === 'web' ? (
-        <Card className="relative overflow-hidden border border-white/10 bg-slate-950/70 p-0">
+    <View className="flex flex-col gap-16 pb-12">
+      <View
+        accessibilityRole="header"
+        className="relative left-1/2 w-screen -ml-[50vw]"
+      >
+        <View className="relative min-h-[92vh] w-full overflow-hidden bg-slate-950">
           <PixelBlastBackdrop
             className="absolute inset-0"
-            style={{ opacity: 1 }}
-            color="#007bff"
-            variant="square"
-            pixelSize={4}
-            patternScale={2}
-            patternDensity={1}
-            pixelSizeJitter={0}
-            rippleSpeed={0.4}
-            rippleThickness={0.12}
-            rippleIntensityScale={1.5}
-            enableRipples
-            liquid={false}
-            speed={0.5}
-            edgeFade={0.25}
+            style={{ opacity: 0.92, mixBlendMode: 'screen' }}
+            speed={0.45}
+            rippleIntensityScale={1.3}
+            edgeFade={0.2}
           />
-          <View className="relative z-10 space-y-2 p-6">
-            <Typography variant="h3" className="text-white">
-              Pixel Blast preview
-            </Typography>
-            <Typography variant="body" className="text-white/70">
-              This isolated box renders the same React Bits Pixel Blast backdrop used in the hero so you can confirm the animation without other layers on top.
-            </Typography>
-            <View className="h-64" />
-          </View>
-        </Card>
-      ) : null}
-
-      <View className="flex flex-col gap-6">
-        <Typography variant="h2">
-          What’s in the starter
-        </Typography>
-        <View className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
-          {heroFeatures.map((feature) => (
-            <Card key={feature.title} className="h-full min-h-[220px]">
-              <CardContent className="gap-3 pt-6">
-                <Typography variant="h3">{feature.title}</Typography>
-                <Typography variant="bodySmall">{feature.description}</Typography>
-              </CardContent>
-            </Card>
-          ))}
-        </View>
-        <Typography variant="caption" className="text-slate-500">
-          Need a guided tour? Jump into the dashboard to exercise Better Auth-protected Worker APIs, or open the docs folder for infra walkthroughs.
-        </Typography>
-      </View>
-
-      <View className="flex flex-col gap-6">
-        <Typography variant="h2">Launch-ready integrations</Typography>
-        <View className="grid grid-cols-1 gap-4 md:grid-cols-3">
-          {integrationHighlights.map((item) => (
-            <Card key={item.title} className="h-full border-slate-200">
-              <CardContent className="gap-3 pt-6">
-                <View className="w-12 rounded-2xl bg-brand-50 p-3">
-                  <View className="h-6 w-6 rounded-lg bg-brand-500/20" />
+          <View className="pointer-events-none absolute inset-0 bg-gradient-to-b from-slate-950/10 via-slate-950/70 to-slate-950" />
+          <View className="pointer-events-none absolute inset-x-0 top-0 h-40 bg-gradient-to-b from-slate-950 via-slate-950/20 to-transparent opacity-80" />
+          <View className="relative z-10 flex h-full items-center px-4 py-16 sm:px-10 lg:px-16">
+            <View className="mx-auto w-full max-w-5xl">
+              <View className="max-w-2xl space-y-6 rounded-[32px] border border-white/15 bg-slate-950/55 p-8 sm:p-12 shadow-[0_50px_120px_rgba(2,6,23,0.85)] backdrop-blur-3xl">
+                <View className="self-start rounded-full border border-white/20 bg-white/5 px-4 py-1">
+                  <Typography variant="caption" className="text-xs uppercase tracking-[0.35em] text-white/80">
+                    Cloudflare · Stripe ready
+                  </Typography>
                 </View>
-                <Typography variant="h3">{item.title}</Typography>
-                <Typography variant="bodySmall">{item.description}</Typography>
-              </CardContent>
-            </Card>
+                <Typography variant="eyebrow" className="text-accent">
+                  justevery starter
+                </Typography>
+                <Typography
+                  variant="h1"
+                  className="text-4xl font-semibold leading-[1.08] text-white sm:text-5xl lg:text-6xl"
+                >
+                  Launch the front door people remember.
+                </Typography>
+                <Typography variant="body" className="text-base text-white/80 sm:text-lg">
+                  Ship the Worker API, Better Auth session layer, and Stripe billing journeys together—without
+                  babysitting scaffolding. It feels like a finished product on day one.
+                </Typography>
+                <View className="flex flex-col gap-4 pt-4 sm:flex-row sm:items-center">
+                  <Button
+                    onPress={() => void handleOpenDashboard()}
+                    className="bg-white text-ink shadow-[0_20px_45px_rgba(15,23,42,0.45)]"
+                    textClassName="text-ink"
+                  >
+                    Enter the live dashboard
+                  </Button>
+                  <Pressable
+                    accessibilityRole="link"
+                    onPress={() => navigate('/pricing')}
+                    className="flex flex-row items-center gap-2"
+                  >
+                    <Typography variant="body" className="text-white/80">
+                      Read the architecture notes
+                    </Typography>
+                    <Typography variant="body" className="text-white">
+                      →
+                    </Typography>
+                  </Pressable>
+                </View>
+                <View className="mt-6 flex flex-col gap-4 border-t border-white/15 pt-6 sm:flex-row">
+                  {heroStats.map((stat) => (
+                    <View
+                      key={stat.label}
+                      className="flex-1 rounded-2xl border border-white/15 bg-white/5 p-4"
+                    >
+                      <Typography variant="h3" className="text-white">
+                        {stat.value}
+                      </Typography>
+                      <Typography variant="caption" className="text-white/70">
+                        {stat.label}
+                      </Typography>
+                    </View>
+                  ))}
+                </View>
+              </View>
+            </View>
+          </View>
+        </View>
+      </View>
+
+      {/* Band 1 – value proposition trio */}
+      <View className="flex flex-col gap-4">
+        <Typography variant="h2" className="text-ink">
+          A starter that feels finished
+        </Typography>
+        <Typography variant="body" className="max-w-2xl text-slate-500">
+          Opinionated defaults for Workers, auth, and billing mean you spend energy on your product, not another set of
+          placeholder screens.
+        </Typography>
+        <View className="grid grid-cols-1 gap-6 md:grid-cols-3">
+          {heroFeatures.map((feature) => (
+            <View key={feature.title} className="space-y-3">
+              <Typography variant="h3" className="text-xl text-ink">
+                {feature.title}
+              </Typography>
+              <Typography variant="bodySmall" className="text-slate-500">
+                {feature.description}
+              </Typography>
+            </View>
           ))}
         </View>
       </View>
 
-      <Card className="bg-white">
-        <CardContent className="gap-4 pt-6 md:flex-row md:items-center md:justify-between">
-          <View className="flex-1 space-y-3">
-            <Typography variant="body" className="text-lg text-ink">
-              {testimonial.quote}
-            </Typography>
-            <Typography variant="caption" className="text-ink">
-              {testimonial.author}
-            </Typography>
-            <Typography variant="caption" className="text-slate-500">
-              {testimonial.role}
-            </Typography>
+      {/* Band 2 – social proof + integrations */}
+      <View className="flex flex-col gap-8 rounded-3xl border border-white/10 bg-slate-950/90 p-8 text-white md:flex-row md:items-center md:justify-between">
+        <View className="flex-1 space-y-3">
+          <Typography variant="eyebrow" className="text-accent">
+            Trusted wiring out of the box
+          </Typography>
+          <Typography variant="body" className="text-lg text-white">
+            {testimonial.quote}
+          </Typography>
+          <Typography variant="caption" className="text-white/80">
+            {testimonial.author}
+          </Typography>
+          <Typography variant="caption" className="text-white/60">
+            {testimonial.role}
+          </Typography>
+        </View>
+        <View className="flex-1 space-y-3 md:pl-10">
+          <Typography variant="caption" className="text-white/60">
+            Native journeys for
+          </Typography>
+          <View className="flex flex-wrap gap-2">
+            {integrationHighlights.map((item) => (
+              <View
+                key={item.title}
+                className="rounded-full border border-white/20 bg-white/10 px-3 py-1"
+              >
+                <Typography variant="caption" className="text-white">
+                  {item.title}
+                </Typography>
+              </View>
+            ))}
           </View>
-          <Button variant="secondary" onPress={() => void handleOpenDashboard()}>
-            Try the dashboard
-          </Button>
-        </CardContent>
-      </Card>
+          <Typography variant="bodySmall" className="text-white/70">
+            {integrationHighlights[0].description}
+          </Typography>
+        </View>
+      </View>
+
+      {/* Band 3 – closing CTA */}
+      <View className="flex flex-col gap-4 rounded-3xl bg-gradient-to-r from-ink via-slate-900 to-brand-900 px-6 py-8 text-white md:flex-row md:items-center md:justify-between">
+        <View className="space-y-2">
+          <Typography variant="h3" className="text-3xl">
+            Open the starter. Ship the product.
+          </Typography>
+          <Typography variant="bodySmall" className="text-white/75">
+            Step into the live dashboard with Better Auth, Worker APIs, and Stripe billing already humming.
+          </Typography>
+        </View>
+        <Button variant="secondary" onPress={() => void handleOpenDashboard()} className="px-6 py-4">
+          Launch dashboard
+        </Button>
+      </View>
     </View>
   );
 };
