@@ -8,21 +8,21 @@ type PixelBlastBackdropProps = PixelBlastProps;
 const PixelBlastBackdrop: React.FC<PixelBlastBackdropProps> = ({
   className,
   style,
-  color = '#B19EEF',
-  variant = 'circle',
-  pixelSize = 6,
-  patternScale = 3,
-  patternDensity = 1.2,
-  pixelSizeJitter = 0.5,
+  color = '#007bff',
+  variant = 'square',
+  pixelSize = 4,
+  patternScale = 2,
+  patternDensity = 1,
+  pixelSizeJitter = 0,
   rippleSpeed = 0.4,
   rippleThickness = 0.12,
   rippleIntensityScale = 1.5,
-  liquid = true,
+  liquid = false,
   liquidStrength = 0.12,
   liquidRadius = 1.2,
   liquidWobbleSpeed = 5,
   enableRipples = true,
-  speed = 0.6,
+  speed = 0.5,
   edgeFade = 0.25,
   transparent = true,
   ...rest
@@ -35,6 +35,7 @@ const PixelBlastBackdrop: React.FC<PixelBlastBackdropProps> = ({
     <ReactBitsPixelBlast
       className={className}
       style={{ pointerEvents: 'none', ...(style ?? {}) }}
+      fillMode="absolute"
       color={color}
       variant={variant}
       pixelSize={pixelSize}

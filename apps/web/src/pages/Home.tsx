@@ -76,11 +76,16 @@ const Home = () => {
             <PixelBlastBackdrop
               className="pointer-events-none absolute inset-0 z-0"
               style={{ opacity: 0.85, mixBlendMode: 'screen' }}
-              color="#7255F7"
-              highlightColor="#EDE3FF"
-              rippleColor="rgba(255,255,255,0.65)"
-              pixelSize={5}
-              speed={0.45}
+              color="#007bff"
+              variant="square"
+              pixelSize={4}
+              patternScale={2}
+              patternDensity={1}
+              pixelSizeJitter={0}
+              speed={0.5}
+              edgeFade={0.25}
+              enableRipples
+              liquid={false}
             />
           )}
           <CardHeader className="relative z-10 space-y-3">
@@ -153,18 +158,18 @@ const Home = () => {
           <PixelBlastBackdrop
             className="absolute inset-0"
             style={{ opacity: 1 }}
-            variant="circle"
-            pixelSize={6}
-            patternScale={3}
-            patternDensity={1.2}
+            color="#007bff"
+            variant="square"
+            pixelSize={4}
+            patternScale={2}
+            patternDensity={1}
+            pixelSizeJitter={0}
             rippleSpeed={0.4}
             rippleThickness={0.12}
             rippleIntensityScale={1.5}
-            liquid
-            liquidRadius={1.2}
-            liquidStrength={0.12}
-            liquidWobbleSpeed={5}
-            speed={0.6}
+            enableRipples
+            liquid={false}
+            speed={0.5}
             edgeFade={0.25}
           />
           <View className="relative z-10 space-y-2 p-6">

@@ -9,6 +9,7 @@ type PixelBlastVariant = 'square' | 'circle' | 'triangle' | 'diamond';
 export type PixelBlastProps = {
   readonly className?: string;
   readonly style?: React.CSSProperties;
+  readonly fillMode?: 'absolute' | 'relative';
   readonly variant?: PixelBlastVariant;
   readonly pixelSize?: number;
   readonly color?: string;
@@ -361,6 +362,7 @@ const getFragmentShader = (isWebGL2: boolean) =>
 const PixelBlast: React.FC<PixelBlastProps> = ({
   className,
   style,
+  fillMode = 'relative',
   variant = 'circle',
   pixelSize = 6,
   color = '#B19EEF',
@@ -685,7 +687,13 @@ const PixelBlast: React.FC<PixelBlastProps> = ({
     <div
       ref={containerRef}
       className={`pixel-blast-container ${className ?? ''}`.trim()}
-      style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', ...(style ?? {}) }}
+      style={{
+        position: fillMode === 'absolute' ? 'absolute' : 'relative',
+        inset: fillMode === 'absolute' ? 0 : undefined,
+        width: '100%',
+        height: '100%',
+        ...(style ?? {})
+      }}
       aria-label="PixelBlast interactive background"
     />
   );
