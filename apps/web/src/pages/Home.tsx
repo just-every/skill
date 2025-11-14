@@ -70,19 +70,19 @@ const Home = () => {
 
   return (
     <View className="flex flex-col gap-14 py-10">
-      <View className="relative overflow-hidden rounded-3xl">
+      <View className="relative overflow-hidden rounded-3xl border border-transparent bg-gradient-to-br from-ink via-ink to-brand-900 p-[1px]">
         {Platform.OS === 'web' && (
           <PixelBlastBackdrop
             className="pointer-events-none absolute inset-0"
-            style={{ opacity: 0.55 }}
+            style={{ opacity: 0.6, mixBlendMode: 'screen' }}
             color="#7255F7"
             highlightColor="#EDE3FF"
-            rippleColor="rgba(255,255,255,0.6)"
+            rippleColor="rgba(255,255,255,0.65)"
             pixelSize={5}
-            speed={0.4}
+            speed={0.45}
           />
         )}
-        <Card className="relative z-10 border-transparent bg-gradient-to-br from-ink via-ink to-brand-900">
+        <Card className="relative z-10 border-white/10 bg-slate-950/70 backdrop-blur-xl">
           <CardHeader className="space-y-3">
             <View className="self-start rounded-full border border-white/20 bg-white/10 px-4 py-1">
               <Typography variant="caption" className="text-white/80">
