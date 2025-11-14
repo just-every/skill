@@ -71,19 +71,19 @@ const Home = () => {
   return (
     <View className="flex flex-col gap-14 py-10">
       <View className="relative overflow-hidden rounded-3xl border border-transparent bg-gradient-to-br from-ink via-ink to-brand-900 p-[1px]">
-        {Platform.OS === 'web' && (
-          <PixelBlastBackdrop
-            className="pointer-events-none absolute inset-0"
-            style={{ opacity: 0.6, mixBlendMode: 'screen' }}
-            color="#7255F7"
-            highlightColor="#EDE3FF"
-            rippleColor="rgba(255,255,255,0.65)"
-            pixelSize={5}
-            speed={0.45}
-          />
-        )}
-        <Card className="relative z-10 border-white/10 bg-slate-950/70 backdrop-blur-xl">
-          <CardHeader className="space-y-3">
+        <Card className="relative overflow-hidden border-white/10 bg-slate-950/60 backdrop-blur-2xl">
+          {Platform.OS === 'web' && (
+            <PixelBlastBackdrop
+              className="pointer-events-none absolute inset-0 z-0"
+              style={{ opacity: 0.85, mixBlendMode: 'screen' }}
+              color="#7255F7"
+              highlightColor="#EDE3FF"
+              rippleColor="rgba(255,255,255,0.65)"
+              pixelSize={5}
+              speed={0.45}
+            />
+          )}
+          <CardHeader className="relative z-10 space-y-3">
             <View className="self-start rounded-full border border-white/20 bg-white/10 px-4 py-1">
               <Typography variant="caption" className="text-white/80">
                 Built for Cloudflare + Stripe teams
@@ -101,7 +101,7 @@ const Home = () => {
             </Typography>
           </CardHeader>
 
-          <CardContent className="gap-8 pt-4">
+          <CardContent className="relative z-10 gap-8 pt-4">
             <View className="mt-2 flex-row flex-wrap gap-3">
               <Button onPress={() => void handleOpenDashboard()}>
                 Open dashboard
