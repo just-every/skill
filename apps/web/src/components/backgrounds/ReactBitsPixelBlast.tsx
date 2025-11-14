@@ -350,12 +350,12 @@ const randomFloat = () => {
 };
 const getVertexShader = (isWebGL2: boolean) =>
   isWebGL2
-    ? `#version 300 es\nprecision highp float;\nin vec3 position;\n${VERTEX_BODY}`
+    ? `precision highp float;\nin vec3 position;\n${VERTEX_BODY}`
     : `precision highp float;\nattribute vec3 position;\n${VERTEX_BODY}`;
 
 const getFragmentShader = (isWebGL2: boolean) =>
   isWebGL2
-    ? `#version 300 es\nprecision highp float;\nout vec4 fragColor;\n#define FRAG_COLOR fragColor\n${FRAGMENT_BODY}`
+    ? `precision highp float;\nout vec4 fragColor;\n#define FRAG_COLOR fragColor\n${FRAGMENT_BODY}`
     : `#extension GL_OES_standard_derivatives : enable\nprecision highp float;\n#define FRAG_COLOR gl_FragColor\n${FRAGMENT_BODY}`;
 
 const PixelBlast: React.FC<PixelBlastProps> = ({
