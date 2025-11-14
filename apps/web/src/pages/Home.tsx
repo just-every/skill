@@ -148,6 +148,37 @@ const Home = () => {
         </Card>
       </View>
 
+      {Platform.OS === 'web' ? (
+        <Card className="relative overflow-hidden border border-white/10 bg-slate-950/70 p-0">
+          <PixelBlastBackdrop
+            className="absolute inset-0"
+            style={{ opacity: 1 }}
+            variant="circle"
+            pixelSize={6}
+            patternScale={3}
+            patternDensity={1.2}
+            rippleSpeed={0.4}
+            rippleThickness={0.12}
+            rippleIntensityScale={1.5}
+            liquid
+            liquidRadius={1.2}
+            liquidStrength={0.12}
+            liquidWobbleSpeed={5}
+            speed={0.6}
+            edgeFade={0.25}
+          />
+          <View className="relative z-10 space-y-2 p-6">
+            <Typography variant="h3" className="text-white">
+              Pixel Blast preview
+            </Typography>
+            <Typography variant="body" className="text-white/70">
+              This isolated box renders the same React Bits Pixel Blast backdrop used in the hero so you can confirm the animation without other layers on top.
+            </Typography>
+            <View className="h-64" />
+          </View>
+        </Card>
+      ) : null}
+
       <View className="flex flex-col gap-6">
         <Typography variant="h2">
           What’s in the starter
