@@ -36,6 +36,7 @@ This repository is the canonical justevery starter stack; future products should
 ## Environment & Configuration Tips
 - Run the CLI (`pnpm bootstrap:preflight`, `pnpm bootstrap:env`, `pnpm bootstrap:deploy`) after cloning and when infra config changes; it is idempotent and reuses the `.env` metadata to skip recreating Cloudflare or Stripe resources.
 - Record updates to secrets, Better Auth, or Stripe setup in `docs/better-auth.md` (Better Auth integration) or `docs/archive/DEPLOYMENTS.md`, and mirror changes in `.dev.vars` files.
+- `FONT_AWESOME_PACKAGE_TOKEN` lives in `~/.env`; the `scripts/sync-fontawesome-token.mjs` preinstall hook now reads that file automatically so pnpm installs pull the private Font Awesome packages without extra steps.
 - Shared credentials live in `~/.env`; source it (`set -a; source ~/.env; set +a`) before running remote validation or CI-like scripts so required env vars exist.
 - For local auth testing, create `workers/api/.dev.vars` with the same bindings used in production (D1, R2, BETTER_AUTH_URL, etc.). Wrangler loads these automatically during `npm run dev:worker` and keeps state under `.wrangler/state/`.
 - Use `wrangler dev --remote` when you need Cloudflare's edge runtime (JWT verification with real Better Auth tenant) while retaining hot reload.
