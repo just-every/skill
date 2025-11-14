@@ -1,5 +1,6 @@
-import React, { useEffect } from 'react';
-import { Platform, Pressable, ScrollView, Text, View } from 'react-native';
+import React, { useCallback, useEffect, useState } from 'react';
+import { NativeSyntheticEvent, Platform, Pressable, ScrollView, Text, View } from 'react-native';
+import type { NativeScrollEvent } from 'react-native/Libraries/Components/ScrollView/ScrollView';
 
 import { useRouterContext } from '../router/RouterProvider';
 import { cn } from '../lib/cn';
@@ -60,6 +61,8 @@ const normaliseActivePath = (path: string): string => {
 const Layout = ({ children }: LayoutProps) => {
   const { path, navigate } = useRouterContext();
   const activePath = normaliseActivePath(path);
+  const isHome = activePath === '/';
+  const [navSolid, setNavSolid] = useState(!isHome);
 
   useEffect(() => {
     if (Platform.OS !== 'web' || typeof document === 'undefined') {
@@ -75,9 +78,35 @@ const Layout = ({ children }: LayoutProps) => {
     };
   }, []);
 
+  const handleScroll = useCallback(
+    (event: NativeSyntheticEvent<NativeScrollEvent>) => {
+      if (!isHome) {
+        return;
+      }
+      const offsetY = event.nativeEvent.contentOffset?.y ?? 0;
+      setNavSolid(offsetY > 56);
+    },
+    [isHome]
+  );
+
+  const navWrapperClass = cn(
+    'fixed left-0 right-0 top-0 z-50 transition-all duration-300',
+    navSolid ? 'border-b border-slate-200 bg-white/90 backdrop-blur' : 'border-b border-transparent bg-transparent'
+  );
+
+  const navLinkBase = navSolid
+    ? 'text-slate-600 focus-visible:ring-offset-white'
+    : 'text-white/80 focus-visible:ring-offset-transparent';
+  const navActive = navSolid ? 'bg-slate-100 text-ink' : 'bg-white/10 text-white';
+  const navLinkText = navSolid ? 'text-slate-600' : 'text-white/80';
+  const navActiveText = navSolid ? 'text-ink' : 'text-white';
+  const ctaClass = navSolid
+    ? 'border-slate-200 bg-slate-50 text-ink'
+    : 'border-white/30 bg-white/10 text-white hover:bg-white/20';
+
   return (
     <View className="min-h-screen flex-1 bg-surface">
-      <View className="border-b border-slate-200 bg-white/95 backdrop-blur">
+      <View className={navWrapperClass}>
         <Container className="flex flex-row flex-wrap items-center justify-between gap-4 py-4">
           <Pressable onPress={() => navigate('/')} accessibilityRole="link" className="flex-row items-center gap-3">
             <Logo size={28} />
@@ -91,12 +120,15 @@ const Layout = ({ children }: LayoutProps) => {
                   key={item.href}
                   onPress={() => navigate(item.href)}
                   accessibilityRole="link"
-                className={cn(
-                  'rounded-full px-4 py-2 text-base font-medium text-slate-500 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-offset-2 focus-visible:ring-offset-white',
-                  isActive && 'bg-slate-100 text-ink'
-                )}
+                  className={cn(
+                    'rounded-full px-4 py-2 text-base font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-offset-2',
+                    navLinkBase,
+                    isActive && navActive
+                  )}
                 >
-                  <Text className={cn(isActive && 'font-semibold text-ink')}>{item.label}</Text>
+                  <Text className={cn('font-medium', navLinkText, isActive && `font-semibold ${navActiveText}`)}>
+                    {item.label}
+                  </Text>
                 </Pressable>
               );
             })}
@@ -104,7 +136,7 @@ const Layout = ({ children }: LayoutProps) => {
           <Button
             variant="ghost"
             size="sm"
-            className="border-slate-200 bg-slate-50 text-ink"
+            className={cn('rounded-full border px-5 py-2', ctaClass)}
             onPress={() => navigate('/app')}
           >
             Open app
@@ -112,8 +144,13 @@ const Layout = ({ children }: LayoutProps) => {
         </Container>
       </View>
 
-      <ScrollView className="flex-1">
-        <Container className="py-10">{children}</Container>
+      <ScrollView
+        className="flex-1"
+        onScroll={isHome ? handleScroll : undefined}
+        scrollEventThrottle={16}
+        contentContainerStyle={{ paddingTop: isHome ? 0 : 96 }}
+      >
+        <Container className={cn(isHome ? '' : 'py-10')}>{children}</Container>
         <View className="border-t border-slate-200 bg-white">
           <Container className="flex flex-col gap-10 py-10">
             <View className="flex flex-col gap-2 rounded-3xl border border-slate-100 bg-slate-50/80 p-6 md:flex-row md:items-center md:justify-between">

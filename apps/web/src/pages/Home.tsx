@@ -68,7 +68,7 @@ const Home = () => {
         accessibilityRole="header"
         className="relative left-1/2 w-screen -ml-[50vw]"
       >
-        <View className="relative min-h-[92vh] w-full overflow-hidden bg-slate-950">
+        <View className="relative min-h-screen w-full overflow-hidden bg-slate-950">
           <PixelBlastBackdrop
             className="absolute inset-0"
             style={{ opacity: 0.92, mixBlendMode: 'screen' }}
@@ -80,7 +80,7 @@ const Home = () => {
           <View className="pointer-events-none absolute inset-x-0 top-0 h-40 bg-gradient-to-b from-slate-950/80 via-slate-950/30 to-transparent" />
           <View className="relative z-10 flex h-full items-center px-4 py-16 sm:px-10 lg:px-16">
             <View className="mx-auto w-full max-w-5xl">
-              <View className="max-w-2xl space-y-6 rounded-[32px] border border-white/15 bg-slate-950/55 p-8 sm:p-12 shadow-[0_50px_120px_rgba(2,6,23,0.85)] backdrop-blur-3xl">
+              <View className="max-w-2xl space-y-6 rounded-[32px] bg-transparent p-8 sm:p-12 shadow-[0_50px_120px_rgba(2,6,23,0.75)] backdrop-blur-3xl">
                 <View className="self-start rounded-full border border-white/20 bg-white/5 px-4 py-1">
                   <Typography variant="caption" className="text-xs uppercase tracking-[0.35em] text-white/80">
                     Cloudflare · Stripe ready
