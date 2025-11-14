@@ -179,7 +179,7 @@ const SHAPE_MAP: Record<PixelBlastVariant, number> = {
   diamond: 3
 };
 
-const VERTEX_SRC = `
+const VERTEX_BODY = `
   void main() {
     gl_Position = vec4(position, 1.0);
   }
@@ -209,8 +209,6 @@ const int   MAX_CLICKS = 10;
 
 uniform vec2  uClickPos  [MAX_CLICKS];
 uniform float uClickTimes[MAX_CLICKS];
-
-out vec4 fragColor;
 
 float Bayer2(vec2 a) {
   a = floor(a);
@@ -342,16 +340,6 @@ void main(){
 }
 `;
 
-const buildFragmentShader = (isWebGL2: boolean) => {
-  const header = isWebGL2
-    ? `#version 300 es\nprecision highp float;\nout vec4 fragColor;\n#define FRAG_COLOR fragColor\n`
-    : `#extension GL_OES_standard_derivatives : enable\nprecision highp float;\n#define FRAG_COLOR gl_FragColor\n`;
-  return `${header}${FRAGMENT_BODY}`;
-};
-
-const buildVertexShader = (isWebGL2: boolean) =>
-  isWebGL2 ? `#version 300 es\n${VERTEX_SRC}` : VERTEX_SRC;
-
 const randomFloat = () => {
   if (typeof window !== 'undefined' && window.crypto?.getRandomValues) {
     const u32 = new Uint32Array(1);
@@ -360,6 +348,15 @@ const randomFloat = () => {
   }
   return Math.random();
 };
+const getVertexShader = (isWebGL2: boolean) =>
+  isWebGL2
+    ? `#version 300 es\nprecision highp float;\nin vec3 position;\n${VERTEX_BODY}`
+    : `precision highp float;\nattribute vec3 position;\n${VERTEX_BODY}`;
+
+const getFragmentShader = (isWebGL2: boolean) =>
+  isWebGL2
+    ? `#version 300 es\nprecision highp float;\nout vec4 fragColor;\n#define FRAG_COLOR fragColor\n${FRAGMENT_BODY}`
+    : `#extension GL_OES_standard_derivatives : enable\nprecision highp float;\n#define FRAG_COLOR gl_FragColor\n${FRAGMENT_BODY}`;
 
 const PixelBlast: React.FC<PixelBlastProps> = ({
   className,
@@ -469,9 +466,9 @@ const PixelBlast: React.FC<PixelBlastProps> = ({
 
       const scene = new THREE.Scene();
       const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
-      const material = new THREE.ShaderMaterial({
-        vertexShader: buildVertexShader(isWebGL2),
-        fragmentShader: buildFragmentShader(isWebGL2),
+      const material = new THREE.RawShaderMaterial({
+        vertexShader: getVertexShader(isWebGL2),
+        fragmentShader: getFragmentShader(isWebGL2),
         uniforms,
         transparent: true,
         depthTest: false,
