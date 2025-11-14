@@ -185,9 +185,7 @@ const VERTEX_SRC = `
   }
 `;
 
-const FRAGMENT_SRC = `
-precision highp float;
-
+const FRAGMENT_BODY = `
 uniform vec3  uColor;
 uniform vec2  uResolution;
 uniform float uTime;
@@ -340,9 +338,19 @@ void main(){
   }
 
   vec3 color = uColor;
-  fragColor = vec4(color, M);
+  FRAG_COLOR = vec4(color, M);
 }
 `;
+
+const buildFragmentShader = (isWebGL2: boolean) => {
+  const header = isWebGL2
+    ? `#version 300 es\nprecision highp float;\nout vec4 fragColor;\n#define FRAG_COLOR fragColor\n`
+    : `#extension GL_OES_standard_derivatives : enable\nprecision highp float;\n#define FRAG_COLOR gl_FragColor\n`;
+  return `${header}${FRAGMENT_BODY}`;
+};
+
+const buildVertexShader = (isWebGL2: boolean) =>
+  isWebGL2 ? `#version 300 es\n${VERTEX_SRC}` : VERTEX_SRC;
 
 const randomFloat = () => {
   if (typeof window !== 'undefined' && window.crypto?.getRandomValues) {
@@ -428,6 +436,7 @@ const PixelBlast: React.FC<PixelBlastProps> = ({
         alpha: true,
         powerPreference: 'high-performance'
       });
+      const isWebGL2 = renderer.capabilities.isWebGL2;
       renderer.domElement.style.width = '100%';
       renderer.domElement.style.height = '100%';
       renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
@@ -461,13 +470,13 @@ const PixelBlast: React.FC<PixelBlastProps> = ({
       const scene = new THREE.Scene();
       const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
       const material = new THREE.ShaderMaterial({
-        vertexShader: VERTEX_SRC,
-        fragmentShader: FRAGMENT_SRC,
+        vertexShader: buildVertexShader(isWebGL2),
+        fragmentShader: buildFragmentShader(isWebGL2),
         uniforms,
         transparent: true,
         depthTest: false,
         depthWrite: false,
-        glslVersion: THREE.GLSL3
+        glslVersion: isWebGL2 ? THREE.GLSL3 : undefined
       });
       const quadGeom = new THREE.PlaneGeometry(2, 2);
       const quad = new THREE.Mesh(quadGeom, material);

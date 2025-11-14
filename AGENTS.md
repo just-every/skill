@@ -17,6 +17,7 @@ This repository is the canonical justevery starter stack; future products should
 - `npm run test:e2e` – Playwright against `E2E_BASE_URL` or `PROJECT_DOMAIN`.
 - `pnpm bootstrap:deploy` – Render + deploy via the bootstrap CLI (actual deploy).
 - `pnpm bootstrap:deploy:dry-run` – Render without deploying; useful for validation in CI.
+- Pushing to `main` automatically triggers the GitHub deploy workflow to `starter.justevery.com`; monitor that run with `gh run watch --branch main` when shipping user-visible changes.
 
 ## Coding Style & Naming Conventions
 - TypeScript is strict via `tsconfig.base.json`; add explicit return types on exported helpers and update `Env` when bindings change.
