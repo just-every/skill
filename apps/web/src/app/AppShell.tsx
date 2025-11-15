@@ -407,24 +407,22 @@ const AppShell = ({ navItems, activeItem, onNavigate, companies, isLoadingCompan
             onPress={closeMenus}
             className="absolute inset-0 bg-gradient-to-b from-slate-950 via-slate-900 to-slate-950 opacity-95"
           />
-          <View className="absolute inset-0 text-white">
-            <ScrollView className="h-full pt-14">
-              <View className="min-h-full px-3 pb-12">
-                <Sidebar
-                  sidebarContainerRef={sidebarContainerRef}
-                  StarfieldComponent={StarfieldComponent}
-                  prefersReducedMotion={prefersReducedMotion}
-                  navInteractionLevel={navInteractionLevel}
-                  depthCurve={depthCurve}
-                  navItems={navItems}
-                  activeItem={activeItem}
-                  handleNavPress={handleNavPress}
-                  renderAccountMenu={renderAccountMenu}
-                  microEventFrequency={STARFIELD_MICRO_EVENT_FREQ}
-                />
-              </View>
-            </ScrollView>
-          </View>
+          <ScrollView className="relative h-full pt-14 text-white">
+            <View className="min-h-full px-3 pb-12">
+              <Sidebar
+                sidebarContainerRef={sidebarContainerRef}
+                StarfieldComponent={StarfieldComponent}
+                prefersReducedMotion={prefersReducedMotion}
+                navInteractionLevel={navInteractionLevel}
+                depthCurve={depthCurve}
+                navItems={navItems}
+                activeItem={activeItem}
+                handleNavPress={handleNavPress}
+                renderAccountMenu={renderAccountMenu}
+                microEventFrequency={STARFIELD_MICRO_EVENT_FREQ}
+              />
+            </View>
+          </ScrollView>
         </View>
       )}
       <InviteModal visible={openInvite} onClose={() => setOpenInvite(false)} onSubmit={handleInviteSubmit} />
