@@ -389,31 +389,39 @@ const AppShell = ({ navItems, activeItem, onNavigate, companies, isLoadingCompan
         </ScrollView>
       </View>
       {isMobileMenuOpen && (
-        <View className="absolute inset-0 z-50 bg-gradient-to-b from-slate-950 via-slate-900 to-slate-950 text-white lg:hidden">
+        <View className="absolute inset-0 z-50 lg:hidden">
           <Pressable
             accessibilityRole="button"
             accessibilityLabel="Close navigation"
             onPress={closeMenus}
-            className="absolute right-4 top-4 flex h-10 w-10 items-center justify-center rounded-full border border-white/20"
-          >
-            <FontAwesomeIcon icon={faXmark} size={20} color="#f8fafc" />
-          </Pressable>
-          <ScrollView className="h-full pt-14">
+            className="absolute inset-0 bg-gradient-to-b from-slate-950 via-slate-900 to-slate-950 opacity-95"
+          />
+          <View className="absolute inset-0 text-white">
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Close navigation"
+              onPress={closeMenus}
+              className="absolute right-4 top-4 flex h-10 w-10 items-center justify-center rounded-full border border-white/20"
+            >
+              <FontAwesomeIcon icon={faXmark} size={20} color="#f8fafc" />
+            </Pressable>
+            <ScrollView className="h-full pt-14">
               <View className="min-h-full px-3 pb-12">
-              <Sidebar
-                sidebarContainerRef={sidebarContainerRef}
-                StarfieldComponent={StarfieldComponent}
-                prefersReducedMotion={prefersReducedMotion}
-                navInteractionLevel={navInteractionLevel}
-                depthCurve={depthCurve}
-                navItems={navItems}
-                activeItem={activeItem}
-                handleNavPress={handleNavPress}
-                renderAccountMenu={renderAccountMenu}
-                microEventFrequency={STARFIELD_MICRO_EVENT_FREQ}
-              />
+                <Sidebar
+                  sidebarContainerRef={sidebarContainerRef}
+                  StarfieldComponent={StarfieldComponent}
+                  prefersReducedMotion={prefersReducedMotion}
+                  navInteractionLevel={navInteractionLevel}
+                  depthCurve={depthCurve}
+                  navItems={navItems}
+                  activeItem={activeItem}
+                  handleNavPress={handleNavPress}
+                  renderAccountMenu={renderAccountMenu}
+                  microEventFrequency={STARFIELD_MICRO_EVENT_FREQ}
+                />
               </View>
             </ScrollView>
+          </View>
         </View>
       )}
       <InviteModal visible={openInvite} onClose={() => setOpenInvite(false)} onSubmit={handleInviteSubmit} />

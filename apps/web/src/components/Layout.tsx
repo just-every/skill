@@ -71,13 +71,13 @@ const Layout = ({ children }: LayoutProps) => {
     }
     const previousBody = document.body.style.overflow;
     const previousHtml = document.documentElement.style.overflow;
-    document.body.style.overflow = 'auto';
-    document.documentElement.style.overflow = 'auto';
+    document.body.style.overflow = mobileNavOpen ? 'hidden' : 'auto';
+    document.documentElement.style.overflow = mobileNavOpen ? 'hidden' : 'auto';
     return () => {
       document.body.style.overflow = previousBody;
       document.documentElement.style.overflow = previousHtml;
     };
-  }, []);
+  }, [mobileNavOpen]);
 
   const handleScroll = useCallback(
     (event: NativeSyntheticEvent<NativeScrollEvent>) => {
@@ -223,48 +223,56 @@ const Layout = ({ children }: LayoutProps) => {
         </View>
       </ScrollView>
       {mobileNavOpen && (
-        <View className="fixed inset-0 z-40 bg-slate-950/98 px-6 pb-12 pt-20 text-white lg:hidden">
+        <View className="absolute inset-0 z-40 lg:hidden">
           <Pressable
             accessibilityRole="button"
             accessibilityLabel="Close menu"
             onPress={() => setMobileNavOpen(false)}
-            className="absolute right-4 top-4 flex h-10 w-10 items-center justify-center rounded-full border border-white/30"
-          >
-            <Text className="text-3xl font-semibold text-white" style={{ lineHeight: 24 }}>
-              ×
-            </Text>
-          </Pressable>
-          <ScrollView className="h-full">
-            <View className="space-y-6">
-              {NAV_ITEMS.map((item) => {
-                const isActive = activePath === item.href || (item.href !== '/' && activePath.startsWith(item.href));
-                return (
-                  <Pressable
-                    key={item.href}
-                    onPress={() => {
-                      navigate(item.href);
-                      setMobileNavOpen(false);
-                    }}
-                    accessibilityRole="link"
-                    className="flex flex-row items-center justify-between rounded-2xl border border-white/15 bg-white/5 px-4 py-3"
-                  >
-                    <Text className="text-lg font-semibold text-white">{item.label}</Text>
-                    {isActive ? <Text className="text-sm text-white/70">Current</Text> : null}
-                  </Pressable>
-                );
-              })}
-              <Button
-                variant="ghost"
-                className="rounded-2xl border border-white/20 bg-white/10 py-3 text-base"
-                onPress={() => {
-                  setMobileNavOpen(false);
-                  navigate('/app');
-                }}
-              >
-                Open app
-              </Button>
-            </View>
-          </ScrollView>
+            className="absolute inset-0 bg-slate-950/90"
+          />
+          <View className="absolute inset-0 px-6 pb-12 pt-20 text-white">
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Close menu"
+              onPress={() => setMobileNavOpen(false)}
+              className="absolute right-4 top-4 flex h-10 w-10 items-center justify-center rounded-full border border-white/30"
+            >
+              <Text className="text-3xl font-semibold text-white" style={{ lineHeight: 24 }}>
+                ×
+              </Text>
+            </Pressable>
+            <ScrollView className="h-full">
+              <View className="space-y-6">
+                {NAV_ITEMS.map((item) => {
+                  const isActive = activePath === item.href || (item.href !== '/' && activePath.startsWith(item.href));
+                  return (
+                    <Pressable
+                      key={item.href}
+                      onPress={() => {
+                        navigate(item.href);
+                        setMobileNavOpen(false);
+                      }}
+                      accessibilityRole="link"
+                      className="flex flex-row items-center justify-between rounded-2xl border border-white/15 bg-white/5 px-4 py-3"
+                    >
+                      <Text className="text-lg font-semibold text-white">{item.label}</Text>
+                      {isActive ? <Text className="text-sm text-white/70">Current</Text> : null}
+                    </Pressable>
+                  );
+                })}
+                <Button
+                  variant="ghost"
+                  className="rounded-2xl border border-white/20 bg-white/10 py-3 text-base"
+                  onPress={() => {
+                    setMobileNavOpen(false);
+                    navigate('/app');
+                  }}
+                >
+                  Open app
+                </Button>
+              </View>
+            </ScrollView>
+          </View>
         </View>
       )}
     </View>
