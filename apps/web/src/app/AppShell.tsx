@@ -373,23 +373,34 @@ const AppShell = ({ navItems, activeItem, onNavigate, companies, isLoadingCompan
         />
       </View>
       <View className="flex min-h-screen flex-1 flex-col bg-surface">
-        <View className="flex flex-row items-center justify-between bg-white/95 px-4 py-4 shadow-sm/10 lg:hidden">
+        <View className="relative z-50 flex flex-row items-center justify-between bg-white/95 px-4 py-4 shadow-sm/10 lg:hidden">
           <Logo size={28} color="#0f172a" />
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="Open navigation"
-            onPress={() => setMobileMenuOpen(true)}
-            className="rounded-xl border border-slate-200 bg-white px-3 py-2"
-          >
-            <FontAwesomeIcon icon={faBars} size={18} color="#0f172a" />
-          </Pressable>
+          {isMobileMenuOpen ? (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Close navigation"
+              onPress={closeMenus}
+              className="rounded-xl border border-slate-200 bg-slate-900 px-3 py-2"
+            >
+              <FontAwesomeIcon icon={faXmark} size={18} color="#f8fafc" />
+            </Pressable>
+          ) : (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Open navigation"
+              onPress={() => setMobileMenuOpen(true)}
+              className="rounded-xl border border-slate-200 bg-white px-3 py-2"
+            >
+              <FontAwesomeIcon icon={faBars} size={18} color="#0f172a" />
+            </Pressable>
+          )}
         </View>
         <ScrollView className="flex-1">
           <View className="flex-1 gap-6 px-4 py-6 md:px-8">{children}</View>
         </ScrollView>
       </View>
       {isMobileMenuOpen && (
-        <View className="absolute inset-0 z-50 lg:hidden">
+        <View className="absolute inset-0 z-40 lg:hidden">
           <Pressable
             accessibilityRole="button"
             accessibilityLabel="Close navigation"
@@ -397,14 +408,6 @@ const AppShell = ({ navItems, activeItem, onNavigate, companies, isLoadingCompan
             className="absolute inset-0 bg-gradient-to-b from-slate-950 via-slate-900 to-slate-950 opacity-95"
           />
           <View className="absolute inset-0 text-white">
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel="Close navigation"
-              onPress={closeMenus}
-              className="absolute right-4 top-4 flex h-10 w-10 items-center justify-center rounded-full border border-white/20"
-            >
-              <FontAwesomeIcon icon={faXmark} size={20} color="#f8fafc" />
-            </Pressable>
             <ScrollView className="h-full pt-14">
               <View className="min-h-full px-3 pb-12">
                 <Sidebar

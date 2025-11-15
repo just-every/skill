@@ -144,27 +144,43 @@ const Layout = ({ children }: LayoutProps) => {
             <Button
               variant="ghost"
               size="sm"
-              className={cn('hidden rounded-full border px-5 py-2 transition-colors duration-500 ease-out lg:inline-flex', ctaClass)}
+              className={cn(
+                'hidden rounded-full border px-5 py-2 transition-colors duration-500 ease-out lg:inline-flex',
+                ctaClass
+              )}
               onPress={() => navigate('/app')}
             >
               Open app
             </Button>
-            <Pressable
-              onPress={() => setMobileNavOpen(true)}
-              accessibilityRole="button"
-              accessibilityLabel="Open menu"
-              className={cn(
-                'flex h-11 w-11 items-center justify-center rounded-2xl border transition-colors duration-500 ease-out lg:hidden',
-                navSolid ? 'border-slate-200 bg-white/80' : 'border-white/30 bg-white/10'
-              )}
-            >
-              <Text
-                className="text-2xl font-semibold"
-                style={{ color: navSolid ? '#0f172a' : '#ffffff', lineHeight: 24 }}
+            {mobileNavOpen ? (
+              <Pressable
+                onPress={() => setMobileNavOpen(false)}
+                accessibilityRole="button"
+                accessibilityLabel="Close menu"
+                className="flex h-11 w-11 items-center justify-center rounded-2xl border border-white/40 bg-white/10 text-white lg:hidden"
               >
-                ☰
-              </Text>
-            </Pressable>
+                <Text className="text-3xl font-semibold" style={{ lineHeight: 24 }}>
+                  ×
+                </Text>
+              </Pressable>
+            ) : (
+              <Pressable
+                onPress={() => setMobileNavOpen(true)}
+                accessibilityRole="button"
+                accessibilityLabel="Open menu"
+                className={cn(
+                  'flex h-11 w-11 items-center justify-center rounded-2xl border transition-colors duration-500 ease-out lg:hidden',
+                  navSolid ? 'border-slate-200 bg-white/80' : 'border-white/30 bg-white/10'
+                )}
+              >
+                <Text
+                  className="text-2xl font-semibold"
+                  style={{ color: navSolid ? '#0f172a' : '#ffffff', lineHeight: 24 }}
+                >
+                  ☰
+                </Text>
+              </Pressable>
+            )}
           </View>
         </Container>
       </View>
