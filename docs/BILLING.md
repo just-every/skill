@@ -1,8 +1,6 @@
 # Billing & Stripe Integration
 
-End-to-end guide for configuring Stripe, wiring the Worker routes, and smoke-testing the billing experience. Organization
-and team management now live inside the login worker (`../login`), but billing, Stripe checkout/portal, and plan metadata
-remain in this repository.
+End-to-end guide for configuring Stripe, wiring the Worker routes, and smoke-testing the billing experience.
 
 ## Environment Variables
 

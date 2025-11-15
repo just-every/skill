@@ -5,10 +5,11 @@
    - Complete the login form using the configured admin email/password (or passkey) and ensure the worker issues a `better-auth.session_token` cookie scoped to `/api`.
    - Expected outcome: landing page loads the dashboard shell once the cookie is present.
 
-2. **Org management lives in login worker**
-   - Use the CTA on `/app` to open `https://login.justevery.com/` once authenticated.
-   - Perform any member/role/client changes inside that workspace; this repo no longer exposes Team or Invite screens.
-   - Confirm that returning to `/app` shows the billing widgets and login CTA only.
+2. **Team member role/name updates and removal**
+   - Open the Team screen in the app (via left navigation) while signed in as an Admin/Owner.
+   - Inline-edit a member name, save, and confirm the UI reflects the change; the worker should accept the PATCH payload and persist the new name.
+   - Tap a role chip, change the role, and verify the optimistic update holds; the worker should respond with `ok` and the query should refetch the team list.
+   - Hit the Remove button, approve the confirmation dialog, and ensure the member disappears from the list after the DELETE succeeds.
 
 3. **Billing contact persistence**
    - Navigate to the Billing screen.

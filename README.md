@@ -7,9 +7,7 @@ Secrets live in `~/.env`. The Node-based bootstrap CLI renders config from
 `better-auth.session_token` cookie to `/api/*`, so anything that needs the
 session (e.g. `/api/accounts`, `/api/me`) must be served from `/api` or proxied
 through the Worker—direct browser calls to non-`/api` paths will never receive
-the cookie. Organization membership and team management have moved to the
-login worker (`../login`), but billing, Stripe checkout/portal, and plan data
-remain in this project.
+the cookie.
 
 Session verification relies on a Cloudflare Service Binding (`LOGIN_SERVICE`)
 that points to the `login` worker. Make sure every environment’s

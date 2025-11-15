@@ -1,11 +1,5 @@
 # Changelog
 
-## [0.3.0]
-- Removed the local AppShell/Team/Usage/Assets screens and replaced `/app` with a billing-first view plus a CTA that links to the login worker for org management.
-- Trimmed `apps/web/src/app/hooks.ts` and related types so only billing queries/mutations remain; Stripe flows stay in this repo.
-- Simplified worker tests to run via `node:test` (through `tsx --test`) covering `/api/status`, `/api/stripe/products`, landing fallback, and session proxying.
-- Documentation updates (README, QUICKSTART, BILLING, VERIFY, TEMPLATE_READY, ACCEPTANCE) clarify that org data now lives in the login repo while billing stays here.
-
 ## [0.2.0]
 - UI sidebar polish (bottom-anchored account/company menus, hover drop-up switcher, softer overlays/shadows) in `apps/web/src/app/AppShell.tsx` plus Playwright hooks.
 - Team page name edit, role pills, and removal modal updates in `apps/web/src/app/screens/TeamScreen.tsx`.
