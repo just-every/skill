@@ -5,9 +5,11 @@ Secrets live in `~/.env`. The Node-based bootstrap CLI renders config from
 `workers/api/wrangler.toml.template` (no `wrangler.toml` committed). Authentication via Better Auth
 (login.justevery.com OIDC worker). Better Auth now scopes the
 `better-auth.session_token` cookie to `/api/*`, so anything that needs the
-session (e.g. `/api/accounts`, `/api/me`) must be served from `/api` or proxied
+session (e.g. `/api/me`) must be served from `/api` or proxied
 through the Worker—direct browser calls to non-`/api` paths will never receive
-the cookie.
+the cookie. Organization, membership, and billing APIs now live entirely in the
+login repository; this Worker only brokers sessions, serves marketing assets,
+and injects runtime config for the Expo shell.
 
 Session verification relies on a Cloudflare Service Binding (`LOGIN_SERVICE`)
 that points to the `login` worker. Make sure every environment’s

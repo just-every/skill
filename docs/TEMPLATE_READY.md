@@ -3,12 +3,12 @@
 ## Primary goals & implementation
 | Goal | Files / route | Notes |
 | --- | --- | --- |
-| Team page role/name edit + removal | `apps/web/src/app/screens/TeamScreen.tsx`, hooks in `apps/web/src/app/hooks.ts` | Inline name edit + role pills hit `/api/accounts/:slug/members/:id` PATCH and DELETE with optimistic invalidation.|
-| Billing contact persistence & Checkout | `apps/web/src/app/screens/BillingScreen.tsx`, `/workers/api/src/index.ts` handlers and Stripe-rich parsing | Billing form now hits `PATCH /api/accounts/:slug` (DB-backed) plus `POST /api/accounts/:slug/billing/checkout`. Worker tests ensure `STRIPE_PRODUCTS` data flows and Checkout returns Stripe URL.|
-| Session/sidebar UI | `apps/web/src/app/AppShell.tsx` | Sidebar nav sits above; bottom-anchored company/account drop-ups show email/logout and hover-switch with soft shadows. Accessibility labels added.|
+| Dashboard defers org/billing to login app | `apps/web/src/pages/Dashboard.tsx` | `/app` now renders a thin shell that links to `https://login.justevery.com` for all org/member/billing management.|
+| Marketing pricing data | `/workers/api/src/index.ts` | Worker still parses `STRIPE_PRODUCTS` for `/api/stripe/products` so landing/pricing remain accurate.|
+| Auth/session bootstrap | `apps/web/src/auth/AuthProvider.tsx`, `/workers/api/src/index.ts` | AuthProvider syncs Better Auth tokens to the Worker via `/api/session/bootstrap`; `/api/session` and `/api/me` remain intact.|
 
 ## Validation
-- Worker tests: `npm test --workspace workers/api` (includes billing, checkout, stripe parsing) – last run 2025-11-11 (~2.3s).
+- Worker tests: `npm test --workspace workers/api` (static + session + env injection) – last run 2025-11-15 (~0.6s).
 - Web build: `pnpm --filter @justevery/web run build` (passed).
 - Post-deploy verification: curl `https://starter.justevery.com/api/status` (expect `{"status":"ok"}`) and `https://starter.justevery.com/api/stripe/products` (expect enriched plan list) immediately after each deploy.
 
@@ -19,7 +19,7 @@
 
 ## Authenticated verification (requires Owner/Admin session)
 - Log in via Better Auth to `https://starter.justevery.com/app` and verify the dashboard shell loads.
-- On Team screen edit a member name + role and remove a member; confirm UI reflects edits and worker returns `ok`.
-- On Billing screen change billing email, save, and ensure persistent value; select a plan to call `/api/accounts/:slug/billing/checkout` (returns Stripe URL) and open `/api/accounts/:slug/billing/portal`.|
+- Use the “Open login” button inside the dashboard to reach `https://login.justevery.com`, then perform org/member/billing checks in that app (see login repo docs).
+- Back on the starter dashboard confirm `/api/stripe/products` renders the expected pricing metadata.
 
 With these checks passed, the template is ready for production usage and no further duplication is required.
