@@ -83,11 +83,11 @@ Minimal flow to go from clone → deploy in 10–15 minutes.
    ```bash
    curl -I https://starter.justevery.com/
    curl -s https://starter.justevery.com/api/session
-   # Optional: verify marketing pricing payload
-   curl -s https://starter.justevery.com/api/stripe/products
+   # Optional: verify Stripe integration
+   curl -s https://starter.justevery.com/api/accounts/justevery/billing/products
    ```
    - Expect 401 from `/api/session` without a bearer token; rerun with a valid token to confirm auth.
-   - Org/member/billing mutations now live in the login repository; use that project’s docs for invite or checkout flows.
+   - See `docs/BILLING.md` for checkout/portal/invoice cURL flows.
 
 Re-run the CLI when secrets or infrastructure change. `bootstrap.sh` remains as a shim but is deprecated.
 
