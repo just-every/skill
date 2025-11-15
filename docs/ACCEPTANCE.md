@@ -2,19 +2,15 @@
 
 ## Primary goals
 
-1. **Left-nav polish (bottom menus, hover company switcher, reduced shadows)**
-   - Implemented in `apps/web/src/app/AppShell.tsx` with new `testID`s, menu toggle refs, and reduced overlay styling; instrumentation added for Playwright. Validated via `RUN_OPEN_E2E=true npm run test:e2e` (open suite); screenshots below capture the landing page and /app experience.
-     - ![Landing page](docs/assets/landing.png) *Landing page with left-nav/hero.*  
-     - ![App page](docs/assets/app.png) *Auth-protected /app rendered without session (redirect canvas).*  
-2. **Team page edits/removals**
-   - Turned `apps/web/src/app/screens/TeamScreen.tsx` into an editable list with inline name inputs, saving/cancelling controls, role pills, and a removal modal hooked through the existing mutations. Validated by running `npm run test --workspace workers/api` (worker suite); full in-app Playwright coverage will return once login.justevery.com exposes M2M tokens so we can drive the UI without copying cookies.  
-3. **Billing persistence & Stripe checkout**
-   - Billing screen test IDs (`apps/web/src/app/screens/BillingScreen.tsx`) plus worker helper/type fixes in `workers/api/src/index.ts` and `workers/api/test/helpers.ts` now ensure the Worker persists billing emails and normalizes Stripe product metadata; typecheck `pnpm --filter @justevery/worker run typecheck` ensures typing health (includes new `BillingProduct`). Worker tests (`npm run test --workspace workers/api`) and Stripe-aware checkout/portal mocks in `workers/api/test/billing.test.ts` confirm behavior.  
-4. **Playwright smoke coverage**
-   - `RUN_OPEN_E2E=true npm run test:e2e` exercises landing/login/checkout probes and generates updated screenshots. Authenticated Playwright coverage is temporarily paused (spec removed from the repo) until the login worker emits M2M tokens for CI; this keeps the starter free of cookie-based secrets.
+1. **Org UI removal**
+   - Replaced the old AppShell/Team/Usage/Assets experience with a slim `/app` CTA that links admins to `https://login.justevery.com` for all organization management. Left nav, invite modals, and member-specific hooks were deleted to prevent stale org logic from lingering in this repo.
+2. **Keep billing local**
+   - Billing flows, Stripe checkout/portal, and subscription/invoice queries remain in this project. `apps/web/src/pages/Dashboard.tsx` now renders the Billing screen directly alongside the login CTA. Worker endpoints under `/api/accounts/:slug/billing/*` continue to persist billing email and talk to Stripe.
+3. **Simplified worker tests**
+   - Worker tests run via the built-in `node:test` runner (`tsx --test test/index.test.ts test/session.test.ts`) to cover `/api/status`, `/api/stripe/products`, landing fallback, and session bridging without Vitest/ESM churn.
 
 ## Validation commands
-- Worker unit tests: `npm run test --workspace workers/api` (34 tests; stripe + prerender warnings only).  
+- Worker unit tests: `npm run test --workspace workers/api` (node/test TAP suite covering status, stripe products, landing fallback, and session proxy).  
 - Worker typecheck: `pnpm --filter @justevery/worker run typecheck` (passes after typing fixes).  
 - Web build: `pnpm --filter @justevery/web run build`.  
 - Open Playwright suite: `RUN_OPEN_E2E=true npm run test:e2e` (landing/login/checkout PASS).
