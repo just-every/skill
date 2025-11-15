@@ -63,6 +63,7 @@ const Layout = ({ children }: LayoutProps) => {
   const activePath = normaliseActivePath(path);
   const isHome = activePath === '/';
   const [navSolid, setNavSolid] = useState(!isHome);
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
 
   useEffect(() => {
     if (Platform.OS !== 'web' || typeof document === 'undefined') {
@@ -89,6 +90,10 @@ const Layout = ({ children }: LayoutProps) => {
     [isHome]
   );
 
+  useEffect(() => {
+    setMobileNavOpen(false);
+  }, [activePath]);
+
   const navWrapperClass = cn(
     'fixed left-0 right-0 top-0 z-50 transition-all duration-500 ease-out',
     navSolid
@@ -113,7 +118,7 @@ const Layout = ({ children }: LayoutProps) => {
           <Pressable onPress={() => navigate('/')} accessibilityRole="link" className="flex-row items-center gap-3">
             <Logo size={28} color={navSolid ? '#0f172a' : '#ffffff'} />
           </Pressable>
-          <View className="flex flex-row flex-wrap items-center gap-2 md:gap-3">
+          <View className="hidden flex-row flex-wrap items-center gap-2 md:gap-3 lg:flex">
             {NAV_ITEMS.map((item) => {
               const isActive = activePath === item.href || (item.href !== '/' && activePath.startsWith(item.href));
 
@@ -135,14 +140,32 @@ const Layout = ({ children }: LayoutProps) => {
               );
             })}
           </View>
-          <Button
-            variant="ghost"
-            size="sm"
-            className={cn('rounded-full border px-5 py-2 transition-colors duration-500 ease-out', ctaClass)}
-            onPress={() => navigate('/app')}
-          >
-            Open app
-          </Button>
+          <View className="flex flex-row items-center gap-3">
+            <Button
+              variant="ghost"
+              size="sm"
+              className={cn('hidden rounded-full border px-5 py-2 transition-colors duration-500 ease-out lg:inline-flex', ctaClass)}
+              onPress={() => navigate('/app')}
+            >
+              Open app
+            </Button>
+            <Pressable
+              onPress={() => setMobileNavOpen(true)}
+              accessibilityRole="button"
+              accessibilityLabel="Open menu"
+              className={cn(
+                'flex h-11 w-11 items-center justify-center rounded-2xl border transition-colors duration-500 ease-out lg:hidden',
+                navSolid ? 'border-slate-200 bg-white/80' : 'border-white/30 bg-white/10'
+              )}
+            >
+              <Text
+                className="text-2xl font-semibold"
+                style={{ color: navSolid ? '#0f172a' : '#ffffff', lineHeight: 24 }}
+              >
+                ☰
+              </Text>
+            </Pressable>
+          </View>
         </Container>
       </View>
 
@@ -199,6 +222,51 @@ const Layout = ({ children }: LayoutProps) => {
           </Container>
         </View>
       </ScrollView>
+      {mobileNavOpen && (
+        <View className="fixed inset-0 z-40 bg-slate-950/98 px-6 pb-12 pt-20 text-white lg:hidden">
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Close menu"
+            onPress={() => setMobileNavOpen(false)}
+            className="absolute right-4 top-4 flex h-10 w-10 items-center justify-center rounded-full border border-white/30"
+          >
+            <Text className="text-3xl font-semibold text-white" style={{ lineHeight: 24 }}>
+              ×
+            </Text>
+          </Pressable>
+          <ScrollView className="h-full">
+            <View className="space-y-6">
+              {NAV_ITEMS.map((item) => {
+                const isActive = activePath === item.href || (item.href !== '/' && activePath.startsWith(item.href));
+                return (
+                  <Pressable
+                    key={item.href}
+                    onPress={() => {
+                      navigate(item.href);
+                      setMobileNavOpen(false);
+                    }}
+                    accessibilityRole="link"
+                    className="flex flex-row items-center justify-between rounded-2xl border border-white/15 bg-white/5 px-4 py-3"
+                  >
+                    <Text className="text-lg font-semibold text-white">{item.label}</Text>
+                    {isActive ? <Text className="text-sm text-white/70">Current</Text> : null}
+                  </Pressable>
+                );
+              })}
+              <Button
+                variant="ghost"
+                className="rounded-2xl border border-white/20 bg-white/10 py-3 text-base"
+                onPress={() => {
+                  setMobileNavOpen(false);
+                  navigate('/app');
+                }}
+              >
+                Open app
+              </Button>
+            </View>
+          </ScrollView>
+        </View>
+      )}
     </View>
   );
 };
