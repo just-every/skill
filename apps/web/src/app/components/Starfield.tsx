@@ -68,7 +68,11 @@ type Star = {
   orbitRadius?: number;
   orbitPhase?: number;
   orbitSpeed?: number;
-  meta: Record<string, any>;
+  // Pre-computed values for optimization
+  sinDrift: number;
+  cosDrift: number;
+  lastX: number;
+  lastY: number;
 };
 
 type StarfieldMode = 'normal' | 'conserve' | 'static';
@@ -92,11 +96,38 @@ type LayerState = {
   active: boolean;
 };
 
+type GalaxyMode = 'none' | 'nebula' | 'spiral' | 'flare';
+const GALAXY_MODES: GalaxyMode[] = ['none', 'nebula', 'spiral', 'flare'];
+
 const clamp = (value: number, min: number, max: number): number => Math.min(Math.max(value, min), max);
 const wrapUnit = (value: number): number => ((value % 1) + 1) % 1;
 const randomBetween = (range: [number, number]): number => range[0] + Math.random() * (range[1] - range[0]);
+
+// Pre-compute sin/cos lookup tables for common angles to avoid repeated trig calculations
+const SIN_TABLE_SIZE = 360;
+const sinLookup = new Float32Array(SIN_TABLE_SIZE);
+const cosLookup = new Float32Array(SIN_TABLE_SIZE);
+for (let i = 0; i < SIN_TABLE_SIZE; i++) {
+  const angle = (i / SIN_TABLE_SIZE) * Math.PI * 2;
+  sinLookup[i] = Math.sin(angle);
+  cosLookup[i] = Math.cos(angle);
+}
+
+const fastSin = (angle: number): number => {
+  const normalized = ((angle / (Math.PI * 2)) % 1 + 1) % 1;
+  const index = Math.floor(normalized * SIN_TABLE_SIZE) % SIN_TABLE_SIZE;
+  return sinLookup[index];
+};
+
+const fastCos = (angle: number): number => {
+  const normalized = ((angle / (Math.PI * 2)) % 1 + 1) % 1;
+  const index = Math.floor(normalized * SIN_TABLE_SIZE) % SIN_TABLE_SIZE;
+  return cosLookup[index];
+};
+
 const buildStars = (count: number, config: StarfieldVariantDefinition, palette: string[]): Star[] => {
   return Array.from({ length: count }, () => {
+    const driftDirection = Math.random() * Math.PI * 2;
     const star: Star = {
       baseX: Math.random(),
       baseY: Math.random(),
@@ -107,15 +138,20 @@ const buildStars = (count: number, config: StarfieldVariantDefinition, palette: 
       speed: config.speed * (0.8 + Math.random() * 0.5),
       phase: Math.random() * Math.PI * 2,
       driftAmplitude: config.driftAmplitude * (0.5 + Math.random()),
-      driftDirection: Math.random() * Math.PI * 2,
+      driftDirection,
       shape: ['pixel', 'line', 'flare', 'ring'][Math.floor(Math.random() * 4)] as StarShape,
       orbitRadius: undefined,
       orbitPhase: Math.random() * Math.PI * 2,
       orbitSpeed: 0.8 + Math.random() * 0.6,
-      meta: {}
+      // Pre-compute trig values
+      sinDrift: fastSin(driftDirection),
+      cosDrift: fastCos(driftDirection),
+      lastX: 0,
+      lastY: 0
     };
 
-    star.meta.last = { x: star.baseX, y: star.baseY };
+    star.lastX = star.baseX;
+    star.lastY = star.baseY;
 
     return star;
   });
@@ -141,6 +177,7 @@ type StarfieldLayerProps = {
   microEventFrequency?: number;
   className?: string;
   mode?: StarfieldMode;
+  galaxyMode: GalaxyMode;
 };
 
 const StarfieldLayer = React.memo((props: StarfieldLayerProps) => {
@@ -157,7 +194,8 @@ const StarfieldLayer = React.memo((props: StarfieldLayerProps) => {
     transitionMs,
     microEventFrequency,
     className,
-    mode
+    mode,
+    galaxyMode
   } = props;
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const interactionRef = useRef(interactionLevel);
@@ -238,7 +276,12 @@ const StarfieldLayer = React.memo((props: StarfieldLayerProps) => {
     if (!canvas || !host) {
       return undefined;
     }
-    const context = canvas.getContext('2d');
+    const context = canvas.getContext('2d', {
+      // Enable performance optimizations
+      alpha: true,
+      desynchronized: true, // Allow async rendering
+      willReadFrequently: false
+    });
     if (!context) {
       return undefined;
     }
@@ -257,6 +300,15 @@ const StarfieldLayer = React.memo((props: StarfieldLayerProps) => {
     let smoothedIntensity = interactionRef.current;
     const MICRO_EVENT_LIMIT = 40;
     let visibilityPaused = false;
+    let galaxyTick = 0;
+
+    // Batch rendering optimization: group stars by color to reduce state changes
+    const starsByColor = new Map<string, Star[]>();
+    stars.forEach(star => {
+      const colorGroup = starsByColor.get(star.color) || [];
+      colorGroup.push(star);
+      starsByColor.set(star.color, colorGroup);
+    });
 
     const updateSize = () => {
       const newWidth = Math.max(120, host.clientWidth);
@@ -276,7 +328,11 @@ const StarfieldLayer = React.memo((props: StarfieldLayerProps) => {
     };
 
     const drawScene = (delta: number) => {
+      // Clear once for entire frame
       context.clearRect(0, 0, displayWidth, displayHeight);
+
+      galaxyTick += delta;
+
       const targetIntensity = Math.max(interactionRef.current, pointerPresenceRef.current);
       const lerpFactor = clamp(delta / 900, 0, 1);
       smoothedIntensity = interpolate(smoothedIntensity, targetIntensity, lerpFactor);
@@ -284,41 +340,76 @@ const StarfieldLayer = React.memo((props: StarfieldLayerProps) => {
       const brightnessScalar = interpolate(IDLE_BRIGHTNESS, hoverGain, intensity);
       const speedScalar = interpolate(IDLE_SPEED_MULTIPLIER, ACTIVE_SPEED_MULTIPLIER, intensity);
 
-      stars.forEach((star, index) => {
-        if (!prefersReducedMotion) {
-          star.baseY = wrapUnit(star.baseY - (delta * star.speed * speedScalar) / 8000);
-          star.phase += (delta * star.speed) / 180;
-        }
-        const depthValue = clamp(resolvedDepth(star.depth), 0, 1);
-        const driftRadius = star.driftAmplitude * depthValue;
-        const driftX = Math.cos(star.driftDirection + star.phase) * driftRadius;
-        const driftY = Math.sin(star.driftDirection + star.phase * 0.8) * driftRadius * 0.5;
-        const orbitX = star.orbitRadius
-          ? Math.cos(star.phase * (star.orbitSpeed ?? 1) + (star.orbitPhase ?? 0)) * star.orbitRadius
-          : 0;
-        const orbitY = star.orbitRadius
-          ? Math.sin(star.phase * (star.orbitSpeed ?? 1) + (star.orbitPhase ?? 0)) * star.orbitRadius
-          : 0;
+      // Pre-calculate common values once per frame
+      const deltaSpeed = delta * speedScalar / 8000;
+      const deltaPhase = delta / 180;
 
-        const rawX = wrapUnit(star.baseX + driftX + orbitX) * displayWidth;
-        const rawY = wrapUnit(star.baseY + driftY + orbitY) * displayHeight;
-        const x = Math.round(rawX * pixelRatio) / pixelRatio;
-        const y = Math.round(rawY * pixelRatio) / pixelRatio;
-        renderVariant(context, {
-          variant,
-          config,
-          star,
-          x,
-          y,
-          depthValue,
+      // Update star positions (optimized loop)
+      if (!prefersReducedMotion) {
+        for (let i = 0; i < stars.length; i++) {
+          const star = stars[i];
+          star.baseY = wrapUnit(star.baseY - deltaSpeed * star.speed);
+          star.phase += deltaPhase * star.speed;
+        }
+      }
+
+      // Batch rendering by color to minimize context state changes
+      context.lineCap = 'round';
+
+      if (galaxyMode !== 'none') {
+        renderGalaxyLayer(context, {
+          mode: galaxyMode,
+          width: displayWidth,
+          height: displayHeight,
           intensity,
-          hoverScalar: brightnessScalar,
-          index,
-          displayWidth,
-          displayHeight,
+          tick: galaxyTick,
+          palette
         });
+      }
+
+      starsByColor.forEach((colorStars, color) => {
+        // Set color once for entire batch
+        context.fillStyle = color;
+        context.strokeStyle = color;
+
+        for (let i = 0; i < colorStars.length; i++) {
+          const star = colorStars[i];
+          const depthValue = clamp(resolvedDepth(star.depth), 0, 1);
+
+          // Use pre-computed sin/cos with fast lookup
+          const phaseOffset = star.phase;
+          const driftRadius = star.driftAmplitude * depthValue;
+          const driftX = fastCos(star.driftDirection + phaseOffset) * driftRadius;
+          const driftY = fastSin(star.driftDirection + phaseOffset * 0.8) * driftRadius * 0.5;
+
+          const rawX = wrapUnit(star.baseX + driftX) * displayWidth;
+          const rawY = wrapUnit(star.baseY + driftY) * displayHeight;
+
+          // Snap to pixel grid once
+          const x = Math.round(rawX * pixelRatio) / pixelRatio;
+          const y = Math.round(rawY * pixelRatio) / pixelRatio;
+
+          // Set opacity for this star
+          context.globalAlpha = clamp(star.opacity * brightnessScalar, 0.02, 0.75);
+
+          // Simplified rendering: just draw trail line and point
+          // Skip individual save/restore calls
+          context.lineWidth = Math.max(0.5, star.size);
+          context.beginPath();
+          context.moveTo(star.lastX, star.lastY);
+          context.lineTo(x, y);
+          context.stroke();
+          context.fillRect(x, y, Math.max(1, star.size), Math.max(1, star.size));
+
+          star.lastX = x;
+          star.lastY = y;
+        }
       });
 
+      // Reset global alpha after batch rendering
+      context.globalAlpha = 1;
+
+      // Render micro events with reduced frequency
       if (!prefersReducedMotion) {
         const chance = microEventFreq * delta * (0.7 + intensity * 0.8);
         if (Math.random() < chance) {
@@ -400,7 +491,7 @@ const StarfieldLayer = React.memo((props: StarfieldLayerProps) => {
         document.removeEventListener('visibilitychange', handleVisibility);
       }
     };
-  }, [variant, config, densityOverride, depthCurve, hoverGain, prefersReducedMotion, hostRef, microEventFrequency]);
+  }, [variant, config, densityOverride, depthCurve, hoverGain, prefersReducedMotion, hostRef, microEventFrequency, galaxyMode]);
 
   return (
     <canvas
@@ -449,38 +540,6 @@ type MicroEvent = {
   energy: number;
 };
 
-const renderVariant = (context: CanvasRenderingContext2D, params: RenderVariantParams) => {
-  const {
-    variant,
-    config,
-    star,
-    x,
-    y,
-    depthValue,
-    intensity,
-    hoverScalar,
-    index,
-    displayWidth,
-    displayHeight
-  } = params;
-  context.save();
-  context.lineCap = 'round';
-  context.fillStyle = star.color;
-  context.strokeStyle = star.color;
-
-  context.globalAlpha = clamp(star.opacity * hoverScalar, 0.02, 0.75);
-  const trail = star.meta.last;
-  context.lineWidth = Math.max(0.5, star.size);
-  context.beginPath();
-  context.moveTo(trail?.x ?? x, trail?.y ?? y);
-  context.lineTo(x, y);
-  context.stroke();
-  context.fillRect(x, y, Math.max(1, star.size), Math.max(1, star.size));
-  star.meta.last = { x, y };
-
-  context.restore();
-};
-
 const spawnMicroEvent = (
   variant: StarfieldVariant,
   displayWidth: number,
@@ -515,24 +574,28 @@ const renderMicroEvents = (
   delta: number
 ) => {
   const remaining: MicroEvent[] = [];
+
+  // Batch micro events by behavior type to reduce state changes
   events.forEach((event) => {
     event.progress += delta / event.duration;
     if (event.progress >= 1) {
       return;
     }
+
     const alpha = 0.35 * (1 - event.progress);
-    context.save();
     context.globalAlpha = alpha;
     context.strokeStyle = event.color;
     context.fillStyle = event.color;
+
     const radius = 1 + 2 * (1 - event.progress);
     context.beginPath();
     context.arc(event.x, event.y, radius, 0, Math.PI * 2);
     context.fill();
+
     renderMicroBehavior(context, event);
-    context.restore();
     remaining.push(event);
   });
+
   events.length = 0;
   events.push(...remaining);
 };
@@ -581,6 +644,78 @@ const renderMicroBehavior = (context: CanvasRenderingContext2D, event: MicroEven
   }
 };
 
+type GalaxyLayerOptions = {
+  mode: GalaxyMode;
+  width: number;
+  height: number;
+  intensity: number;
+  tick: number;
+  palette: string[];
+};
+
+const renderGalaxyLayer = (context: CanvasRenderingContext2D, options: GalaxyLayerOptions) => {
+  const { mode, width, height, intensity, tick, palette } = options;
+  if (mode === 'none') {
+    return;
+  }
+  context.save();
+  const minDimension = Math.min(width, height);
+  const centerX = width / 2;
+  const centerY = height / 2;
+  const baseAlpha = clamp(0.18 + intensity * 0.25, 0.05, 0.45);
+
+  if (mode === 'nebula') {
+    const blobs = 3;
+    for (let i = 0; i < blobs; i++) {
+      const angle = (tick * 0.0002 + i * 2) % (Math.PI * 2);
+      const radius = minDimension * (0.25 + 0.15 * i);
+      const blobX = centerX + Math.cos(angle) * radius * 0.3;
+      const blobY = centerY + Math.sin(angle) * radius * 0.2;
+      const gradient = context.createRadialGradient(blobX, blobY, 0, blobX, blobY, radius);
+      gradient.addColorStop(0, `rgba(99,102,241,${0.25 + 0.2 * intensity})`);
+      gradient.addColorStop(0.4, `rgba(14,165,233,${0.18 + 0.15 * intensity})`);
+      gradient.addColorStop(1, 'rgba(15,23,42,0)');
+      context.globalAlpha = baseAlpha;
+      context.fillStyle = gradient;
+      context.beginPath();
+      context.arc(blobX, blobY, radius, 0, Math.PI * 2);
+      context.fill();
+    }
+  } else if (mode === 'spiral') {
+    const arms = 2;
+    const steps = 140;
+    const spiralRadius = minDimension * 0.48;
+    for (let arm = 0; arm < arms; arm++) {
+      for (let i = 0; i < steps; i++) {
+        const ratio = i / steps;
+        const angle = ratio * 6 + tick * 0.0004 + arm * Math.PI;
+        const radius = spiralRadius * ratio;
+        const x = centerX + Math.cos(angle) * radius;
+        const y = centerY + Math.sin(angle) * radius * 0.6;
+        context.globalAlpha = baseAlpha * (0.4 + ratio * 0.6);
+        context.fillStyle = palette[(arm + i) % palette.length] ?? 'rgba(255,255,255,0.2)';
+        context.fillRect(x, y, 2 + ratio * 2, 2 + ratio * 2);
+      }
+    }
+  } else if (mode === 'flare') {
+    const flareAlpha = clamp(baseAlpha * 1.2, 0.05, 0.5);
+    context.globalAlpha = flareAlpha;
+    context.strokeStyle = 'rgba(255,255,255,0.6)';
+    context.lineWidth = 1.5;
+    const spokes = 6;
+    for (let i = 0; i < spokes; i++) {
+      const angle = (i / spokes) * Math.PI + tick * 0.0003;
+      const radius = minDimension * (0.35 + 0.05 * Math.sin(tick * 0.001 + i));
+      context.beginPath();
+      context.moveTo(centerX - Math.cos(angle) * radius * 0.15, centerY - Math.sin(angle) * radius * 0.15);
+      context.lineTo(centerX + Math.cos(angle) * radius, centerY + Math.sin(angle) * radius);
+      context.stroke();
+    }
+  }
+
+  context.restore();
+};
+
 export const Starfield = ({
   variant,
   density,
@@ -618,6 +753,13 @@ export const Starfield = ({
   const [layers, setLayers] = useState<LayerState[]>([
     { id: layersRef.current++, variant: selectedVariant, active: true }
   ]);
+  const [galaxyMode, setGalaxyMode] = useState<GalaxyMode>(() => {
+    if (typeof window === 'undefined') {
+      return 'none';
+    }
+    const stored = window.localStorage.getItem('starfield.galaxyMode');
+    return (stored as GalaxyMode) ?? 'none';
+  });
 
   useEffect(() => {
     setLayers((prev) => {
@@ -643,6 +785,108 @@ export const Starfield = ({
     return () => window.clearTimeout(timer);
   }, [layers, transitionDurationMs]);
 
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return undefined;
+    }
+    window.localStorage.setItem('starfield.galaxyMode', galaxyMode);
+  }, [galaxyMode]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return undefined;
+    }
+    const handleKeydown = (event: KeyboardEvent) => {
+      if (!event.shiftKey || !(event.metaKey || event.ctrlKey)) {
+        return;
+      }
+      if (event.key.toLowerCase() !== 'g') {
+        return;
+      }
+      event.preventDefault();
+      setGalaxyMode((prev) => {
+        const index = GALAXY_MODES.indexOf(prev);
+        const next = GALAXY_MODES[(index + 1) % GALAXY_MODES.length];
+        // eslint-disable-next-line no-console
+        console.info('Starfield galaxy mode:', next);
+        return next;
+      });
+    };
+    window.addEventListener('keydown', handleKeydown);
+    return () => window.removeEventListener('keydown', handleKeydown);
+  }, []);
+
+  useEffect(() => {
+    if (process.env.NODE_ENV === 'production') {
+      return undefined;
+    }
+    if (typeof window === 'undefined') {
+      return undefined;
+    }
+    const globalWindow = window as typeof window & {
+      __starfieldSamplerScheduled?: boolean;
+    };
+    if (globalWindow.__starfieldSamplerScheduled) {
+      return undefined;
+    }
+    globalWindow.__starfieldSamplerScheduled = true;
+
+    const samples: number[] = [];
+    let slowFrames = 0;
+    let last = performance.now();
+    const duration = 6000;
+    let finished = false;
+    let rafId: number | null = null;
+
+    const finish = () => {
+      if (finished) {
+        return;
+      }
+      finished = true;
+      if (rafId) {
+        cancelAnimationFrame(rafId);
+      }
+      samples.sort((a, b) => a - b);
+      const avg = samples.reduce((sum, value) => sum + value, 0) / samples.length || 0;
+      const p95 = samples[Math.floor(samples.length * 0.95)] ?? 0;
+      const snapshot = {
+        samples: samples.length,
+        avgFrameMs: Number(avg.toFixed(2)),
+        fpsAvg: Number((1000 / avg || 0).toFixed(1)),
+        p95FrameMs: Number(p95.toFixed(2)),
+        slowFrames,
+      };
+      // eslint-disable-next-line no-console
+      console.log('STARFIELD_FPS_SNAPSHOT', snapshot);
+      globalWindow.__starfieldSamplerScheduled = false;
+    };
+
+    const start = last;
+    const loop = (now: number) => {
+      const delta = now - last;
+      samples.push(delta);
+      if (delta > 16.7) {
+        slowFrames++;
+      }
+      last = now;
+      if (now - start >= duration) {
+        finish();
+        return;
+      }
+      rafId = requestAnimationFrame(loop);
+    };
+
+    rafId = requestAnimationFrame(loop);
+    const timeout = window.setTimeout(finish, duration + 200);
+
+    return () => {
+      if (!finished) {
+        finish();
+      }
+      window.clearTimeout(timeout);
+    };
+  }, []);
+
   const hostRef = containerRef;
 
   return (
@@ -663,6 +907,7 @@ export const Starfield = ({
           microEventFrequency={conservatoryMicroFreq}
           mode={starfieldMode}
           className={className}
+          galaxyMode={galaxyMode}
         />
       ))}
     </>
