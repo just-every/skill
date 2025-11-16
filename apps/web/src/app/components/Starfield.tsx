@@ -665,15 +665,17 @@ const renderGalaxyLayer = (context: CanvasRenderingContext2D, options: GalaxyLay
   const baseAlpha = clamp(0.18 + intensity * 0.25, 0.05, 0.45);
 
   if (mode === 'nebula') {
-    const blobs = 3;
+    const blobs = 4;
+    const maxRadius = Math.max(width, height) * 0.58;
     for (let i = 0; i < blobs; i++) {
-      const angle = (tick * 0.0002 + i * 2) % (Math.PI * 2);
-      const radius = minDimension * (0.25 + 0.15 * i);
-      const blobX = centerX + Math.cos(angle) * radius * 0.3;
-      const blobY = centerY + Math.sin(angle) * radius * 0.2;
+      const angle = (tick * 0.00018 + i * (Math.PI / 2.1)) % (Math.PI * 2);
+      const radius = maxRadius * (0.7 - i * 0.12);
+      const blobX = centerX + Math.cos(angle) * maxRadius * 0.35;
+      const blobY = centerY + Math.sin(angle) * maxRadius * 0.28;
       const gradient = context.createRadialGradient(blobX, blobY, 0, blobX, blobY, radius);
-      gradient.addColorStop(0, `rgba(99,102,241,${0.25 + 0.2 * intensity})`);
-      gradient.addColorStop(0.4, `rgba(14,165,233,${0.18 + 0.15 * intensity})`);
+      gradient.addColorStop(0, `rgba(79,70,229,${0.35 + 0.25 * intensity})`);
+      gradient.addColorStop(0.45, `rgba(14,165,233,${0.2 + 0.2 * intensity})`);
+      gradient.addColorStop(0.8, `rgba(56,189,248,${0.08 + 0.1 * intensity})`);
       gradient.addColorStop(1, 'rgba(15,23,42,0)');
       context.globalAlpha = baseAlpha;
       context.fillStyle = gradient;

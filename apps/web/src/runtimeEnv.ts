@@ -46,6 +46,27 @@ const staticEnv = (() => {
   } satisfies InjectedEnvPayload;
 })();
 
+let runtimeEnvPromise: Promise<InjectedEnvPayload | undefined> | null = null;
+
+const fetchRuntimeEnvOnce = () => {
+  if (runtimeEnvPromise) {
+    return runtimeEnvPromise;
+  }
+  runtimeEnvPromise = (async () => {
+    try {
+      const response = await fetch('/api/runtime-env', { headers: { Accept: 'application/json' } });
+      if (!response.ok) {
+        return undefined;
+      }
+      return (await response.json()) as InjectedEnvPayload;
+    } catch (runtimeError) {
+      console.warn('Failed to fetch runtime env', runtimeError);
+      return undefined;
+    }
+  })();
+  return runtimeEnvPromise;
+};
+
 const getInjectedEnv = (): InjectedEnvPayload | undefined => {
   if (typeof window === 'undefined') {
     return undefined;
@@ -117,22 +138,11 @@ export const usePublicEnv = (): ClientEnv => {
 
     let cancelled = false;
 
-    const loadRuntimeEnv = async () => {
-      try {
-        const response = await fetch('/api/runtime-env', { headers: { Accept: 'application/json' } });
-        if (!response.ok) {
-          return;
-        }
-        const payload = (await response.json()) as InjectedEnvPayload;
-        if (!cancelled) {
-          setEnv(buildClientEnv(payload));
-        }
-      } catch (runtimeError) {
-        console.warn('Failed to fetch runtime env', runtimeError);
+    fetchRuntimeEnvOnce().then((payload) => {
+      if (!cancelled && payload) {
+        setEnv(buildClientEnv(payload));
       }
-    };
-
-    void loadRuntimeEnv();
+    });
 
     return () => {
       cancelled = true;
