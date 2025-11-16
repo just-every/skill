@@ -1,15 +1,24 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   createMockEnv,
   mockRequireSession,
-  queueStripeResponse,
   runFetch,
   setupTestWorker,
   setViewerEmail,
-  stripeRequests,
 } from './helpers';
+import { BillingCheckoutError, createBillingCheckout } from '@justevery/login-client/billing';
 
 const realFetch = globalThis.fetch;
+
+vi.mock('@justevery/login-client/billing', async () => {
+  const actual = await vi.importActual<typeof import('@justevery/login-client/billing')>('@justevery/login-client/billing');
+  return {
+    ...actual,
+    createBillingCheckout: vi.fn(),
+  };
+});
+
+const checkoutMock = vi.mocked(createBillingCheckout);
 
 describe('Stripe billing checkout & portal', () => {
   let worker: Awaited<ReturnType<typeof setupTestWorker>>['worker'];
@@ -17,6 +26,7 @@ describe('Stripe billing checkout & portal', () => {
   beforeEach(async () => {
     ({ worker } = await setupTestWorker());
     setViewerEmail('ava@justevery.com');
+    checkoutMock.mockReset();
   });
 
   afterEach(() => {
@@ -26,7 +36,14 @@ describe('Stripe billing checkout & portal', () => {
 
   it('creates a checkout session when priceId is provided', async () => {
     const env = createMockEnv();
-    queueStripeResponse({ id: 'cs_test_123', url: 'https://checkout.stripe.com/pay/cs_test_123' });
+    checkoutMock.mockResolvedValue({
+      organizationId: 'acct-justevery',
+      checkoutRequestId: 'chk_req_123',
+      sessionId: 'cs_test_123',
+      url: 'https://checkout.stripe.com/pay/cs_test_123',
+      priceId: 'price_launch_monthly',
+      productCode: 'Launch',
+    });
 
     const request = new Request('http://127.0.0.1/api/accounts/justevery/billing/checkout', {
       method: 'POST',
@@ -45,16 +62,19 @@ describe('Stripe billing checkout & portal', () => {
     expect(payload).toMatchObject({
       sessionId: 'cs_test_123',
       url: expect.stringContaining('checkout.stripe.com'),
+      checkoutRequestId: 'chk_req_123',
     });
 
-    expect(stripeRequests).toHaveLength(1);
-    const [stripeCall] = stripeRequests;
-    expect(stripeCall.method).toBe('POST');
-    const params = Object.fromEntries(new URLSearchParams(stripeCall.body));
-    expect(params['line_items[0][price]']).toBe('price_launch_monthly');
-    expect(params['line_items[0][quantity]']).toBe('2');
-    expect(params.customer).toBe('cus_test_123');
-    expect(params['metadata[company_id]']).toBe('acct-justevery');
+    expect(checkoutMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        token: env.BILLING_CHECKOUT_TOKEN,
+        priceId: 'price_launch_monthly',
+        quantity: 2,
+        organizationId: 'acct-justevery',
+        successUrl: 'https://app.local/success',
+        cancelUrl: 'https://app.local/cancel',
+      })
+    );
   });
 
   it('rejects checkout requests with missing priceId', async () => {
@@ -72,12 +92,18 @@ describe('Stripe billing checkout & portal', () => {
     expect(response.status).toBe(400);
     const payload = await response.json();
     expect(payload).toMatchObject({ error: 'priceId is required' });
-    expect(stripeRequests).toHaveLength(0);
+    expect(checkoutMock).not.toHaveBeenCalled();
   });
 
   it('surfaces errors when Stripe rejects checkout', async () => {
     const env = createMockEnv();
-    queueStripeResponse({ error: 'invalid_request' }, 400);
+    checkoutMock.mockRejectedValueOnce(
+      new BillingCheckoutError('invalid redirect', {
+        status: 400,
+        code: 'invalid_redirect_origin',
+        body: { error: 'invalid_redirect_origin' },
+      })
+    );
 
     const request = new Request('http://127.0.0.1/api/accounts/justevery/billing/checkout', {
       method: 'POST',
@@ -90,10 +116,10 @@ describe('Stripe billing checkout & portal', () => {
     });
 
     const response = await runFetch(worker, request, env);
-    expect(response.status).toBe(500);
+    expect(response.status).toBe(400);
     const payload = await response.json();
-    expect(payload).toMatchObject({ error: 'Failed to create checkout session' });
-    expect(stripeRequests).toHaveLength(1);
+    expect(payload).toMatchObject({ error: 'invalid_redirect_origin' });
+    expect(checkoutMock).toHaveBeenCalledTimes(1);
   });
 
   it('blocks non-admin/owner users from checkout and portal', async () => {
@@ -121,6 +147,6 @@ describe('Stripe billing checkout & portal', () => {
 
     const portalResponse = await runFetch(worker, portalRequest, env);
     expect(portalResponse.status).toBe(403);
-    expect(stripeRequests).toHaveLength(0);
+    expect(checkoutMock).not.toHaveBeenCalled();
   });
 });

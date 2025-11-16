@@ -11,6 +11,7 @@ Add these to `~/.env` (bootstrap CLI) **and** `workers/api/.dev.vars` (local Wra
 | `STRIPE_SECRET_KEY` | Stripe API key (Dashboard → Developers → API keys → Secret key) |
 | `STRIPE_WEBHOOK_SECRET` | Signing secret from the webhook endpoint you create below |
 | `STRIPE_PRODUCTS` | JSON array describing the plans/prices the dashboard should list (each entry must include `priceId`, `unitAmount`, and `currency`; `id`, `name`, `description`, `interval`, and `metadata` are optional) |
+| `BILLING_CHECKOUT_TOKEN` | Service token issued by login with the `billing.checkout` scope. The worker uses it to call `POST /api/billing/checkout` on login. |
 | `TRIAL_PERIOD_DAYS` | Optional integer (default **30**). Controls the seeded `current_period_end` when a brand-new account is provisioned before Stripe fires real webhooks. Set shorter values (e.g., `14`) when demoing rapid trial expirations; keep ≥30 in prod to mirror your Stripe trial length. |
 | `STRIPE_REDIRECT_ALLOWLIST` | Optional comma-separated list of absolute URLs or origins that are allowed for `successUrl`, `cancelUrl`, and `returnUrl`. Each entry should include the scheme+host (e.g., `https://starter.justevery.com,https://app.local`) and is matched by origin. Use this to permit additional dev tunnels or staging domains; leave unset to fall back to the first-party origins (`APP_BASE_URL`, `PROJECT_DOMAIN`, `EXPO_PUBLIC_WORKER_ORIGIN`, `LOGIN_ORIGIN`). |
 
@@ -27,16 +28,21 @@ STRIPE_PRODUCTS='[
 TRIAL_PERIOD_DAYS=30
 # Allow localhost + deployed origin
 STRIPE_REDIRECT_ALLOWLIST="https://starter.justevery.com,https://app.local"
+BILLING_CHECKOUT_TOKEN=svc_... # billing.checkout token minted via login service clients UI
 ```
 
 Restart `npm run dev:worker` after editing secrets so Wrangler reloads them.
+
+### Login checkout helper
+
+The worker now defers checkout/session creation to the login worker via the shared helper at `../login/src/client/billing.ts`. Server routes import it through the `@justevery/login-client` path alias, pass the `BILLING_CHECKOUT_TOKEN`, and receive the canonical `{ checkoutRequestId, sessionId, url }` payload. Downstream services should follow the same pattern instead of talking to Stripe directly.
 
 ## Worker Endpoints
 
 | Route | Method | Roles | Description |
 | --- | --- | --- | --- |
 | `/api/accounts/:slug/billing/products` | GET | Billing+ | Lists plans from `STRIPE_PRODUCTS` |
-| `/api/accounts/:slug/billing/checkout` | POST | Owner/Admin | Creates a Stripe Checkout session (requires `priceId`, `successUrl`, `cancelUrl`) |
+| `/api/accounts/:slug/billing/checkout` | POST | Owner/Admin | Requests a Stripe Checkout session from login (requires `priceId`, `successUrl`, `cancelUrl`) |
 | `/api/accounts/:slug/billing/portal` | POST | Owner/Admin | Creates a Stripe customer portal session (`returnUrl` required) |
 | `/api/accounts/:slug/billing/invoices` | GET | Billing+ | Returns invoices for the company’s Stripe customer (`?limit=10`) |
 | `/webhook/stripe` | POST | Stripe | Verifies signatures and upserts `company_subscriptions` |

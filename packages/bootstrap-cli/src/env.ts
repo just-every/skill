@@ -23,6 +23,7 @@ const BaseEnvSchema = z.object({
   LOGIN_ORIGIN: z.string().optional(),
   SESSION_COOKIE_DOMAIN: z.string().optional(),
   STRIPE_SECRET_KEY: z.string().min(1, 'STRIPE_SECRET_KEY is required'),
+  BILLING_CHECKOUT_TOKEN: z.string().min(1, 'BILLING_CHECKOUT_TOKEN is required'),
   STRIPE_MODE: z.string().optional(),
   STRIPE_LIVE_SECRET_KEY: z.string().optional(),
   STRIPE_TEST_SECRET_KEY: z.string().optional(),

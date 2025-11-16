@@ -94,6 +94,7 @@ export function buildGeneratedFiles(options: GenerateFilesOptions): GenerateFile
   pushWorker(workerEntries, 'CLOUDFLARE_R2_BUCKET', r2Bucket);
   pushWorker(workerEntries, 'STRIPE_SECRET_KEY', env.STRIPE_SECRET_KEY);
   pushWorker(workerEntries, 'STRIPE_WEBHOOK_SECRET', stripeWebhookSecret);
+  pushWorker(workerEntries, 'BILLING_CHECKOUT_TOKEN', env.BILLING_CHECKOUT_TOKEN);
 
   const generatedEnvContents = GENERATED_ENV_HEADER + formatKeyValueBlock(webEntries);
   const devVarsContents = DEV_VARS_HEADER + formatKeyValueBlock(workerEntries);

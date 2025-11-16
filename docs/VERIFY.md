@@ -16,9 +16,9 @@
    - Update the saved billing email, click Save, and confirm the worker PATCH `/api/accounts/:slug` returns `ok` and the field stays updated.
    - Flip the field back or re-load the page to ensure persistence.
 
-4. **Stripe Checkout & Portal**
-   - From Billing, choose a plan and trigger Checkout; the worker should POST to `/api/accounts/:slug/billing/checkout` with `priceId`/quantity and return a `url` pointing at Stripe.
-   - Use the same billing section to open the Customer Portal; the worker should POST `/api/accounts/:slug/billing/portal`, receive a portal `url`, and redirect the browser.
+4. **Checkout proxy & Portal**
+   - From Billing, choose a plan and trigger Checkout; the worker should POST to `/api/accounts/:slug/billing/checkout`, which now forwards the request to `login.justevery.com/api/billing/checkout` using the `BILLING_CHECKOUT_TOKEN`. Expect a Stripe URL in the response.
+   - Use the same billing section to open the Customer Portal; the worker still POSTs `/api/accounts/:slug/billing/portal`, receives a portal `url`, and redirects the browser.
    - Ensure the enriched `/api/stripe/products` payload is non-empty (i.e., real price IDs and metadata) before hitting checkout.
 
 5. **Runtime health**
@@ -28,3 +28,10 @@
 6. **Document any issues**
    - If an endpoint returns `missing_cookie`, confirm auth flow was executed and retry after sign-in.
    - Record any unexpected failures in this document, including timestamp and request/response data.
+
+### Troubleshooting
+
+- **Vitest fails with `ERR_REQUIRE_ESM` referencing `vite/dist/node/index.js`.**
+  - Cause: on 9 Nov 2025 we picked up Vite 7 via transitive install. Vite 7 is ESM-only, but Vitest 4’s CJS launcher (and our `scripts/run-vitest-seq.mjs`) still `require()`s the CommonJS entry point, so the worker tests abort before running.
+  - Fix: pin Vite back to a CJS-compatible version. We now override Vite to `6.0.11` in the workspace root (`package.json → pnpm.overrides.vite`). Rerun `pnpm install` after pulling to ensure the lockfile respects the override, then run `pnpm --filter ./workers/api test`.
+  - Future work: when we deliberately upgrade to Vite 7+, update Vitest to a release that loads Vite via ESM (or switch our test runner to the new CLI) so this override can be removed.

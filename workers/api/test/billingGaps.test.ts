@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { D1Database, D1PreparedStatement, D1Result, D1Meta } from '@cloudflare/workers-types';
 
 import {
@@ -9,6 +9,17 @@ import {
   handleSubscriptionWebhookEvent,
 } from '../src/index';
 import { buildSession, createProvisioningEnv } from './provisioningTestUtils';
+import { createBillingCheckout } from '@justevery/login-client/billing';
+
+vi.mock('@justevery/login-client/billing', async () => {
+  const actual = await vi.importActual<typeof import('@justevery/login-client/billing')>('@justevery/login-client/billing');
+  return {
+    ...actual,
+    createBillingCheckout: vi.fn(),
+  };
+});
+
+const checkoutMock = vi.mocked(createBillingCheckout);
 
 type CompanyRow = {
   id: string;
@@ -186,6 +197,10 @@ function buildEnv(overrides: Partial<Env> = {}): Env {
     APP_BASE_URL: 'https://app.local',
     PROJECT_DOMAIN: 'https://app.local',
     STRIPE_PRODUCTS: '[]',
+    BILLING_CHECKOUT_TOKEN: 'svc_token_123',
+    STRIPE_SECRET_KEY: 'sk_test_mock',
+    STRIPE_WEBHOOK_SECRET: 'whsec_mock',
+    EXPO_PUBLIC_WORKER_ORIGIN: 'http://127.0.0.1:8787',
   } as Env;
   return { ...defaults, ...overrides };
 }
@@ -222,14 +237,8 @@ function buildAccount(overrides: Partial<Record<string, unknown>> = {}) {
 }
 
 describe('billing regression coverage', () => {
-  let originalFetch: typeof fetch;
-
-  beforeEach(() => {
-    originalFetch = globalThis.fetch;
-  });
-
   afterEach(() => {
-    globalThis.fetch = originalFetch;
+    checkoutMock.mockReset();
     vi.restoreAllMocks();
   });
 
@@ -295,16 +304,15 @@ describe('billing regression coverage', () => {
       companies: [{ id: companyId, plan: 'Launch', billing_email: null }],
       members: [{ company_id: companyId, email: 'owner@example.com', role: 'owner' }],
     });
-    const env = buildEnv({ DB: db, STRIPE_SECRET_KEY: 'sk_test_gap' });
-
-    globalThis.fetch = vi.fn().mockImplementation(() =>
-      Promise.resolve(
-        new Response(JSON.stringify({ id: 'cs_test', url: 'https://stripe.test/session' }), {
-          status: 200,
-          headers: { 'content-type': 'application/json' },
-        })
-      )
-    );
+    const env = buildEnv({ DB: db });
+    checkoutMock.mockResolvedValue({
+      organizationId: companyId,
+      checkoutRequestId: 'chk_gap_success',
+      sessionId: 'cs_test',
+      url: 'https://checkout.stripe.com/pay/cs_test',
+      priceId: 'price_scale',
+      productCode: 'Scale',
+    });
 
     const request = new Request('https://app.local/api/accounts/acct-email-gap/billing/checkout', {
       method: 'POST',
@@ -320,6 +328,7 @@ describe('billing regression coverage', () => {
     const response = await handleBillingCheckout(request, env, account as any, false);
 
     expect(response.status).toBe(200);
+    expect(checkoutMock).toHaveBeenCalled();
   });
 
   it('rejects checkout attempts that supply disallowed redirect URLs', async () => {
@@ -327,16 +336,7 @@ describe('billing regression coverage', () => {
     const db = new RecordingD1({
       companies: [{ id: companyId, plan: 'Launch', billing_email: 'billing@example.com' }],
     });
-    const env = buildEnv({ DB: db, STRIPE_SECRET_KEY: 'sk_test_gap' });
-
-    globalThis.fetch = vi.fn().mockImplementation(() =>
-      Promise.resolve(
-        new Response(JSON.stringify({ id: 'cs_test', url: 'https://stripe.test/session' }), {
-          status: 200,
-          headers: { 'content-type': 'application/json' },
-        })
-      )
-    );
+    const env = buildEnv({ DB: db });
 
     const request = new Request('https://app.local/api/accounts/acct-redirect-gap/billing/checkout', {
       method: 'POST',
@@ -352,5 +352,6 @@ describe('billing regression coverage', () => {
     const response = await handleBillingCheckout(request, env, account as any, false);
 
     expect(response.status).toBe(400);
+    expect(checkoutMock).not.toHaveBeenCalled();
   });
 });

@@ -1,8 +1,18 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import Worker, { type BillingProduct, type Env } from '../src/index';
 import type { IncomingRequestCfProperties } from '@cloudflare/workers-types';
+import { BillingCheckoutError, createBillingCheckout } from '@justevery/login-client/billing';
+
+vi.mock('@justevery/login-client/billing', async () => {
+  const actual = await vi.importActual<typeof import('@justevery/login-client/billing')>('@justevery/login-client/billing');
+  return {
+    ...actual,
+    createBillingCheckout: vi.fn(),
+  };
+});
 
 const mockRequireSession = vi.fn();
+const checkoutMock = vi.mocked(createBillingCheckout);
 
 vi.mock('../src/sessionAuth', () => ({
   authenticateRequest: vi.fn(),
@@ -49,7 +59,27 @@ function createDbMock(): D1Database {
           return { stripe_customer_id: 'cus_test_123' };
         }
         if (sql.includes('FROM companies')) {
-          return { stripe_customer_id: 'cus_test_123', billing_email: 'billing@justevery.com' };
+          const now = Date.now();
+          return {
+            id: 'acct-justevery',
+            slug: 'justevery',
+            name: 'justevery, inc.',
+            plan: 'Launch',
+            industry: 'Developer Tools',
+            billing_email: 'billing@justevery.com',
+            created_at: now,
+            primary_color: '#0f172a',
+            secondary_color: '#38bdf8',
+            accent_color: '#facc15',
+            logo_url: null,
+            tagline: 'Launch on day one',
+            branding_updated_at: now,
+            active_members: 5,
+            pending_invites: 0,
+            seats: 10,
+            mrr_cents: 540000,
+            stripe_customer_id: 'cus_test_123',
+          };
         }
         return null;
       },
@@ -79,6 +109,7 @@ function createMockEnv(overrides: Partial<Env> = {}): Env {
     LOGIN_ORIGIN: 'https://login.local',
     APP_BASE_URL: '/app',
     PROJECT_DOMAIN: 'https://app.local',
+    BILLING_CHECKOUT_TOKEN: 'svc_token_123',
     STRIPE_PRODUCTS: JSON.stringify([
       {
         id: 'prod_launch',
@@ -127,6 +158,7 @@ async function parseJson<T = unknown>(response: Response): Promise<T> {
 }
 
 beforeEach(() => {
+  checkoutMock.mockReset();
   stripeQueue.length = 0;
   const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
     const url = typeof input === 'string'
@@ -261,7 +293,14 @@ describe('Account billing endpoints', () => {
 
   it('creates a checkout session for Owner/Admin roles', async () => {
     const env = createMockEnv();
-    queueStripeResponse({ id: 'cs_test_123', url: 'https://checkout.stripe.com/test' });
+    checkoutMock.mockResolvedValueOnce({
+      checkoutRequestId: 'chk_req_123',
+      sessionId: 'cs_test_123',
+      url: 'https://checkout.stripe.com/test',
+      priceId: 'price_123',
+      productCode: 'Scale',
+      organizationId: 'acct-justevery',
+    });
 
     const request = new Request('http://127.0.0.1/api/accounts/justevery/billing/checkout', {
       method: 'POST',
@@ -275,9 +314,19 @@ describe('Account billing endpoints', () => {
 
     const response = await runFetch(request, env);
     expect(response.status).toBe(200);
-    const data = await parseJson<{ sessionId: string; url: string }>(response);
+    const data = await parseJson<{ sessionId: string; url: string; checkoutRequestId: string }>(response);
     expect(data.sessionId).toBe('cs_test_123');
+    expect(data.checkoutRequestId).toBe('chk_req_123');
     expect(data.url).toMatch(/checkout/);
+    expect(checkoutMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        token: env.BILLING_CHECKOUT_TOKEN,
+        priceId: 'price_123',
+        successUrl: 'https://app.local/success',
+        cancelUrl: 'https://app.local/cancel',
+        metadata: expect.objectContaining({ accountSlug: 'justevery' }),
+      })
+    );
   });
 
   it('rejects checkout when payload is incomplete', async () => {
@@ -309,8 +358,60 @@ describe('Account billing endpoints', () => {
     expect(response.status).toBe(403);
   });
 
-  it('returns a placeholder checkout session when Stripe is not configured but mock data is allowed', async () => {
-    const env = createMockEnv({ STRIPE_SECRET_KEY: undefined });
+  it('returns a placeholder checkout session when login checkout token is missing but mock data is allowed', async () => {
+    const env = createMockEnv({ BILLING_CHECKOUT_TOKEN: undefined });
+    const request = new Request('http://127.0.0.1/api/accounts/justevery/billing/checkout', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        priceId: 'price_launch_monthly',
+        successUrl: 'https://app.local/app/billing/success?session_id={CHECKOUT_SESSION_ID}',
+        cancelUrl: 'https://app.local/app/billing/cancel',
+      }),
+    });
+
+    const response = await runFetch(request, env);
+    expect(response.status).toBe(200);
+    const data = await parseJson<{ sessionId?: string; url: string; checkoutRequestId?: string }>(response);
+    expect(data.sessionId).toBeDefined();
+    expect(data?.sessionId).toContain('mock_checkout');
+    expect(data.checkoutRequestId).toContain('placeholder');
+    expect(data.url).toContain('mockCheckout=true');
+    expect(checkoutMock).not.toHaveBeenCalled();
+  });
+
+  it('propagates login checkout errors without falling back', async () => {
+    const env = createMockEnv();
+    checkoutMock.mockRejectedValueOnce(new BillingCheckoutError('invalid redirect', {
+      status: 400,
+      code: 'invalid_redirect_origin',
+      body: { error: 'invalid_redirect_origin' },
+    }));
+
+    const request = new Request('http://127.0.0.1/api/accounts/justevery/billing/checkout', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        priceId: 'price_launch_monthly',
+        successUrl: 'https://app.local/app/billing/success?session_id={CHECKOUT_SESSION_ID}',
+        cancelUrl: 'https://app.local/app/billing/cancel',
+      }),
+    });
+
+    const response = await runFetch(request, env);
+    expect(response.status).toBe(400);
+    const body = await parseJson<{ error?: string }>(response);
+    expect(body.error).toBe('invalid_redirect_origin');
+  });
+
+  it('falls back to a placeholder checkout when login returns a 5xx error and mock data is allowed', async () => {
+    const env = createMockEnv();
+    checkoutMock.mockRejectedValueOnce(new BillingCheckoutError('Stripe unavailable', {
+      status: 503,
+      code: 'stripe_not_configured',
+      body: { error: 'stripe_not_configured' },
+    }));
+
     const request = new Request('http://127.0.0.1/api/accounts/justevery/billing/checkout', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
@@ -324,9 +425,8 @@ describe('Account billing endpoints', () => {
     const response = await runFetch(request, env);
     expect(response.status).toBe(200);
     const data = await parseJson<{ sessionId?: string; url: string }>(response);
-    expect(data.sessionId).toBeDefined();
-    expect(data?.sessionId).toContain('mock_checkout');
-    expect(data.url).toContain('mockCheckout=true');
+    expect(data.sessionId).toContain('mock_checkout');
+    expect(checkoutMock).toHaveBeenCalled();
   });
 
   it('creates a portal session for Admin role', async () => {

@@ -6,6 +6,7 @@ import {
   authFailureResponse,
   type AuthenticatedSession,
 } from './sessionAuth';
+import { BillingCheckoutError, createBillingCheckout } from '@justevery/login-client/billing';
 
 type AssetFetcher = {
   fetch(input: Request | string, init?: RequestInit): Promise<Response>;
@@ -24,6 +25,7 @@ export interface Env {
   STRIPE_SECRET_KEY?: string;
   STRIPE_WEBHOOK_SECRET?: string;
   EXPO_PUBLIC_WORKER_ORIGIN?: string;
+  BILLING_CHECKOUT_TOKEN?: string;
   ALLOW_PLACEHOLDER_DATA?: string;
   ALLOW_SAMPLE_ACCOUNT_AUTO_MEMBERS?: string;
   ASSETS?: AssetFetcher;
@@ -1553,7 +1555,13 @@ function buildPlaceholderCheckoutSession(account: AccountRecord, priceId: string
     mockCheckout: 'true',
     plan: priceSegment,
   });
-  return { sessionId, url: redirectUrl };
+  return {
+    checkoutRequestId: `placeholder_${sessionId}`,
+    sessionId,
+    url: redirectUrl,
+    priceId,
+    productCode: priceSegment,
+  };
 }
 
 function buildPlaceholderPortalUrl(returnUrl: string, account: AccountRecord): string {
@@ -1561,6 +1569,18 @@ function buildPlaceholderPortalUrl(returnUrl: string, account: AccountRecord): s
     mockPortal: 'true',
     account: normaliseIdentifier(account.slug, 'account'),
   });
+}
+
+type FetchFunction = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
+
+function resolveLoginFetcher(env: Env): FetchFunction {
+  if (env.LOGIN_SERVICE) {
+    return (input, init) => {
+      const request = input instanceof Request ? input : new Request(input, init);
+      return env.LOGIN_SERVICE!.fetch(request);
+    };
+  }
+  return (input, init) => fetch(input as RequestInfo, init);
 }
 
 function replaceCheckoutPlaceholder(urlString: string, sessionId: string): string {
@@ -2722,60 +2742,62 @@ async function handleBillingCheckout(
     }
     throw error;
   }
-
-  if (!env.STRIPE_SECRET_KEY) {
-    if (!allowFallback) {
-      return jsonResponse({ error: 'Stripe not configured' }, 503);
+  const billingToken = env.BILLING_CHECKOUT_TOKEN?.trim();
+  const loginOrigin = env.LOGIN_ORIGIN?.trim();
+  if (!billingToken || !loginOrigin) {
+    if (allowFallback) {
+      console.warn('Checkout token/login origin missing; returning placeholder session');
+      const placeholderSession = buildPlaceholderCheckoutSession(account, priceId, successUrl);
+      return jsonResponse(placeholderSession);
     }
-    console.warn('handleBillingCheckout: returning placeholder session because Stripe is not configured', {
-      accountId: account.id,
+    return jsonResponse({
+      error: 'billing_checkout_unconfigured',
+      hint: 'Set BILLING_CHECKOUT_TOKEN and LOGIN_ORIGIN to proxy checkout through login.',
+    }, 503);
+  }
+
+  try {
+    const checkout = await createBillingCheckout({
+      token: billingToken,
+      loginOrigin,
+      organizationId: account.id,
       priceId,
-    });
-    const placeholderSession = buildPlaceholderCheckoutSession(account, priceId, successUrl);
-    return jsonResponse(placeholderSession);
-  }
-
-  // Ensure Stripe customer exists
-  let customerId: string | null = null;
-  try {
-    customerId = await ensureStripeCustomer(env, account);
-  } catch (error) {
-    if (isBillingEmailRequiredError(error)) {
-      return jsonResponse({ error: 'billing_email_required', hint: 'Add a billing contact email before starting checkout.' }, 400);
-    }
-    throw error;
-  }
-
-  if (!customerId) {
-    return jsonResponse({ error: 'Failed to create or retrieve Stripe customer' }, 500);
-  }
-
-  try {
-    const response = await stripeRequest('/checkout/sessions', {
-      method: 'POST',
-      body: {
-        customer: customerId,
-        'line_items[0][price]': priceId,
-        'line_items[0][quantity]': quantity,
-        mode: 'subscription',
-        success_url: successUrl,
-        cancel_url: cancelUrl,
-        'metadata[company_id]': account.id,
+      quantity,
+      successUrl,
+      cancelUrl,
+      metadata: {
+        source: 'project-worker',
+        accountId: account.id,
+        accountSlug: account.slug,
       },
-      apiKey: env.STRIPE_SECRET_KEY!,
+      fetchImpl: resolveLoginFetcher(env),
     });
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error('Stripe checkout session failed', { status: response.status, error: errorText });
-      return jsonResponse({ error: 'Failed to create checkout session' }, 500);
-    }
-
-    const session = await response.json() as { id: string; url: string };
-    return jsonResponse({ sessionId: session.id, url: session.url });
+    return jsonResponse({
+      checkoutRequestId: checkout.checkoutRequestId,
+      sessionId: checkout.sessionId,
+      url: checkout.url,
+      priceId: checkout.priceId,
+      productCode: checkout.productCode,
+    });
   } catch (error) {
-    console.error('Error creating checkout session', error);
-    return jsonResponse({ error: 'Internal server error' }, 500);
+    if (error instanceof BillingCheckoutError) {
+      if (allowFallback && (error.status >= 500 || error.status === 0)) {
+        console.warn('Checkout via login failed, falling back to placeholder session', {
+          status: error.status,
+          code: error.code,
+        });
+        const placeholderSession = buildPlaceholderCheckoutSession(account, priceId, successUrl);
+        return jsonResponse(placeholderSession);
+      }
+      const body = error.body ?? { error: error.message, code: error.code };
+      return jsonResponse(body, error.status || 502);
+    }
+    console.error('Unexpected error while creating checkout session via login', error);
+    if (allowFallback) {
+      const placeholderSession = buildPlaceholderCheckoutSession(account, priceId, successUrl);
+      return jsonResponse(placeholderSession);
+    }
+    return jsonResponse({ error: 'Failed to create checkout session', hint: 'Login worker unreachable' }, 502);
   }
 }
 
