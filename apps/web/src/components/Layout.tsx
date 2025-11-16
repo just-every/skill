@@ -191,7 +191,7 @@ const Layout = ({ children }: LayoutProps) => {
         scrollEventThrottle={16}
         contentContainerStyle={{ paddingTop: isHome ? 0 : 96 }}
       >
-        <Container className={cn(isHome ? 'pt-24' : 'py-10 pt-0')}>{children}</Container>
+        <Container className={cn(isHome ? 'pt-0' : 'py-10 pt-0')}>{children}</Container>
         <View className="border-t border-slate-200 bg-white">
           <Container className="flex flex-col gap-10 py-10">
             <View className="flex flex-col gap-2 rounded-3xl border border-slate-100 bg-slate-50/80 p-6 md:flex-row md:items-center md:justify-between">
