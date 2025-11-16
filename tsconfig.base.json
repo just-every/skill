@@ -12,8 +12,8 @@
     "paths": {
       "@justevery/ui/*": ["packages/ui/src/*"],
       "@justevery/config/*": ["packages/config/src/*"],
-      "@justevery/login-client": ["../login/src/client/index"],
-      "@justevery/login-client/*": ["../login/src/client/*"]
+      "@justevery/login-client": ["packages/login-client/src/index"],
+      "@justevery/login-client/*": ["packages/login-client/src/*"]
     }
   },
   "include": []

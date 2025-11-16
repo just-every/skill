@@ -17,6 +17,7 @@
     "wrangler": "^4.47.0"
   },
   "dependencies": {
-    "@justevery/auth-shared": "workspace:*"
+    "@justevery/auth-shared": "workspace:*",
+    "@justevery/login-client": "workspace:*"
   }
 }
