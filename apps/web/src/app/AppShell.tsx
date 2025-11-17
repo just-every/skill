@@ -373,14 +373,14 @@ const AppShell = ({ navItems, activeItem, onNavigate, companies, isLoadingCompan
         />
       </View>
       <View className="flex min-h-screen flex-1 flex-col bg-surface">
-        <View className="relative z-50 flex flex-row items-center justify-between bg-white/95 px-4 py-4 shadow-sm/10 lg:hidden">
-          <Logo size={28} color="#0f172a" />
+        <View className="relative z-50 flex flex-row items-center justify-between border-b border-slate-900/40 bg-gradient-to-b from-slate-950 via-slate-900 to-slate-950 px-4 py-4 text-white lg:hidden">
+          <Logo size={28} color="#f8fafc" />
           {isMobileMenuOpen ? (
             <Pressable
               accessibilityRole="button"
               accessibilityLabel="Close navigation"
               onPress={closeMenus}
-              className="rounded-xl border border-slate-200 bg-slate-900 px-3 py-2"
+              className="rounded-xl border border-white/40 bg-white/10 px-3 py-2"
             >
               <FontAwesomeIcon icon={faXmark} size={18} color="#f8fafc" />
             </Pressable>
@@ -389,9 +389,9 @@ const AppShell = ({ navItems, activeItem, onNavigate, companies, isLoadingCompan
               accessibilityRole="button"
               accessibilityLabel="Open navigation"
               onPress={() => setMobileMenuOpen(true)}
-              className="rounded-xl border border-slate-200 bg-white px-3 py-2"
+              className="rounded-xl border border-white/30 bg-white/10 px-3 py-2"
             >
-              <FontAwesomeIcon icon={faBars} size={18} color="#0f172a" />
+              <FontAwesomeIcon icon={faBars} size={18} color="#f8fafc" />
             </Pressable>
           )}
         </View>
