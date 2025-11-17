@@ -3,6 +3,24 @@ import * as THREE from 'three';
 import { EffectComposer, EffectPass, Effect, RenderPass } from 'postprocessing';
 
 const MAX_CLICKS = 10;
+const MAX_CANVAS_PIXELS = 1_200_000;
+const MIN_PIXEL_RATIO = 0.85;
+
+const resolvePixelRatio = (width: number, height: number): number => {
+  if (typeof window === 'undefined') {
+    return 1;
+  }
+  const base = Math.min(window.devicePixelRatio || 1, 2);
+  if (!width || !height) {
+    return base;
+  }
+  const area = width * height;
+  if (area <= MAX_CANVAS_PIXELS) {
+    return base;
+  }
+  const reduction = MAX_CANVAS_PIXELS / area;
+  return Math.max(MIN_PIXEL_RATIO, base * reduction);
+};
 
 type PixelBlastVariant = 'square' | 'circle' | 'triangle' | 'diamond';
 
@@ -391,6 +409,46 @@ const PixelBlast: React.FC<PixelBlastProps> = ({
   const prevConfigRef = useRef<Record<string, unknown> | null>(null);
 
   useEffect(() => {
+    if (!autoPauseOffscreen) {
+      visibilityRef.current.visible = true;
+      return undefined;
+    }
+    const container = containerRef.current;
+    if (
+      !container ||
+      typeof window === 'undefined' ||
+      typeof document === 'undefined' ||
+      typeof IntersectionObserver === 'undefined'
+    ) {
+      visibilityRef.current.visible = true;
+      return undefined;
+    }
+    let viewportVisible = true;
+    const updateVisibility = () => {
+      const pageVisible = document.visibilityState !== 'hidden';
+      visibilityRef.current.visible = viewportVisible && pageVisible;
+    };
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const entry = entries[entries.length - 1];
+        if (entry) {
+          viewportVisible = entry.isIntersecting;
+          updateVisibility();
+        }
+      },
+      { threshold: 0.1 }
+    );
+    observer.observe(container);
+    const handleVisibilityChange = () => updateVisibility();
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => {
+      observer.disconnect();
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      visibilityRef.current.visible = true;
+    };
+  }, [autoPauseOffscreen]);
+
+  useEffect(() => {
     const container = containerRef.current;
     if (!container || typeof window === 'undefined') {
       return undefined;
@@ -438,7 +496,9 @@ const PixelBlast: React.FC<PixelBlastProps> = ({
       const isWebGL2 = renderer.capabilities.isWebGL2;
       renderer.domElement.style.width = '100%';
       renderer.domElement.style.height = '100%';
-      renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+      const initialWidth = container.clientWidth || window.innerWidth || 1;
+      const initialHeight = container.clientHeight || window.innerHeight || 1;
+      renderer.setPixelRatio(resolvePixelRatio(initialWidth, initialHeight));
       container.appendChild(renderer.domElement);
       if (transparent) {
         renderer.setClearAlpha(0);
@@ -485,10 +545,12 @@ const PixelBlast: React.FC<PixelBlastProps> = ({
       const setSize = () => {
         const w = container.clientWidth || 1;
         const h = container.clientHeight || 1;
+        const pixelRatio = resolvePixelRatio(w, h);
+        renderer.setPixelRatio(pixelRatio);
         renderer.setSize(w, h, false);
         uniforms.uResolution.value.set(renderer.domElement.width, renderer.domElement.height);
         runtimeRef.current?.composer?.setSize(renderer.domElement.width, renderer.domElement.height);
-        uniforms.uPixelSize.value = pixelSize * renderer.getPixelRatio();
+        uniforms.uPixelSize.value = pixelSize * pixelRatio;
       };
       setSize();
       const resizeObserver = new ResizeObserver(setSize);
