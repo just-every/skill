@@ -85,10 +85,10 @@ const Home = () => {
           <View className="relative z-10 flex h-full items-center px-4 pb-16 pt-28 sm:px-10 sm:pt-32 lg:px-16 lg:pt-40">
             <View className="mx-auto w-full max-w-5xl">
               <View
-                className="max-w-2xl space-y-6 rounded-[32px] bg-transparent p-8 sm:p-12 shadow-[0_50px_120px_rgba(2,6,23,0.75)]"
+                className="max-w-2xl space-y-7 rounded-[32px] bg-transparent p-8 sm:space-y-8 sm:p-12 shadow-[0_50px_120px_rgba(2,6,23,0.75)]"
                 style={heroBackdropStyle}
               >
-                <View className="self-start rounded-full border border-white/20 bg-white/5 px-4 py-1">
+                <View className="self-start rounded-full border border-white/20 bg-white/5 px-4 py-1 mb-3">
                   <Typography variant="caption" className="text-xs uppercase tracking-[0.35em] text-white/80">
                     Cloudflare · Stripe ready
                   </Typography>
@@ -127,7 +127,7 @@ const Home = () => {
                     </Typography>
                   </Pressable>
                 </View>
-                <View className="mt-6 flex flex-col gap-4 border-t border-white/15 pt-6 sm:flex-row">
+                <View className="mt-8 flex flex-col gap-5 border-t border-white/15 pt-8 sm:flex-row">
                   {heroStats.map((stat) => (
                     <View
                       key={stat.label}
