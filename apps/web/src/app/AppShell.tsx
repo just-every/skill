@@ -400,7 +400,7 @@ const AppShell = ({ navItems, activeItem, onNavigate, companies, isLoadingCompan
         </ScrollView>
       </View>
       {isMobileMenuOpen && (
-        <View className="absolute inset-0 z-50 flex flex-col lg:hidden">
+        <View className="absolute inset-x-0 bottom-0 top-16 z-40 flex flex-col lg:hidden">
           <Pressable
             accessibilityRole="button"
             accessibilityLabel="Close navigation"
@@ -408,18 +408,7 @@ const AppShell = ({ navItems, activeItem, onNavigate, companies, isLoadingCompan
             className="absolute inset-0 bg-gradient-to-b from-slate-950 via-slate-900 to-slate-950 opacity-95"
           />
           <View className="relative z-10 flex h-full flex-col text-white">
-            <View className="flex flex-row items-center justify-between px-4 py-4">
-              <Logo size={28} color="#f8fafc" />
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel="Close navigation"
-                onPress={closeMenus}
-                className="rounded-xl border border-white/40 bg-white/10 px-3 py-2"
-              >
-                <FontAwesomeIcon icon={faXmark} size={18} color="#f8fafc" />
-              </Pressable>
-            </View>
-            <ScrollView className="flex-1 pt-2">
+            <ScrollView className="flex-1 pt-4">
               <View className="min-h-full pb-12">
                 <Sidebar
                   sidebarContainerRef={sidebarContainerRef}
