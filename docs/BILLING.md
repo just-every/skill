@@ -15,6 +15,8 @@ Add these to `~/.env` (bootstrap CLI) **and** `workers/api/.dev.vars` (local Wra
 | `TRIAL_PERIOD_DAYS` | Optional integer (default **30**). Controls the seeded `current_period_end` when a brand-new account is provisioned before Stripe fires real webhooks. Set shorter values (e.g., `14`) when demoing rapid trial expirations; keep ≥30 in prod to mirror your Stripe trial length. |
 | `STRIPE_REDIRECT_ALLOWLIST` | Optional comma-separated list of absolute URLs or origins that are allowed for `successUrl`, `cancelUrl`, and `returnUrl`. Each entry should include the scheme+host (e.g., `https://starter.justevery.com,https://app.local`) and is matched by origin. Use this to permit additional dev tunnels or staging domains; leave unset to fall back to the first-party origins (`APP_BASE_URL`, `PROJECT_DOMAIN`, `EXPO_PUBLIC_WORKER_ORIGIN`, `LOGIN_ORIGIN`). |
 
+Automation: if you supply `LOGIN_PROVISIONER_CLIENT_ID`, `LOGIN_PROVISIONER_CLIENT_SECRET`, and `LOGIN_PROVISIONER_OWNER_USER_ID` in the deploy secret blob, the bootstrap CLI will mint a per-project service client in login and write `BILLING_CHECKOUT_TOKEN` for you. Otherwise set `BILLING_CHECKOUT_TOKEN` manually.
+
 Example `.dev.vars` snippet:
 
 ```bash

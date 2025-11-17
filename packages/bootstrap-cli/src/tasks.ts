@@ -27,6 +27,7 @@ import {
   type StripePlan,
   type StripeProvisionResult
 } from './providers/stripe.js';
+import { ensureBillingCheckoutToken } from './providers/login.js';
 import { buildGeneratedFiles, deriveAppUrl, deriveWorkerOrigin } from './env/files.js';
 import {
   writeFileIfChanged,
@@ -123,6 +124,24 @@ function baseTasks(cwd: string): ListrTask<BootstrapTaskContext>[] {
           env: { ...process.env, FONT_AWESOME_PACKAGE_TOKEN: token }
         });
         task.output = '.npmrc updated for Font Awesome registry';
+      }
+    },
+    {
+      title: 'Ensure billing checkout token',
+      task: async (ctx: BootstrapTaskContext, task: BootstrapTaskWrapper) => {
+        if (!ctx.envResult) {
+          throw new Error('Environment not loaded');
+        }
+
+        const env = ctx.envResult.env;
+        if (env.BILLING_CHECKOUT_TOKEN && env.BILLING_CHECKOUT_TOKEN.trim()) {
+          task.output = 'Existing BILLING_CHECKOUT_TOKEN found';
+          return;
+        }
+
+        const token = await ensureBillingCheckoutToken(env);
+        ctx.envResult = mergeGeneratedValues(ctx.envResult, { BILLING_CHECKOUT_TOKEN: token });
+        task.output = 'Issued BILLING_CHECKOUT_TOKEN via login';
       }
     },
     {
@@ -374,6 +393,24 @@ export function createEnvGenerateTasks(options: EnvGenerateOptions = {}): Listr<
             } as Partial<GeneratedEnv>;
             ctx.envResult = mergeGeneratedValues(ctx.envResult, stripeUpdates);
           }
+        }
+      },
+      {
+        title: 'Ensure billing checkout token',
+        task: async (ctx, task) => {
+          if (!ctx.envResult) {
+            throw new Error('Environment not loaded');
+          }
+
+          const env = ctx.envResult.env;
+          if (env.BILLING_CHECKOUT_TOKEN && env.BILLING_CHECKOUT_TOKEN.trim()) {
+            task.output = 'Existing BILLING_CHECKOUT_TOKEN found';
+            return;
+          }
+
+          const token = await ensureBillingCheckoutToken(env);
+          ctx.envResult = mergeGeneratedValues(ctx.envResult, { BILLING_CHECKOUT_TOKEN: token });
+          task.output = 'Issued BILLING_CHECKOUT_TOKEN via login';
         }
       },
       {
