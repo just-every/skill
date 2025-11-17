@@ -358,7 +358,7 @@ const AppShell = ({ navItems, activeItem, onNavigate, companies, isLoadingCompan
 
   return (
     <View className="relative flex min-h-screen flex-row bg-surface">
-      <View className="hidden w-72 border-r border-slate-900/30 bg-gradient-to-b from-slate-950 via-slate-900 to-slate-950 px-3 py-8 text-white lg:flex">
+      <View className="hidden w-72 border-r border-slate-900/30 bg-gradient-to-b from-slate-950 via-slate-900 to-slate-950 text-white lg:flex">
         <Sidebar
           sidebarContainerRef={sidebarContainerRef}
           StarfieldComponent={StarfieldComponent}
@@ -420,7 +420,7 @@ const AppShell = ({ navItems, activeItem, onNavigate, companies, isLoadingCompan
               </Pressable>
             </View>
             <ScrollView className="flex-1 pt-2">
-              <View className="min-h-full px-3 pb-12">
+              <View className="min-h-full pb-12">
                 <Sidebar
                   sidebarContainerRef={sidebarContainerRef}
                   StarfieldComponent={StarfieldComponent}
@@ -488,8 +488,8 @@ function Sidebar({
             className="pointer-events-none opacity-80"
           />
         ) : null}
-        <View className="relative flex h-full flex-col py-3 pb-4 text-white">
-          <View className="flex flex-row items-center gap-3 px-3">
+        <View className="relative flex h-full flex-col px-3 py-8 text-white">
+          <View className="flex flex-row items-center gap-3">
             <Logo size={34} color="#f8fafc" />
           </View>
           <View className="mt-8 flex flex-1 flex-col gap-2">
