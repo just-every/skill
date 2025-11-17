@@ -108,8 +108,9 @@ const Layout = ({ children }: LayoutProps) => {
   const navLinkText = navSolid ? 'text-slate-600' : 'text-white/80';
   const navActiveText = navSolid ? 'text-ink' : 'text-white';
   const ctaClass = navSolid
-    ? 'border-slate-200 bg-slate-50 text-ink'
-    : 'border-white/30 bg-white/10 text-white hover:bg-white/20';
+    ? 'border-slate-200 bg-slate-50'
+    : 'border-white/30 bg-white/10 hover:bg-white/20';
+  const ctaTextClass = navSolid ? 'text-ink' : 'text-white';
 
   return (
     <View className="min-h-screen flex-1 bg-surface">
@@ -148,6 +149,7 @@ const Layout = ({ children }: LayoutProps) => {
                 'hidden rounded-full border px-5 py-2 transition-colors duration-500 ease-out lg:inline-flex',
                 ctaClass
               )}
+              textClassName={ctaTextClass}
               onPress={() => navigate('/app')}
             >
               Open app

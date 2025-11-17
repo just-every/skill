@@ -1,5 +1,6 @@
 import React, { useCallback } from 'react';
-import { Pressable, View } from 'react-native';
+import { Pressable, View, Platform } from 'react-native';
+import type { ViewStyle } from 'react-native';
 
 import { useAuth } from '../auth/AuthProvider';
 import { useRouterContext } from '../router/RouterProvider';
@@ -62,6 +63,9 @@ const Home = () => {
     openHostedLogin({ returnPath: '/app/overview' });
   }, [isAuthenticated, navigate, openHostedLogin]);
 
+  const heroBackdropStyle: (ViewStyle & { backdropFilter?: string }) | undefined =
+    Platform.OS === 'web' ? { backdropFilter: 'blur(1px)' } : undefined;
+
   return (
     <View className="flex flex-col gap-16 pb-12">
       <View
@@ -80,7 +84,10 @@ const Home = () => {
           <View className="pointer-events-none absolute inset-x-0 top-0 h-40 bg-gradient-to-b from-slate-950/80 via-slate-950/30 to-transparent" />
           <View className="relative z-10 flex h-full items-center px-4 pb-16 pt-28 sm:px-10 sm:pt-32 lg:px-16 lg:pt-40">
             <View className="mx-auto w-full max-w-5xl">
-              <View className="max-w-2xl space-y-6 rounded-[32px] bg-transparent p-8 sm:p-12 shadow-[0_50px_120px_rgba(2,6,23,0.75)] backdrop-blur-3xl">
+              <View
+                className="max-w-2xl space-y-6 rounded-[32px] bg-transparent p-8 sm:p-12 shadow-[0_50px_120px_rgba(2,6,23,0.75)]"
+                style={heroBackdropStyle}
+              >
                 <View className="self-start rounded-full border border-white/20 bg-white/5 px-4 py-1">
                   <Typography variant="caption" className="text-xs uppercase tracking-[0.35em] text-white/80">
                     Cloudflare · Stripe ready
