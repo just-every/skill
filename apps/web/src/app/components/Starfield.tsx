@@ -663,6 +663,11 @@ const renderGalaxyLayer = (context: CanvasRenderingContext2D, options: GalaxyLay
   const centerX = width / 2;
   const centerY = height / 2;
   const baseAlpha = clamp(0.18 + intensity * 0.25, 0.05, 0.45);
+  const hoverTint = clamp(intensity, 0, 1);
+  const purplePulse = 0.25 + hoverTint * 0.45;
+  const magentaPulse = 0.15 + hoverTint * 0.3;
+  const blurRadius = mode === 'flare' ? 6 + hoverTint * 5 : 14 + hoverTint * 14;
+  context.filter = `blur(${blurRadius}px)`;
 
   if (mode === 'nebula') {
     const blobs = 4;
@@ -673,9 +678,10 @@ const renderGalaxyLayer = (context: CanvasRenderingContext2D, options: GalaxyLay
       const blobX = centerX + Math.cos(angle) * maxRadius * 0.35;
       const blobY = centerY + Math.sin(angle) * maxRadius * 0.28;
       const gradient = context.createRadialGradient(blobX, blobY, 0, blobX, blobY, radius);
-      gradient.addColorStop(0, `rgba(79,70,229,${0.35 + 0.25 * intensity})`);
-      gradient.addColorStop(0.45, `rgba(14,165,233,${0.2 + 0.2 * intensity})`);
-      gradient.addColorStop(0.8, `rgba(56,189,248,${0.08 + 0.1 * intensity})`);
+      gradient.addColorStop(0, `rgba(168,85,247,${purplePulse})`);
+      gradient.addColorStop(0.35, `rgba(79,70,229,${0.28 + 0.25 * hoverTint})`);
+      gradient.addColorStop(0.6, `rgba(236,72,153,${magentaPulse})`);
+      gradient.addColorStop(0.82, `rgba(14,165,233,${0.12 + 0.14 * hoverTint})`);
       gradient.addColorStop(1, 'rgba(15,23,42,0)');
       context.globalAlpha = baseAlpha;
       context.fillStyle = gradient;
@@ -695,10 +701,21 @@ const renderGalaxyLayer = (context: CanvasRenderingContext2D, options: GalaxyLay
         const x = centerX + Math.cos(angle) * radius;
         const y = centerY + Math.sin(angle) * radius * 0.6;
         context.globalAlpha = baseAlpha * (0.4 + ratio * 0.6);
-        context.fillStyle = palette[(arm + i) % palette.length] ?? 'rgba(255,255,255,0.2)';
+        const accentThreshold = ratio > 0.55 ? `rgba(168,85,247,${0.18 + hoverTint * 0.5 * ratio})` : undefined;
+        context.fillStyle = accentThreshold ?? palette[(arm + i) % palette.length] ?? 'rgba(255,255,255,0.2)';
         context.fillRect(x, y, 2 + ratio * 2, 2 + ratio * 2);
       }
     }
+    const glowRadius = spiralRadius * (0.65 + hoverTint * 0.2);
+    const glowGradient = context.createRadialGradient(centerX, centerY, 0, centerX, centerY, glowRadius);
+    glowGradient.addColorStop(0, `rgba(168,85,247,${purplePulse})`);
+    glowGradient.addColorStop(0.7, `rgba(236,72,153,${magentaPulse})`);
+    glowGradient.addColorStop(1, 'rgba(15,23,42,0)');
+    context.globalAlpha = baseAlpha * 0.8;
+    context.fillStyle = glowGradient;
+    context.beginPath();
+    context.arc(centerX, centerY, glowRadius, 0, Math.PI * 2);
+    context.fill();
   } else if (mode === 'flare') {
     const flareAlpha = clamp(baseAlpha * 1.2, 0.05, 0.5);
     context.globalAlpha = flareAlpha;
@@ -713,8 +730,17 @@ const renderGalaxyLayer = (context: CanvasRenderingContext2D, options: GalaxyLay
       context.lineTo(centerX + Math.cos(angle) * radius, centerY + Math.sin(angle) * radius);
       context.stroke();
     }
+    context.globalAlpha = flareAlpha * 0.8;
+    const haloGradient = context.createRadialGradient(centerX, centerY, 0, centerX, centerY, minDimension * 0.45);
+    haloGradient.addColorStop(0, `rgba(168,85,247,${purplePulse})`);
+    haloGradient.addColorStop(0.8, 'rgba(15,23,42,0)');
+    context.fillStyle = haloGradient;
+    context.beginPath();
+    context.arc(centerX, centerY, minDimension * 0.45, 0, Math.PI * 2);
+    context.fill();
   }
 
+  context.filter = 'none';
   context.restore();
 };
 
