@@ -474,7 +474,7 @@ function Sidebar({
         ref={(node) => {
           sidebarContainerRef.current = node;
         }}
-        className="relative flex h-full flex-col overflow-hidden py-3 pb-4 text-white"
+        className="relative flex h-full flex-col overflow-hidden"
       >
         {StarfieldComponent ? (
           <StarfieldComponent
@@ -488,7 +488,7 @@ function Sidebar({
             className="pointer-events-none opacity-80"
           />
         ) : null}
-        <View className="relative flex h-full flex-col">
+        <View className="relative flex h-full flex-col py-3 pb-4 text-white">
           <View className="flex flex-row items-center gap-3 px-3">
             <Logo size={34} color="#f8fafc" />
           </View>
