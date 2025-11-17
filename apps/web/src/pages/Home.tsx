@@ -6,7 +6,7 @@ import { useAuth } from '../auth/AuthProvider';
 import { useRouterContext } from '../router/RouterProvider';
 import { Button } from '../components/ui';
 import { Typography } from '../components/Typography';
-import PixelBlastBackdrop from '../components/backgrounds/PixelBlastBackdrop';
+import EffectsBackdrop from '../components/backgrounds/EffectsBackdrop';
 
 const heroFeatures = [
   {
@@ -73,12 +73,9 @@ const Home = () => {
         className="relative left-1/2 w-screen -ml-[50vw]"
       >
         <View className="relative min-h-screen w-full overflow-hidden bg-slate-950">
-          <PixelBlastBackdrop
+          <EffectsBackdrop
             className="absolute inset-0"
             style={{ opacity: 0.92, mixBlendMode: 'screen' }}
-            speed={0.45}
-            rippleIntensityScale={1.3}
-            edgeFade={0.2}
           />
           <View className="pointer-events-none absolute inset-0 bg-gradient-to-b from-slate-950/5 via-slate-950/40 to-slate-950/85" />
           <View className="pointer-events-none absolute inset-x-0 top-0 h-40 bg-gradient-to-b from-slate-950/80 via-slate-950/30 to-transparent" />
