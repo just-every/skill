@@ -3,7 +3,7 @@ import type { ReactNode } from 'react';
 import { Pressable, ScrollView, Text, View } from 'react-native';
 import { FontAwesomeIcon } from '@fortawesome/react-native-fontawesome';
 import type { IconDefinition } from '@fortawesome/fontawesome-svg-core';
-import { faAngleDown, faArrowRightFromBracket, faBars, faEnvelope, faUserPlus, faXmark } from '@fortawesome/pro-solid-svg-icons';
+import { faAngleDown, faArrowRightFromBracket, faBars, faEnvelope, faIdBadge, faUserPlus, faXmark } from '@fortawesome/pro-solid-svg-icons';
 
 import { useCompanyStore } from '../state/companyStore';
 import type { Company, InviteDraft } from './types';
@@ -15,6 +15,7 @@ import { Logo } from '../components/Logo';
 import { cn } from '../lib/cn';
 import { useAuth } from '../auth/AuthProvider';
 import { usePrefersReducedMotion } from '../lib/usePrefersReducedMotion';
+import useProfilePopup from '../profile/useProfilePopup';
 import { DEFAULT_STARFIELD_VARIANT } from './components/Starfield';
 
 export type AppNavItem = {
@@ -48,7 +49,7 @@ const AppShell = ({ navItems, activeItem, onNavigate, companies, isLoadingCompan
   const [isSigningOut, setIsSigningOut] = useState(false);
   const switcherRef = useRef<HTMLDivElement | null>(null);
   const accountMenuRef = useRef<HTMLDivElement | null>(null);
-  const { session, signOut } = useAuth();
+  const { session, signOut, loginOrigin, refresh } = useAuth();
   const switchCompanyMutation = useSwitchCompanyMutation();
   const prefersReducedMotion = usePrefersReducedMotion();
   const sidebarContainerRef = useRef<HTMLDivElement | null>(null);
@@ -83,6 +84,21 @@ const AppShell = ({ navItems, activeItem, onNavigate, companies, isLoadingCompan
     return companies.find((company) => company.id === activeCompanyId) ?? fallback;
   }, [activeCompanyId, companies]);
 
+  const profileReturnUrl = typeof window !== 'undefined' ? window.location.origin + path : undefined;
+
+  const profilePopup = useProfilePopup({
+    baseUrl: loginOrigin,
+    defaultSection: 'account',
+    defaultOrganizationId: activeCompany?.id,
+    returnUrl: profileReturnUrl,
+    onReady: handlePopupReady,
+    onOrganizationChange: handlePopupOrgChange,
+    onSessionLogout: handlePopupLogout,
+    onClose: () => setAccountMenuOpen(false),
+  });
+
+  const { Host: ProfilePopupHostElement, open: openProfilePopup } = profilePopup;
+
   const handleCompanyChange = useCallback(
     async (company: Company) => {
       if (!company.slug || switchCompanyMutation.isPending) {
@@ -104,6 +120,32 @@ const AppShell = ({ navItems, activeItem, onNavigate, companies, isLoadingCompan
     },
     [setActiveCompany, setShowSwitcher, setSwitcherHover, switchCompanyMutation]
   );
+
+  const handlePopupOrgChange = useCallback(
+    (payload: unknown) => {
+      const org =
+        payload && typeof payload === 'object' && 'organization' in payload
+          ? (payload as { organization?: { id?: string } }).organization
+          : undefined;
+      if (org?.id) {
+        setActiveCompany(org.id);
+      }
+      void companiesQuery.refetch();
+    },
+    [companiesQuery, setActiveCompany]
+  );
+
+  const handlePopupLogout = useCallback(async () => {
+    await signOut({ returnUrl: typeof window !== 'undefined' ? window.location.origin : undefined });
+    if (typeof window !== 'undefined') {
+      window.location.assign('/');
+    }
+  }, [signOut]);
+
+  const handlePopupReady = useCallback(() => {
+    void refresh();
+    void companiesQuery.refetch();
+  }, [companiesQuery, refresh]);
 
   const handleInviteSubmit = async (draft: InviteDraft) => {
     if (!activeCompany?.slug) {
@@ -307,12 +349,24 @@ const AppShell = ({ navItems, activeItem, onNavigate, companies, isLoadingCompan
             </View>
             <Pressable
               onPress={() => {
+                setAccountMenuOpen(false);
+                setMobileMenuOpen(false);
+                openProfilePopup({ section: 'account' });
+              }}
+              accessibilityRole="menuitem"
+              className="mt-4 flex flex-row items-center justify-center gap-2 rounded-2xl border border-slate-700 px-4 py-2"
+            >
+              <FontAwesomeIcon icon={faIdBadge} size={14} color="#f8fafc" />
+              <Text className="text-sm font-semibold text-white">Manage login profile</Text>
+            </Pressable>
+            <Pressable
+              onPress={() => {
                 setOpenInvite(true);
                 setAccountMenuOpen(false);
                 setMobileMenuOpen(false);
               }}
               accessibilityRole="menuitem"
-              className="mt-4 flex flex-row items-center justify-center gap-2 rounded-2xl bg-white/10 px-4 py-2"
+              className="mt-3 flex flex-row items-center justify-center gap-2 rounded-2xl bg-white/10 px-4 py-2"
             >
               <FontAwesomeIcon icon={faUserPlus} size={14} color="#f8fafc" />
               <Text className="text-sm font-semibold text-white">Invite teammates</Text>
@@ -354,6 +408,7 @@ const AppShell = ({ navItems, activeItem, onNavigate, companies, isLoadingCompan
     switcherRef,
     userEmail,
     accountMenuRef,
+    openProfilePopup,
   ]);
 
   return (
@@ -427,6 +482,7 @@ const AppShell = ({ navItems, activeItem, onNavigate, companies, isLoadingCompan
           </View>
         </View>
       )}
+      {ProfilePopupHostElement}
       <InviteModal visible={openInvite} onClose={() => setOpenInvite(false)} onSubmit={handleInviteSubmit} />
     </View>
   );

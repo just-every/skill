@@ -24,7 +24,7 @@ type AuthContextValue = {
   sessionEndpoint: string;
   refresh: () => Promise<void>;
   signOut: (options?: { returnUrl?: string }) => Promise<void>;
-  openHostedLogin: (options?: { returnPath?: string }) => void;
+  openHostedLogin: (options?: { returnPath?: string; showProfilePopup?: boolean; popupSection?: string }) => void;
 };
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
@@ -112,13 +112,19 @@ export const AuthProvider = ({
   );
 
   const openHostedLogin = useCallback(
-    (options?: { returnPath?: string }) => {
+    (options?: { returnPath?: string; showProfilePopup?: boolean; popupSection?: string }) => {
       if (typeof window === 'undefined') {
         return;
       }
       const loginUrl = new URL('/', sanitizedLoginOrigin);
       const target = options?.returnPath ?? resolveCurrentPath();
       loginUrl.searchParams.set('return', resolveReturnUrl(target));
+      if (options?.showProfilePopup !== false) {
+        loginUrl.searchParams.set('profilePopup', '1');
+        if (options?.popupSection) {
+          loginUrl.searchParams.set('section', options.popupSection);
+        }
+      }
       window.location.assign(loginUrl.toString());
     },
     [sanitizedLoginOrigin]

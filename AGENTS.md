@@ -4,6 +4,7 @@ This repository is the canonical justevery starter stack; future products should
 
 ## Project Structure & Module Organization
 - `apps/web/` hosts the Expo placeholder shell; share config via `packages/config`.
+- `apps/web/src/profile/` exposes `ProfilePopupHost` + `useProfilePopup` for embedding the login worker’s `/profile?embed=1` modal inside Expo screens. Use it (or the new `openProfilePopup` button in the app shell) whenever you need account/settings inside the native shell.
 - `workers/api/` runs the Cloudflare Worker with Wrangler config, D1 access, and Vitest suites; keep bindings in `Env`.
 - `docs/archive/` keeps operational playbooks (`bootstrap`, deployments, SSO) cited in `PLAN.md`; refresh when flows or providers change.
 - `tests/e2e/` holds Playwright journeys against the deployed worker; keep fixtures aligned with seeded data.
