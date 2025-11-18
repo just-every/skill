@@ -44,7 +44,7 @@ Minimal flow to go from clone → deploy in 10–15 minutes.
    pnpm bootstrap:env
    pnpm bootstrap:deploy:dry-run   # optional validation
    ```
-   - Generates `.env.local.generated` and renders `workers/api/wrangler.toml` on demand.
+   - Generates `.env.generated` and renders `workers/api/wrangler.toml` on demand.
 
 ### `pnpm bootstrap:deploy` behavior
 - Loads `~/.env`, `.env`, and any generated env files so you can keep secrets in your home directory and still share repo-specific defaults.

@@ -10,7 +10,7 @@ This repository is the canonical justevery starter stack; future products should
 - Root helpers: `pnpm bootstrap:*` commands provision Cloudflare + Stripe resources via the typed CLI.
 
 ## Build, Test, and Development Commands
-- `npm run dev:web` – Expo web dev server with hot reload. Source `.env.local.generated` (or export `EXPO_PUBLIC_*`) first so the shell can reach the Worker (`EXPO_PUBLIC_WORKER_ORIGIN=http://127.0.0.1:8787` for local Miniflare).
+- `npm run dev:web` – Expo web dev server with hot reload. Source `.env.generated` (or export `EXPO_PUBLIC_*`) first so the shell can reach the Worker (`EXPO_PUBLIC_WORKER_ORIGIN=http://127.0.0.1:8787` for local Miniflare).
 - `npm run dev:worker` – Wrangler dev server (`wrangler dev --config workers/api/wrangler.toml`) backed by Miniflare; honours `.dev.vars` for env/bindings. Add D1/R2 bindings there so tests mirror production.
 - `npm run build` – Runs workspace builds (`expo export`, Worker bundle).
 - `npm test --workspace workers/api` – Vitest unit suites.

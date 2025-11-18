@@ -58,11 +58,9 @@ export function buildGeneratedFiles(options: GenerateFilesOptions): GenerateFile
   pushWeb(webEntries, 'EXPO_PUBLIC_WORKER_ORIGIN', workerOrigin);
   pushWeb(webEntries, 'EXPO_PUBLIC_WORKER_ORIGIN_LOCAL', localOrigin);
 
-  const d1Name = env.CLOUDFLARE_D1_NAME ?? `${env.PROJECT_ID}-d1`;
-  const d1Id = env.D1_DATABASE_ID ?? env.CLOUDFLARE_D1_ID ?? '';
+  const d1Name = env.D1_DATABASE_NAME ?? `${env.PROJECT_ID}-d1`;
+  const d1Id = env.D1_DATABASE_ID ?? '';
   const r2Bucket = env.CLOUDFLARE_R2_BUCKET ?? `${env.PROJECT_ID}-assets`;
-  pushWeb(webEntries, 'CLOUDFLARE_D1_NAME', d1Name);
-  pushWeb(webEntries, 'CLOUDFLARE_D1_ID', env.CLOUDFLARE_D1_ID ?? '');
   pushWeb(webEntries, 'D1_DATABASE_NAME', d1Name);
   pushWeb(webEntries, 'D1_DATABASE_ID', d1Id);
   pushWeb(webEntries, 'CLOUDFLARE_R2_BUCKET', r2Bucket);
@@ -86,6 +84,7 @@ export function buildGeneratedFiles(options: GenerateFilesOptions): GenerateFile
   pushWeb(webEntries, 'STRIPE_PRODUCT_IDS', stripeProductIds);
   pushWeb(webEntries, 'STRIPE_PRICE_IDS', stripePriceIds);
   pushWeb(webEntries, 'STRIPE_PRODUCTS', env.STRIPE_PRODUCTS ?? '');
+  pushWeb(webEntries, 'BILLING_CHECKOUT_TOKEN', env.BILLING_CHECKOUT_TOKEN ?? '');
 
   // Worker-specific Better Auth variables
   pushWorker(workerEntries, 'BETTER_AUTH_URL', betterAuthUrl);

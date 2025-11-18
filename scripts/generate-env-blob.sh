@@ -24,7 +24,7 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 const basePath = path.resolve(process.cwd(), process.env.BASE_ENV_FILE);
-const generatedPath = path.resolve(process.cwd(), process.env.GENERATED_ENV_FILE || '.env.local.generated');
+const generatedPath = path.resolve(process.cwd(), process.env.GENERATED_ENV_FILE || '.env.generated');
 const homeEnvPath = path.resolve(os.homedir(), '.env');
 
 function parseEnv(file) {

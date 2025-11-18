@@ -1,6 +1,6 @@
 name = "starter-worker"
 main = "src/index.ts"
-compatibility_date = "2025-11-13"
+compatibility_date = "2024-09-01"
 compatibility_flags = ["nodejs_compat"]
 send_metrics = false
 
@@ -11,7 +11,7 @@ binding = "ASSETS"
 directory = "../../apps/web/dist"
 
 # This file is rendered by the bootstrap CLI. Placeholders like starter are replaced
-# with explicit .env inputs or generated identifiers recorded in .env.local.generated.
+# with explicit .env inputs or generated identifiers recorded in .env.generated.
 [vars]
 # --- Authentication ---
 LOGIN_ORIGIN = "https://login.justevery.com"
@@ -22,7 +22,7 @@ PROJECT_DOMAIN = "https://starter.justevery.com"
 APP_BASE_URL = "/app"
 
 # --- Stripe ---
-STRIPE_PRODUCTS = '''[{"id":"prod_TNHA7XzCAXqNfU","name":"Founders","priceId":"price_1SQWcDGD1Q57MReNLuvln86m","unitAmount":2500,"currency":"usd","interval":"month","metadata":{}},{"id":"prod_TNHAmpDbavwPfp","name":"Scale","priceId":"price_1SQWcDGD1Q57MReNhTRLLXWa","unitAmount":4900,"currency":"usd","interval":"month","metadata":{}}]'''
+STRIPE_PRODUCTS = '''Founders:2500,usd,month;Scale:4900,usd,month'''
 EXPO_PUBLIC_WORKER_ORIGIN = "https://starter.justevery.com"
 
 # --- Cloudflare metadata ---
@@ -32,7 +32,6 @@ CLOUDFLARE_ZONE_ID = "723318de8bc1f3353196efc02c4a09ed"
 binding = "DB"
 database_name = "starter-d1"
 database_id = "94e98a62-69a0-49e2-86ab-283c9e75fa52"
-migrations_dir = "migrations"
 
 [[r2_buckets]]
 binding = "STORAGE"

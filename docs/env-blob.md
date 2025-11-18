@@ -15,7 +15,7 @@ only an encoded snapshot for CI.
 | `CLOUDFLARE_ACCOUNT_ID` | Account used by Wrangler & API token | Cloudflare dashboard |
 | `CLOUDFLARE_API_TOKEN` | Token with Workers, D1, and R2 scopes | Cloudflare dashboard |
 | `D1_DATABASE_NAME` | Friendly D1 database name Wrangler targets | `pnpm bootstrap:env` output |
-| `D1_DATABASE_ID` or `CLOUDFLARE_D1_ID` | UUID for the remote D1 database | bootstrap CLI or Cloudflare UI |
+| `D1_DATABASE_ID` | UUID for the remote D1 database | bootstrap CLI or Cloudflare UI |
 | `CLOUDFLARE_R2_BUCKET` | Bucket bound as `STORAGE` inside the Worker | bootstrap CLI or Cloudflare UI |
 | `STRIPE_SECRET_KEY` | Stripe API key used for provisioning + runtime | Stripe dashboard |
 | `STRIPE_WEBHOOK_SECRET` | Used by Worker to verify Stripe webhooks | bootstrap CLI output |
@@ -29,12 +29,12 @@ only an encoded snapshot for CI.
 | `STRIPE_PRODUCTS` (JSON) | Lists product + price IDs so bootstrap runs stay deterministic |
 
 > **Tip**: Run `pnpm bootstrap:env` after editing `.env` files. It rewrites
-> `.env.local.generated` / `workers/api/.dev.vars` and is the canonical source for generated IDs.
+> `.env.generated` / `workers/api/.dev.vars` and is the canonical source for generated IDs.
 
 ## Packing a New Blob
 
-1. Run `pnpm bootstrap:env` or `pnpm bootstrap:deploy` so `.env.local.generated` is up to date.
-2. Generate a new blob that automatically merges `.env` + `.env.local.generated`:
+1. Run `pnpm bootstrap:env` or `pnpm bootstrap:deploy` so `.env.generated` is up to date.
+2. Generate a new blob that automatically merges `.env` + `.env.generated`:
 
 ```bash
 ./scripts/generate-env-blob.sh .env

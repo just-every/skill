@@ -29,8 +29,7 @@ export interface CloudflareCapabilities {
 }
 
 export interface CloudflareGeneratedEnvUpdates {
-  CLOUDFLARE_D1_NAME?: string;
-  CLOUDFLARE_D1_ID?: string;
+  D1_DATABASE_NAME?: string;
   D1_DATABASE_ID?: string;
   CLOUDFLARE_R2_BUCKET?: string;
 }
@@ -69,7 +68,7 @@ export function buildCloudflarePlan(
   capabilities?: CloudflareCapabilities
 ): CloudflarePlan {
   const projectId = env.PROJECT_ID;
-  const d1Name = env.CLOUDFLARE_D1_NAME ?? `${projectId}-d1`;
+  const d1Name = env.D1_DATABASE_NAME ?? `${projectId}-d1`;
   const bucket = env.CLOUDFLARE_R2_BUCKET ?? `${projectId}-assets`;
   const workerName = `${projectId}-worker`;
 
@@ -152,8 +151,7 @@ export async function executeCloudflarePlan(
   if (d1Step?.status === 'skipped') {
     logger(chalk.yellow(`[skipped] D1 database -> ${plan.d1.name} (no permissions)`));
     if (!dryRun) {
-      updates.CLOUDFLARE_D1_NAME = plan.d1.name;
-      updates.CLOUDFLARE_D1_ID = '';
+      updates.D1_DATABASE_NAME = plan.d1.name;
       updates.D1_DATABASE_ID = '';
     }
   } else {
@@ -162,8 +160,7 @@ export async function executeCloudflarePlan(
       logger
     });
     if (d1Result && !dryRun) {
-      updates.CLOUDFLARE_D1_NAME = d1Result.name;
-      updates.CLOUDFLARE_D1_ID = d1Result.id;
+      updates.D1_DATABASE_NAME = d1Result.name;
       updates.D1_DATABASE_ID = d1Result.id;
     }
   }

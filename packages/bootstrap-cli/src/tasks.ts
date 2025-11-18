@@ -474,7 +474,7 @@ async function writeGeneratedArtifacts(
 
   const results: FileWriteResult[] = [];
   results.push(
-    await writeFileIfChanged(cwd, '.env.local.generated', generatedEnvContents, {
+    await writeFileIfChanged(cwd, '.env.generated', generatedEnvContents, {
       checkOnly
     })
   );
@@ -606,7 +606,7 @@ export function createDeployTasks(options: DeployOptions = {}): Listr<DeployCont
           task.skip?.('Skipping migrations with placeholder credentials');
           return;
         }
-        await execa('pnpm', ['--filter', '@justevery/worker', 'run', 'migrate', '--', '--remote'], {
+        await execa('pnpm', ['--filter', '@justevery/worker', 'run', 'migrate'], {
           cwd,
           stdio: 'inherit',
           env: createCommandEnv(ctx.envResult.env)
@@ -671,6 +671,10 @@ export function createDeployTasks(options: DeployOptions = {}): Listr<DeployCont
             name: 'STRIPE_WEBHOOK_SECRET',
             value: ctx.envResult.env.STRIPE_WEBHOOK_SECRET?.trim(),
             placeholder: 'whsec_missing_secret'
+          },
+          {
+            name: 'BILLING_CHECKOUT_TOKEN',
+            value: ctx.envResult.env.BILLING_CHECKOUT_TOKEN?.trim()
           }
         ];
 

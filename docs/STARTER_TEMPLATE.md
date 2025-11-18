@@ -29,7 +29,7 @@ pnpm bootstrap:deploy:dry-run
 pnpm bootstrap:deploy
 ```
 
-`bootstrap:env` writes `.env.local.generated` and `workers/api/.dev.vars`.
+`bootstrap:env` writes `.env.generated` and `workers/api/.dev.vars`.
 `bootstrap:deploy` renders `workers/api/wrangler.toml`, provisions Cloudflare +
 Stripe resources, and persists the generated identifiers back into the env files.
 

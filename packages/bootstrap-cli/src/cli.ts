@@ -64,7 +64,7 @@ export function createCli(): Command {
 
   envCommand
     .command('generate')
-    .description('Generate .env.local.generated and workers/api/.dev.vars')
+    .description('Generate .env.generated and workers/api/.dev.vars')
     .option('--cwd <path>', 'Workspace root')
     .option('--check', 'Check for differences without writing files', false)
     .action(async (options: { cwd: string; check?: boolean }) => {

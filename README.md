@@ -87,7 +87,7 @@ CI’s `deploy.yml` handles all incremental deploys.
 
 ## Bootstrap CLI
 - `pnpm bootstrap:preflight` – validations (Cloudflare token, required envs)
-- `pnpm bootstrap:env` – writes `.env.local.generated` and `workers/api/.dev.vars`
+- `pnpm bootstrap:env` – writes `.env.generated` and `workers/api/.dev.vars`
 - `pnpm bootstrap:deploy` – render `wrangler.toml`, sync secrets, and deploy the Worker
 - `pnpm bootstrap:deploy:dry-run` – render and validate without deploying
 - `pnpm bootstrap:smoke` – HTTP + screenshot smoke checks against a base URL

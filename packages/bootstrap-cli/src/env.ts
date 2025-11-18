@@ -7,7 +7,7 @@ import { formatRedactedMap, redactValue } from './logging.js';
 
 const HOME_ENV_FILE = resolve(homedir(), '.env');
 const BASE_ENV_FILES = [HOME_ENV_FILE, '.env', '.env.local'];
-const GENERATED_ENV_FILES = ['.env.local.generated'];
+const GENERATED_ENV_FILES = ['.env.generated'];
 const ENV_FILES = [...BASE_ENV_FILES, ...GENERATED_ENV_FILES];
 
 const BaseEnvSchema = z.object({
@@ -34,8 +34,7 @@ const BaseEnvSchema = z.object({
 });
 
 const GeneratedEnvSchema = z.object({
-  CLOUDFLARE_D1_NAME: z.string().optional(),
-  CLOUDFLARE_D1_ID: z.string().optional(),
+  D1_DATABASE_NAME: z.string().optional(),
   D1_DATABASE_ID: z.string().optional(),
   CLOUDFLARE_R2_BUCKET: z.string().optional(),
   BETTER_AUTH_URL: z.string().optional(),
@@ -49,8 +48,7 @@ const GeneratedEnvSchema = z.object({
   STRIPE_PRICE_IDS: z.string().optional(),
   BILLING_CHECKOUT_TOKEN: z.string().optional(),
   EXPO_PUBLIC_WORKER_ORIGIN: z.string().optional(),
-  EXPO_PUBLIC_WORKER_ORIGIN_LOCAL: z.string().optional(),
-  D1_DATABASE_NAME: z.string().optional()
+  EXPO_PUBLIC_WORKER_ORIGIN_LOCAL: z.string().optional()
 });
 
 export type BaseEnv = z.infer<typeof BaseEnvSchema>;
@@ -213,9 +211,9 @@ function validateRequiredKeys(env: BootstrapEnv): string[] {
       'Either BILLING_CHECKOUT_TOKEN or LOGIN_PROVISIONER_CLIENT_ID/LOGIN_PROVISIONER_CLIENT_SECRET/LOGIN_PROVISIONER_OWNER_USER_ID must be provided'
     );
   }
-  const hasD1 = Boolean(env.CLOUDFLARE_D1_ID || env.D1_DATABASE_ID);
-  if (!hasD1) {
-    issues.push('D1 database binding (CLOUDFLARE_D1_ID or D1_DATABASE_ID) is required');
+const hasD1 = Boolean(env.D1_DATABASE_ID);
+if (!hasD1) {
+  issues.push('D1 database binding (D1_DATABASE_ID) is required');
   }
   if (!env.CLOUDFLARE_ACCOUNT_ID) {
     issues.push('CLOUDFLARE_ACCOUNT_ID is required');

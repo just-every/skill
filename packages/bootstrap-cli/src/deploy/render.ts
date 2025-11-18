@@ -54,7 +54,7 @@ function buildSubstitutions(
   env: BootstrapEnv,
   capabilities?: CloudflareCapabilities
 ): Record<string, string> {
-  const d1Name = env.CLOUDFLARE_D1_NAME ?? `${env.PROJECT_ID}-d1`;
+  const d1Name = env.D1_DATABASE_NAME ?? `${env.PROJECT_ID}-d1`;
   const r2Bucket = env.CLOUDFLARE_R2_BUCKET ?? `${env.PROJECT_ID}-assets`;
   const stripeProducts = env.STRIPE_PRODUCTS ?? '[]';
 
@@ -67,7 +67,7 @@ function buildSubstitutions(
   // Determine if we should include D1/R2 bindings based on whether IDs are present
   const canUseD1 = capabilities?.canUseD1 !== false;
   const canUseR2 = capabilities?.canUseR2 !== false;
-  const hasD1 = canUseD1 && !!(env.D1_DATABASE_ID || env.CLOUDFLARE_D1_ID);
+  const hasD1 = canUseD1 && !!env.D1_DATABASE_ID;
   const hasR2 = canUseR2 && !!env.CLOUDFLARE_R2_BUCKET;
 
   const map: Record<string, string> = {
@@ -85,12 +85,12 @@ function buildSubstitutions(
     EXPO_PUBLIC_WORKER_ORIGIN: escapeToml(env.EXPO_PUBLIC_WORKER_ORIGIN ?? workerOrigin),
     CLOUDFLARE_ZONE_ID: escapeToml(env.CLOUDFLARE_ZONE_ID ?? ''),
     D1_DATABASE_NAME: escapeToml(d1Name),
-    D1_DATABASE_ID: escapeToml(env.CLOUDFLARE_D1_ID ?? env.D1_DATABASE_ID ?? ''),
+    D1_DATABASE_ID: escapeToml(env.D1_DATABASE_ID ?? ''),
     R2_BUCKET_NAME: escapeToml(r2Bucket),
     PROJECT_HOST: escapeToml(projectHost),
     // Conditional binding sections
     D1_BINDING_SECTION: hasD1
-      ? `[[d1_databases]]\nbinding = "DB"\ndatabase_name = "${escapeToml(d1Name)}"\ndatabase_id = "${escapeToml(env.CLOUDFLARE_D1_ID ?? env.D1_DATABASE_ID ?? '')}"`
+      ? `[[d1_databases]]\nbinding = "DB"\ndatabase_name = "${escapeToml(d1Name)}"\ndatabase_id = "${escapeToml(env.D1_DATABASE_ID ?? '')}"`
       : '# D1 binding skipped (no database ID available)',
     R2_BINDING_SECTION: hasR2
       ? `[[r2_buckets]]\nbinding = "STORAGE"\nbucket_name = "${escapeToml(r2Bucket)}"`

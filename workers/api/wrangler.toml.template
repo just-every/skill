@@ -11,7 +11,7 @@ binding = "ASSETS"
 directory = "../../apps/web/dist"
 
 # This file is rendered by the bootstrap CLI. Placeholders like {{PROJECT_ID}} are replaced
-# with explicit .env inputs or generated identifiers recorded in .env.local.generated.
+# with explicit .env inputs or generated identifiers recorded in .env.generated.
 [vars]
 # --- Authentication ---
 LOGIN_ORIGIN = "https://login.justevery.com"

@@ -18,7 +18,7 @@ These values are derived automatically by `pnpm bootstrap:env` but should be
 verified whenever you rename the project or change the public domain.
 
 ## Local Testing
-1. Run `pnpm bootstrap:env` to regenerate `.env.local.generated` and
+1. Run `pnpm bootstrap:env` to regenerate `.env.generated` and
    `workers/api/.dev.vars`.
 2. Start the worker with `npm run dev:worker` so Miniflare loads the bindings.
 3. Start the Expo shell with `EXPO_PUBLIC_WORKER_ORIGIN=http://127.0.0.1:8787`.
