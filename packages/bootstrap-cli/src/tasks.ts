@@ -144,14 +144,9 @@ function baseTasks(
           task.output = 'Existing BILLING_CHECKOUT_TOKEN found';
           return;
         }
-        try {
-          const token = await ensureBillingCheckoutToken(env);
-          ctx.envResult = mergeGeneratedValues(ctx.envResult, { BILLING_CHECKOUT_TOKEN: token });
-          task.output = 'Issued BILLING_CHECKOUT_TOKEN via login';
-        } catch (error) {
-          const message = error instanceof Error ? error.message : String(error);
-          task.skip?.(`Skipping billing token issuance: ${message}`);
-        }
+        const token = await ensureBillingCheckoutToken(env);
+        ctx.envResult = mergeGeneratedValues(ctx.envResult, { BILLING_CHECKOUT_TOKEN: token });
+        task.output = 'Issued BILLING_CHECKOUT_TOKEN via login';
       }
     },
     {
