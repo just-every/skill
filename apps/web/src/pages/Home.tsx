@@ -7,6 +7,7 @@ import { useRouterContext } from '../router/RouterProvider';
 import { Button } from '../components/ui';
 import { Typography } from '../components/Typography';
 import EffectsBackdrop from '../components/backgrounds/EffectsBackdrop';
+import { Container } from '../components/Container';
 
 const heroFeatures = [
   {
@@ -78,14 +79,14 @@ const Home = () => {
             style={{ opacity: 0.92, mixBlendMode: 'screen' }}
           />
           <View className="pointer-events-none absolute inset-0 bg-gradient-to-b from-slate-950/5 via-slate-950/40 to-slate-950/85" />
-          <View className="pointer-events-none absolute inset-x-0 top-0 h-40 bg-gradient-to-b from-slate-950/80 via-slate-950/30 to-transparent" />
-          <View className="relative z-10 flex h-full items-center px-4 pb-16 pt-28 sm:px-10 sm:pt-32 lg:px-16 lg:pt-40">
-            <View className="mx-auto w-full max-w-5xl">
+          <View className="pointer-events-none absolute inset-x-0 top-0 h-48 bg-gradient-to-b from-slate-950/80 via-slate-950/30 to-transparent" />
+          <Container className="relative z-10 flex h-full items-center py-28 sm:py-36 lg:py-48">
+            <View className="w-full max-w-4xl">
               <View
-                className="max-w-2xl space-y-7 rounded-[32px] bg-transparent p-8 sm:space-y-8 sm:p-12 shadow-[0_50px_120px_rgba(2,6,23,0.75)]"
+                className="space-y-8 rounded-[32px] bg-transparent p-10 sm:p-14 shadow-[0_50px_120px_rgba(2,6,23,0.75)]"
                 style={heroBackdropStyle}
               >
-                <View className="self-start rounded-full border border-white/20 bg-white/5 px-4 py-1 mb-3">
+                <View className="mb-4 self-start rounded-full border border-white/20 bg-white/5 px-5 py-1">
                   <Typography variant="caption" className="text-xs uppercase tracking-[0.35em] text-white/80">
                     Cloudflare · Stripe ready
                   </Typography>
@@ -124,7 +125,7 @@ const Home = () => {
                     </Typography>
                   </Pressable>
                 </View>
-                <View className="mt-8 flex flex-col gap-5 border-t border-white/15 pt-8 sm:flex-row">
+                <View className="mt-10 flex flex-col gap-5 border-t border-white/15 pt-8 sm:flex-row">
                   {heroStats.map((stat) => (
                     <View
                       key={stat.label}
@@ -141,7 +142,7 @@ const Home = () => {
                 </View>
               </View>
             </View>
-          </View>
+          </Container>
         </View>
       </View>
 

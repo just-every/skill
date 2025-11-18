@@ -94,30 +94,34 @@ const Layout = ({ children }: LayoutProps) => {
     setMobileNavOpen(false);
   }, [activePath]);
 
+  const navVariant: 'transparent' | 'light' | 'dark' = isHome ? (navSolid ? 'light' : 'transparent') : 'dark';
+
   const navWrapperClass = cn(
     'fixed left-0 right-0 top-0 z-50 transition-all duration-500 ease-out',
-    navSolid
-      ? 'border-b border-slate-200 bg-white/95 backdrop-blur'
-      : 'border-b border-transparent bg-gradient-to-b from-slate-950/70 via-slate-950/30 to-transparent'
+    navVariant === 'transparent'
+      ? 'border-b border-transparent bg-gradient-to-b from-slate-950/70 via-slate-950/30 to-transparent'
+      : navVariant === 'light'
+        ? 'border-b border-slate-200 bg-white/95 backdrop-blur'
+        : 'border-b border-slate-900/70 bg-slate-950/95 backdrop-blur'
   );
 
-  const navLinkBase = navSolid
+  const navLinkBase = navVariant === 'light'
     ? 'text-slate-600 focus-visible:ring-offset-white'
     : 'text-white/80 focus-visible:ring-offset-transparent';
-  const navActive = navSolid ? 'bg-slate-100 text-ink' : 'bg-white/10 text-white';
-  const navLinkText = navSolid ? 'text-slate-600' : 'text-white/80';
-  const navActiveText = navSolid ? 'text-ink' : 'text-white';
-  const ctaClass = navSolid
+  const navActive = navVariant === 'light' ? 'bg-slate-100 text-ink' : 'bg-white/10 text-white';
+  const navLinkText = navVariant === 'light' ? 'text-slate-600' : 'text-white/80';
+  const navActiveText = navVariant === 'light' ? 'text-ink' : 'text-white';
+  const ctaClass = navVariant === 'light'
     ? 'border-slate-200 bg-slate-50'
     : 'border-white/30 bg-white/10 hover:bg-white/20';
-  const ctaTextClass = navSolid ? 'text-ink' : 'text-white';
+  const ctaTextClass = navVariant === 'light' ? 'text-ink' : 'text-white';
 
   return (
     <View className="min-h-screen flex-1 bg-surface">
       <View className={navWrapperClass}>
         <Container className="flex flex-row flex-wrap items-center justify-between gap-4 py-4">
           <Pressable onPress={() => navigate('/')} accessibilityRole="link" className="flex-row items-center gap-3">
-            <Logo size={28} color={navSolid ? '#0f172a' : '#ffffff'} />
+            <Logo size={28} color={navVariant === 'light' ? '#0f172a' : '#ffffff'} />
           </Pressable>
           <View className="hidden flex-row flex-wrap items-center gap-2 md:gap-3 lg:flex">
             {NAV_ITEMS.map((item) => {
@@ -159,7 +163,12 @@ const Layout = ({ children }: LayoutProps) => {
                 onPress={() => setMobileNavOpen(false)}
                 accessibilityRole="button"
                 accessibilityLabel="Close menu"
-                className="flex h-11 w-11 items-center justify-center rounded-2xl border border-white/40 bg-white/10 text-white lg:hidden"
+                className={cn(
+                  'flex h-11 w-11 items-center justify-center rounded-2xl border lg:hidden',
+                  navVariant === 'light'
+                    ? 'border-slate-200 bg-white/90 text-ink'
+                    : 'border-white/40 bg-white/10 text-white'
+                )}
               >
                 <Text className="text-3xl font-semibold" style={{ lineHeight: 24 }}>
                   ×
@@ -172,12 +181,12 @@ const Layout = ({ children }: LayoutProps) => {
                 accessibilityLabel="Open menu"
                 className={cn(
                   'flex h-11 w-11 items-center justify-center rounded-2xl border transition-colors duration-500 ease-out lg:hidden',
-                  navSolid ? 'border-slate-200 bg-white/80' : 'border-white/30 bg-white/10'
+                  navVariant === 'light' ? 'border-slate-200 bg-white/80' : 'border-white/30 bg-white/10'
                 )}
               >
                 <Text
                   className="text-2xl font-semibold"
-                  style={{ color: navSolid ? '#0f172a' : '#ffffff', lineHeight: 24 }}
+                  style={{ color: navVariant === 'light' ? '#0f172a' : '#ffffff', lineHeight: 24 }}
                 >
                   ☰
                 </Text>
