@@ -157,11 +157,21 @@ function baseTasks(
           throw new Error('Environment not loaded');
         }
         const env = ctx.envResult.env;
+        const hasInvalidD1Id = Boolean(env.D1_DATABASE_ID && !isValidUuid(env.D1_DATABASE_ID));
         if (
           looksLikePlaceholderAccountId(env.CLOUDFLARE_ACCOUNT_ID) ||
           looksLikePlaceholderApiToken(env.CLOUDFLARE_API_TOKEN)
         ) {
           guardCloudflareCredentials(env);
+        }
+        if (hasInvalidD1Id) {
+          task.output = 'Invalid D1_DATABASE_ID; skipping D1 bindings';
+          ctx.cloudflareCapabilities = {
+            authenticated: false,
+            canUseD1: false,
+            canUseR2: true
+          };
+          return;
         }
         try {
           ctx.cloudflareCapabilities = await detectCloudflareCapabilities(env);
@@ -538,6 +548,7 @@ export function createDeployTasks(options: DeployOptions = {}): Listr<DeployCont
           throw new Error('Environment not loaded');
         }
         const env = ctx.envResult.env;
+        const hasInvalidD1Id = Boolean(env.D1_DATABASE_ID && !isValidUuid(env.D1_DATABASE_ID));
         if (
           looksLikePlaceholderAccountId(env.CLOUDFLARE_ACCOUNT_ID) ||
           looksLikePlaceholderApiToken(env.CLOUDFLARE_API_TOKEN)
@@ -547,6 +558,15 @@ export function createDeployTasks(options: DeployOptions = {}): Listr<DeployCont
             authenticated: false,
             canUseD1: false,
             canUseR2: false
+          };
+          return;
+        }
+        if (hasInvalidD1Id) {
+          task.output = 'Invalid D1_DATABASE_ID; skipping D1 bindings';
+          ctx.cloudflareCapabilities = {
+            authenticated: false,
+            canUseD1: false,
+            canUseR2: true
           };
           return;
         }
@@ -608,6 +628,10 @@ export function createDeployTasks(options: DeployOptions = {}): Listr<DeployCont
       task: async (ctx, task) => {
         if (!ctx.envResult) {
           throw new Error('Environment not loaded');
+        }
+        if (envHasInvalidD1(ctx.envResult.env)) {
+          task.skip?.('Skipping migrations with invalid D1_DATABASE_ID');
+          return;
         }
         if (shouldSkipWranglerCommands(ctx.envResult.env)) {
           task.skip?.('Skipping migrations with placeholder credentials');
@@ -813,6 +837,11 @@ function shouldSkipWranglerCommands(env?: BootstrapEnv): boolean {
   return shouldSkipExpensiveCommand(env, 'BOOTSTRAP_FORCE_WRANGLER');
 }
 
+function envHasInvalidD1(env?: BootstrapEnv): boolean {
+  if (!env) return false;
+  return Boolean(env.D1_DATABASE_ID && !isValidUuid(env.D1_DATABASE_ID));
+}
+
 function shouldSkipExpoBuild(env?: BootstrapEnv): boolean {
   return shouldSkipExpensiveCommand(env, 'BOOTSTRAP_FORCE_EXPO_BUILD');
 }
@@ -940,6 +969,10 @@ function isGenericPlaceholder(raw: string): boolean {
   }
 
   return false;
+}
+
+function isValidUuid(value: string): boolean {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value.trim());
 }
 
 export function createSmokeTasks(options: SmokeOptions = {}): Listr<SmokeContext> {
