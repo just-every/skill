@@ -126,7 +126,11 @@ jobs:
 
       - name: Run migrations (remote)
         if: env.MODE == 'deploy'
-        run: pnpm --filter @justevery/worker run migrate -- --remote
+        run: |
+          if ! echo "${D1_DATABASE_ID:-}" | grep -qiE '^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'; then
+            echo "Skipping migrations: invalid or missing D1_DATABASE_ID" && exit 0
+          fi
+          pnpm --filter @justevery/worker run migrate -- --remote
 
       - name: Deploy (bootstrap)
         env:
