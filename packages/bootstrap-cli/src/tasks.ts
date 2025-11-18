@@ -102,7 +102,12 @@ interface SmokeOptions {
   r2Bucket?: string;
 }
 
-function baseTasks(cwd: string): ListrTask<BootstrapTaskContext>[] {
+function baseTasks(
+  cwd: string,
+  options: {
+    skipBillingCheckoutToken?: boolean;
+  } = {}
+): ListrTask<BootstrapTaskContext>[] {
   return [
     {
       title: 'Load environment',
@@ -128,6 +133,7 @@ function baseTasks(cwd: string): ListrTask<BootstrapTaskContext>[] {
     },
     {
       title: 'Ensure billing checkout token',
+      enabled: () => !options.skipBillingCheckoutToken,
       task: async (ctx: BootstrapTaskContext, task: BootstrapTaskWrapper) => {
         if (!ctx.envResult) {
           throw new Error('Environment not loaded');
@@ -220,7 +226,8 @@ function baseTasks(cwd: string): ListrTask<BootstrapTaskContext>[] {
 
 export function createPreflightTasks(options: PipelineOptions = {}): Listr<BootstrapTaskContext> {
   const cwd = resolveCwd(options.cwd);
-  return new Listr<BootstrapTaskContext>(baseTasks(cwd), {
+  const dryRun = options.dryRun ?? false;
+  return new Listr<BootstrapTaskContext>(baseTasks(cwd, { skipBillingCheckoutToken: dryRun }), {
     ctx: {},
     rendererOptions: {
       collapseSubtasks: false
@@ -232,7 +239,7 @@ export function createApplyTasks(options: PipelineOptions = {}): Listr<Bootstrap
   const cwd = resolveCwd(options.cwd);
   const dryRun = options.dryRun ?? false;
   const tasks = [
-    ...baseTasks(cwd),
+    ...baseTasks(cwd, { skipBillingCheckoutToken: dryRun }),
     {
       title: dryRun ? 'Preview Cloudflare actions' : 'Apply Cloudflare actions',
       task: async (ctx: BootstrapTaskContext, task: BootstrapTaskWrapper) => {
