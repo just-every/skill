@@ -1059,6 +1059,16 @@ function isStaticAssetPath(pathname: string): boolean {
   return false;
 }
 
+function normaliseStaticAssetPath(pathname: string): string {
+  for (const prefix of STATIC_ASSET_PREFIXES) {
+    const index = pathname.indexOf(prefix);
+    if (index > 0) {
+      return pathname.slice(index);
+    }
+  }
+  return pathname;
+}
+
 function normaliseAppBasePath(raw: string | undefined): string {
   if (!raw) {
     return "/app";
@@ -1332,8 +1342,15 @@ const Worker: ExportedHandler<Env> = {
       }
     }
 
-    if (isStaticAssetPath(pathname)) {
-      const assetResponse = await serveStaticAsset(request, env);
+    const canonicalAssetPath = normaliseStaticAssetPath(pathname);
+    if (isStaticAssetPath(canonicalAssetPath)) {
+      let assetRequest = request;
+      if (canonicalAssetPath !== pathname) {
+        const assetUrl = new URL(request.url);
+        assetUrl.pathname = canonicalAssetPath;
+        assetRequest = new Request(assetUrl.toString(), request);
+      }
+      const assetResponse = await serveStaticAsset(assetRequest, env);
       if (assetResponse) {
         return assetResponse;
       }
