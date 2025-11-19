@@ -1,22 +1,32 @@
 ## Verify admin flows after deploy
 
-1. **Sign in as an Owner/Admin in Better Auth**
-   - Browse to `https://starter.justevery.com/app` and confirm it redirects to `https://login.justevery.com/` when not authenticated.
-   - Complete the login form using the configured admin email/password (or passkey) and ensure the worker issues a `better-auth.session_token` cookie scoped to `/api`.
-   - Expected outcome: landing page loads the dashboard shell once the cookie is present.
+1. **Sign in (Better Auth / hosted popup)**
+   - Browse to `https://starter.justevery.com/app`; unauthenticated users should be redirected to `https://login.justevery.com/`.
+   - Sign in with a valid Owner/Admin test user (or passkey) and return to the app; the dashboard shell should load with a `better-auth.session_token` cookie scoped to `/api`.
 
-2. **Team member role/name updates and removal**
-   - Open the Team screen in the app (via left navigation) while signed in as an Admin/Owner.
-   - Inline-edit a member name, save, and confirm the UI reflects the change; the worker should accept the PATCH payload and persist the new name.
-   - Tap a role chip, change the role, and verify the optimistic update holds; the worker should respond with `ok` and the query should refetch the team list.
-   - Hit the Remove button, approve the confirmation dialog, and ensure the member disappears from the list after the DELETE succeeds.
+2. **Profile popup availability**
+   - Use the account menu → “Manage login profile” (or visit `/app/settings`, which now opens the popup) and confirm the hosted profile popup renders from `login.justevery.com/profile-popup.js`.
+   - Verify sections: Account, Security, Organizations, Billing are available.
 
-3. **Billing contact persistence**
-   - Navigate to the Billing screen.
-   - Update the saved billing email, click Save, and confirm the worker PATCH `/api/accounts/:slug` returns `ok` and the field stays updated.
-   - Flip the field back or re-load the page to ensure persistence.
+3. **Organization switching (popup-driven)**
+   - In the profile popup, go to **Organizations** and switch to another org (if present).
+   - App should refresh company context (companies query refetch) and subsequent API calls use the new org; `/api/accounts` should reflect the active org.
+   - Hitting `/app/team` should immediately open the popup to Organizations and not render local Team UI.
 
-4. **Checkout proxy & Portal**
+4. **Billing (popup-driven)**
+   - Visit `/app/billing` (wrapper) – it should open the popup Billing section instead of local billing UI.
+   - In **Billing**, click Upgrade/Manage; the popup should emit `billing:checkout` and open the Stripe checkout/portal URL in a new tab.
+   - If billing return URLs are used, `/app/billing/success` and `/app/billing/cancel` should still render the return screen, but “Manage in Stripe” now re-opens the popup Billing section.
+
+5. **Settings (popup-driven)**
+   - Visit `/app/settings`; it should open the profile popup to **Account**. Confirm changes (e.g., display name/email) are performed via the popup.
+
+6. **Logout**
+   - From the popup, choose Sign out; the app should clear session and redirect back to login.
+
+Notes
+- Local Team/Billing/Settings React screens have been replaced by hosted popup flows per `../login/docs/profile-popup-integration.md` and `docs/BILLING.md`.
+- Billing and team APIs remain server-side but are accessed via the popup; no local tables/forms should render on `/app/team` or `/app/billing`.
    - From Billing, choose a plan and trigger Checkout; the worker should POST to `/api/accounts/:slug/billing/checkout`, which now forwards the request to `login.justevery.com/api/billing/checkout` using the `BILLING_CHECKOUT_TOKEN`. Expect a Stripe URL in the response.
    - Use the same billing section to open the Customer Portal; the worker still POSTs `/api/accounts/:slug/billing/portal`, receives a portal `url`, and redirects the browser.
    - Ensure the enriched `/api/stripe/products` payload is non-empty (i.e., real price IDs and metadata) before hitting checkout.

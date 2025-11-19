@@ -19,7 +19,7 @@
 
 ## Authenticated verification (requires Owner/Admin session)
 - Log in via Better Auth to `https://starter.justevery.com/app` and verify the dashboard shell loads.
-- On Team screen edit a member name + role and remove a member; confirm UI reflects edits and worker returns `ok`.
-- On Billing screen change billing email, save, and ensure persistent value; select a plan to call `/api/accounts/:slug/billing/checkout` (returns Stripe URL) and open `/api/accounts/:slug/billing/portal`.|
+- Team/Billing/Settings UIs are now hosted in the login profile popup. Visiting `/app/team`, `/app/billing`, or `/app/settings` should open the popup to Organizations, Billing, or Account respectively (no local tables/forms). 
+- Billing still proxies via worker APIs; use the popup Billing section to update billing email and start checkout/portal flows. Validate worker responses (`/api/accounts/:slug/billing/checkout`, `.../portal`) via network panel or worker logs.
 
 With these checks passed, the template is ready for production usage and no further duplication is required.
