@@ -15,7 +15,7 @@ import { Logo } from '../components/Logo';
 import { cn } from '../lib/cn';
 import { useAuth } from '../auth/AuthProvider';
 import { usePrefersReducedMotion } from '../lib/usePrefersReducedMotion';
-import useProfilePopup from '../profile/useProfilePopup';
+import { useJustEveryProfilePopup } from '../profile/useJustEveryProfilePopup';
 import { DEFAULT_STARFIELD_VARIANT } from './components/Starfield';
 import { useRouterContext } from '../router/RouterProvider';
 
@@ -123,7 +123,7 @@ const AppShell = ({
 
   const profileReturnUrl = typeof window !== 'undefined' ? window.location.origin + path : undefined;
 
-  const profilePopup = useProfilePopup({
+  const { open: openProfilePopup } = useJustEveryProfilePopup({
     baseUrl: loginOrigin,
     defaultSection: 'account',
     defaultOrganizationId: activeCompany?.id,
@@ -131,10 +131,16 @@ const AppShell = ({
     onReady: handlePopupReady,
     onOrganizationChange: handlePopupOrgChange,
     onSessionLogout: handlePopupLogout,
+    onBillingCheckout: ({ status, url, error }) => {
+      if (status === 'ready' && url) {
+        window.open(url, '_blank', 'noopener');
+      }
+      if (status === 'error' && error) {
+        console.warn('Billing checkout error from profile popup', error);
+      }
+    },
     onClose: () => setAccountMenuOpen(false),
   });
-
-  const { Host: ProfilePopupHostElement, open: openProfilePopup } = profilePopup;
 
   const handleCompanyChange = useCallback(
     async (company: Company) => {
@@ -493,7 +499,6 @@ const AppShell = ({
           </View>
         </View>
       )}
-      {ProfilePopupHostElement}
       <InviteModal visible={openInvite} onClose={() => setOpenInvite(false)} onSubmit={handleInviteSubmit} />
     </View>
   );
