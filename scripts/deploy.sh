@@ -140,8 +140,11 @@ else
   log "Skipping env audit in dry-run mode"
 fi
 
-if [[ "$MODE" == "deploy" || has_real_stripe_key ]]; then
+if has_real_stripe_key; then
   log "Rendering bootstrap deploy plan (dry run)"
+  pnpm bootstrap:deploy:dry-run
+elif [[ "$MODE" == "deploy" ]]; then
+  log "Stripe key missing but deploy requested; running bootstrap dry run anyway"
   pnpm bootstrap:deploy:dry-run
 else
   log "Skipping bootstrap dry run (placeholder Stripe credentials detected)"
