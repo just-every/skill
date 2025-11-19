@@ -1033,11 +1033,9 @@ const INACTIVE_SUBSCRIPTION_STATUSES = new Set(['canceled', 'incomplete_expired'
 
 const STATIC_ASSET_PREFIXES = ["/_expo/", "/assets/"];
 const STATIC_ASSET_PATHS = new Set(["/favicon.ico", "/index.html", "/manifest.json"]);
-const SPA_EXTRA_ROUTES = ["/callback", "/app", "/logout", "/dev/sidebar"];
+const SPA_EXTRA_ROUTES = ["/callback", "/app", "/logout", "/dev/sidebar", "/pricing", "/contact"];
 const PRERENDER_ROUTES: Record<string, string> = {
-  '/': 'index.html',
-  '/pricing': 'pricing.html',
-  '/contact': 'contact.html'
+  '/': 'index.html'
 };
 const MARKETING_ROUTE_PREFIX = "/marketing/";
 

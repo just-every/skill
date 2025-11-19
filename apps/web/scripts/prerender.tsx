@@ -26,9 +26,7 @@ import { AuthProvider } from '../src/auth/AuthProvider';
 import { DEFAULT_LOGIN_ORIGIN } from '@justevery/config/auth';
 
 const routes = [
-  { path: '/', component: <Home /> },
-  { path: '/pricing', component: <Pricing /> },
-  { path: '/contact', component: <Contact /> }
+  { path: '/', component: <Home /> }
 ];
 
 const expoScriptPattern = /<script([^>]*)src="\/_expo\/static\/js\/web\/[^\"]+"([^>]*)><\/script>/i;
