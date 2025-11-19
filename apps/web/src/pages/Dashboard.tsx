@@ -25,12 +25,10 @@ import {
 } from '../app/hooks';
 import type { Company, Member } from '../app/types';
 import OverviewScreen from '../app/screens/OverviewScreen';
-import TeamScreen from '../app/screens/TeamScreen';
-import BillingScreen from '../app/screens/BillingScreen';
 import BillingReturnScreen from '../app/screens/BillingReturnScreen';
 import UsageScreen from '../app/screens/UsageScreen';
 import AssetsScreen from '../app/screens/AssetsScreen';
-import SettingsScreen from '../app/screens/SettingsScreen';
+import { useJustEveryProfilePopup } from '../profile/useJustEveryProfilePopup';
 import { useRouterContext } from '../router/RouterProvider';
 
 const NAV_ITEMS: AppNavItem[] = [
@@ -109,31 +107,23 @@ const Dashboard = () => {
   }, [activeCompanyId, companies, companiesQuery.data?.currentAccountId, setActiveCompany]);
 
   const activeCompany = useCompanyById(companies, activeCompanyId);
-  const membersQuery = useMembersQuery(activeCompany?.id, activeCompany?.slug);
   const assetsQuery = useAssetsQuery(activeCompany?.id, activeCompany?.slug);
   const usageQuery = useUsageQuery(activeCompany?.id, activeCompany?.slug);
   const subscriptionQuery = useSubscriptionQuery(activeCompany?.id, activeCompany?.slug);
-  const productsQuery = useProductsQuery(activeCompany?.slug);
-  const invoicesQuery = useInvoicesQuery(activeCompany?.id, activeCompany?.slug);
-  const invitesQuery = useInvitesQuery(activeCompany?.id, activeCompany?.slug);
 
-  // Billing mutations
-  const createCheckoutMutation = useCreateCheckoutMutation(activeCompany?.id, activeCompany?.slug);
-  const createPortalMutation = useCreatePortalMutation(activeCompany?.id, activeCompany?.slug);
-  const updateMemberRoleMutation = useUpdateMemberRoleMutation(activeCompany?.id, activeCompany?.slug);
-  const updateMemberNameMutation = useUpdateMemberNameMutation(activeCompany?.id, activeCompany?.slug);
-  const removeMemberMutation = useRemoveMemberMutation(activeCompany?.id, activeCompany?.slug);
-  const resendInviteMutation = useResendInviteMutation(activeCompany?.id, activeCompany?.slug);
-  const revokeInviteMutation = useDeleteInviteMutation(activeCompany?.id, activeCompany?.slug);
-
-  // Derive viewer role from session user email and members list
-  const viewerRole: Member['role'] | undefined = React.useMemo(() => {
-    if (!session?.user?.email || !membersQuery.data) {
-      return undefined;
-    }
-    const viewerMember = membersQuery.data.find((m) => m.email === session.user.email);
-    return viewerMember?.role;
-  }, [session?.user?.email, membersQuery.data]);
+  const { open: openProfilePopup } = useJustEveryProfilePopup({
+    baseUrl: loginOrigin,
+    defaultSection: 'account',
+    defaultOrganizationId: activeCompany?.id,
+    onReady: () => void companiesQuery.refetch(),
+    onOrganizationChange: (payload) => {
+      if (payload.organizationId) {
+        setActiveCompany(payload.organizationId);
+        void companiesQuery.refetch();
+      }
+    },
+    onSessionLogout: () => openHostedLogin({ returnPath: '/app/overview' }),
+  });
 
   useEffect(() => {
     if (authStatus === 'unauthenticated') {
@@ -191,33 +181,18 @@ const Dashboard = () => {
     navigate(toPath(segment));
   };
 
-  const handleOpenCheckout = async (priceId: string) => {
-    return await createCheckoutMutation.mutateAsync(priceId);
-  };
+  const redirectSection = React.useMemo(() => {
+    if (section === 'team') return 'organizations';
+    if (section === 'billing') return 'billing';
+    if (section === 'settings') return 'account';
+    return null;
+  }, [section]);
 
-  const handleOpenPortal = async () => {
-    return await createPortalMutation.mutateAsync();
-  };
-
-  const handleChangeRole = async (memberId: string, role: Member['role']) => {
-    await updateMemberRoleMutation.mutateAsync({ memberId, role });
-  };
-
-  const handleRemoveMember = async (memberId: string) => {
-    await removeMemberMutation.mutateAsync(memberId);
-  };
-
-  const handleResendInvite = async (inviteId: string) => {
-    await resendInviteMutation.mutateAsync(inviteId);
-  };
-
-  const handleRevokeInvite = async (inviteId: string) => {
-    await revokeInviteMutation.mutateAsync(inviteId);
-  };
-
-  const handleUpdateMemberName = async (memberId: string, name: string) => {
-    await updateMemberNameMutation.mutateAsync({ memberId, name });
-  };
+  useEffect(() => {
+    if (redirectSection) {
+      openProfilePopup({ section: redirectSection as any, organizationId: activeCompany?.id });
+    }
+  }, [activeCompany?.id, openProfilePopup, redirectSection]);
 
   const renderScreen = (company?: Company) => {
     if (billingReturnState) {
@@ -226,50 +201,45 @@ const Dashboard = () => {
           variant={billingReturnState.variant}
           sessionId={billingReturnState.sessionId}
           companyName={company?.name}
-          onManageInStripe={handleOpenPortal}
-          isManagePending={createPortalMutation.isPending}
+          onManageInStripe={() => openProfilePopup({ section: 'billing', organizationId: company?.id })}
+          isManagePending={false}
           onBackToBilling={() => handleNavigate('billing')}
         />
       );
     }
+
+    if (redirectSection) {
+      return (
+        <View className={centerClassName}>
+          <ActivityIndicator size="large" color="#0f172a" />
+          <Text className="mt-3 text-base text-slate-500">Opening {section} in your account profile…</Text>
+          <Pressable
+            className="mt-4 rounded-xl bg-ink px-6 py-3"
+            onPress={() => openProfilePopup({ section: redirectSection as any, organizationId: company?.id })}
+          >
+            <Text className="text-center text-sm font-semibold text-white">Retry</Text>
+          </Pressable>
+          <Pressable
+            className="mt-2"
+            onPress={() => handleNavigate('overview')}
+          >
+            <Text className="text-center text-sm text-slate-500">Back to overview</Text>
+          </Pressable>
+        </View>
+      );
+    }
+
     switch (section) {
-      case 'team':
-        return (
-        <TeamScreen
-          members={membersQuery.data ?? []}
-          invites={invitesQuery.data ?? []}
-          viewerRole={viewerRole}
-          onChangeRole={handleChangeRole}
-          onRemoveMember={handleRemoveMember}
-          onUpdateMemberName={handleUpdateMemberName}
-          onResendInvite={handleResendInvite}
-          onRevokeInvite={handleRevokeInvite}
-        />
-        );
-      case 'billing':
-        return (
-          <BillingScreen
-            company={company}
-            subscription={subscriptionQuery.data}
-            products={productsQuery.data ?? []}
-            invoices={invoicesQuery.data ?? []}
-            viewerRole={viewerRole}
-            onOpenCheckout={handleOpenCheckout}
-            onOpenPortal={handleOpenPortal}
-          />
-        );
       case 'usage':
         return <UsageScreen points={usageQuery.data ?? []} />;
       case 'assets':
         return <AssetsScreen assets={assetsQuery.data ?? []} />;
-      case 'settings':
-        return <SettingsScreen company={company} />;
       case 'overview':
       default:
         return (
           <OverviewScreen
             company={company}
-            members={membersQuery.data ?? []}
+            members={[]}
             subscription={subscriptionQuery.data}
             onNavigateToTeam={() => handleNavigate('team')}
           />
