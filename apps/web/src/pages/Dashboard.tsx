@@ -132,6 +132,24 @@ const Dashboard = () => {
     }
   }, [authStatus, openHostedLogin, path]);
 
+  const handleNavigate = (segment: string) => {
+    navigate(toPath(segment));
+  };
+
+  const redirectSection = React.useMemo(() => {
+    if (section === 'team') return 'organizations';
+    if (section === 'billing') return 'billing';
+    if (section === 'settings') return 'account';
+    return null;
+  }, [section]);
+
+  useEffect(() => {
+    if (authStatus !== 'authenticated' || !isAuthenticated || !redirectSection) {
+      return;
+    }
+    openProfilePopup({ section: redirectSection as any, organizationId: activeCompany?.id });
+  }, [activeCompany?.id, authStatus, isAuthenticated, openProfilePopup, redirectSection]);
+
   if (authStatus !== 'authenticated' || !isAuthenticated) {
     const message = authStatus === 'checking' ? 'Checking your session…' : 'Redirecting to Better Auth…';
     return (
@@ -176,23 +194,6 @@ const Dashboard = () => {
       </View>
     );
   }
-
-  const handleNavigate = (segment: string) => {
-    navigate(toPath(segment));
-  };
-
-  const redirectSection = React.useMemo(() => {
-    if (section === 'team') return 'organizations';
-    if (section === 'billing') return 'billing';
-    if (section === 'settings') return 'account';
-    return null;
-  }, [section]);
-
-  useEffect(() => {
-    if (redirectSection) {
-      openProfilePopup({ section: redirectSection as any, organizationId: activeCompany?.id });
-    }
-  }, [activeCompany?.id, openProfilePopup, redirectSection]);
 
   const renderScreen = (company?: Company) => {
     if (billingReturnState) {
