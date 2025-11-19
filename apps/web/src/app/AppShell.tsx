@@ -86,6 +86,32 @@ const AppShell = ({ navItems, activeItem, onNavigate, companies, isLoadingCompan
     return companies.find((company) => company.id === activeCompanyId) ?? fallback;
   }, [activeCompanyId, companies]);
 
+  const handlePopupOrgChange = useCallback(
+    (payload: unknown) => {
+      const org =
+        payload && typeof payload === 'object' && 'organization' in payload
+          ? (payload as { organization?: { id?: string } }).organization
+          : undefined;
+      if (org?.id) {
+        setActiveCompany(org.id);
+      }
+      void companiesQuery.refetch();
+    },
+    [companiesQuery, setActiveCompany]
+  );
+
+  const handlePopupLogout = useCallback(async () => {
+    await signOut({ returnUrl: typeof window !== 'undefined' ? window.location.origin : undefined });
+    if (typeof window !== 'undefined') {
+      window.location.assign('/');
+    }
+  }, [signOut]);
+
+  const handlePopupReady = useCallback(() => {
+    void refresh();
+    void companiesQuery.refetch();
+  }, [companiesQuery, refresh]);
+
   const profileReturnUrl = typeof window !== 'undefined' ? window.location.origin + path : undefined;
 
   const profilePopup = useProfilePopup({
@@ -122,32 +148,6 @@ const AppShell = ({ navItems, activeItem, onNavigate, companies, isLoadingCompan
     },
     [setActiveCompany, setShowSwitcher, setSwitcherHover, switchCompanyMutation]
   );
-
-  const handlePopupOrgChange = useCallback(
-    (payload: unknown) => {
-      const org =
-        payload && typeof payload === 'object' && 'organization' in payload
-          ? (payload as { organization?: { id?: string } }).organization
-          : undefined;
-      if (org?.id) {
-        setActiveCompany(org.id);
-      }
-      void companiesQuery.refetch();
-    },
-    [companiesQuery, setActiveCompany]
-  );
-
-  const handlePopupLogout = useCallback(async () => {
-    await signOut({ returnUrl: typeof window !== 'undefined' ? window.location.origin : undefined });
-    if (typeof window !== 'undefined') {
-      window.location.assign('/');
-    }
-  }, [signOut]);
-
-  const handlePopupReady = useCallback(() => {
-    void refresh();
-    void companiesQuery.refetch();
-  }, [companiesQuery, refresh]);
 
   const handleInviteSubmit = async (draft: InviteDraft) => {
     if (!activeCompany?.slug) {
