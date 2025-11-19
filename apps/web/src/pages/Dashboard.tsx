@@ -284,6 +284,7 @@ const Dashboard = () => {
       onNavigate={handleNavigate}
       companies={companies}
       isLoadingCompanies={companiesQuery.isLoading}
+      onRefreshCompanies={() => void companiesQuery.refetch()}
     >
       {renderScreen(activeCompany)}
     </AppShell>

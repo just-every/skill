@@ -32,12 +32,21 @@ type AppShellProps = {
   readonly onNavigate: (key: string) => void;
   readonly companies: Company[];
   readonly isLoadingCompanies: boolean;
+  readonly onRefreshCompanies: () => void;
   readonly children?: ReactNode;
 };
 
 const STARFIELD_MICRO_EVENT_FREQ = 0.003;
 
-const AppShell = ({ navItems, activeItem, onNavigate, companies, isLoadingCompanies, children }: AppShellProps) => {
+const AppShell = ({
+  navItems,
+  activeItem,
+  onNavigate,
+  companies,
+  isLoadingCompanies,
+  onRefreshCompanies,
+  children,
+}: AppShellProps) => {
   const { activeCompanyId, setActiveCompany } = useCompanyStore();
   const api = useApiClient();
   const [openInvite, setOpenInvite] = useState(false);
@@ -95,9 +104,9 @@ const AppShell = ({ navItems, activeItem, onNavigate, companies, isLoadingCompan
       if (org?.id) {
         setActiveCompany(org.id);
       }
-      void companiesQuery.refetch();
+      onRefreshCompanies();
     },
-    [companiesQuery, setActiveCompany]
+    [onRefreshCompanies, setActiveCompany]
   );
 
   const handlePopupLogout = useCallback(async () => {
@@ -109,8 +118,8 @@ const AppShell = ({ navItems, activeItem, onNavigate, companies, isLoadingCompan
 
   const handlePopupReady = useCallback(() => {
     void refresh();
-    void companiesQuery.refetch();
-  }, [companiesQuery, refresh]);
+    onRefreshCompanies();
+  }, [onRefreshCompanies, refresh]);
 
   const profileReturnUrl = typeof window !== 'undefined' ? window.location.origin + path : undefined;
 
