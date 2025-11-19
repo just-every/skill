@@ -88,7 +88,7 @@ const toPath = (segment: string): string => {
 
 const Dashboard = () => {
   const { path, navigate } = useRouterContext();
-  const { status: authStatus, isAuthenticated, openHostedLogin, session } = useAuth();
+  const { status: authStatus, isAuthenticated, openHostedLogin, session, loginOrigin } = useAuth();
   const section = resolveSection(path);
   const billingReturnState = React.useMemo(() => parseBillingReturnState(path), [path]);
 
