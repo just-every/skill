@@ -97,7 +97,11 @@ jobs:
             echo "CLOUDFLARE_R2_BUCKET=ci-placeholder-assets"
             echo "STRIPE_SECRET_KEY=sk_test_placeholder"
             echo "STRIPE_WEBHOOK_SECRET=whsec_placeholder"
-            echo "STRIPE_PRODUCTS="
+            echo "BETTER_AUTH_URL=https://auth-placeholder.justevery.test"
+            echo "LOGIN_ORIGIN=https://login-placeholder.justevery.test"
+            echo "SESSION_COOKIE_DOMAIN=.placeholder.test"
+            echo "STRIPE_PRODUCTS=Placeholder:1000,usd,month"
+            echo "BILLING_CHECKOUT_TOKEN=placeholder-checkout-token"
           } > .env.ci
           while IFS= read -r line; do
             var="${line%%=*}"
