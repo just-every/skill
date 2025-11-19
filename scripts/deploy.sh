@@ -54,7 +54,9 @@ log() {
 is_placeholder_token() {
   local value="${1:-}"
   [[ -z "$value" ]] && return 0
-  [[ "$value" =~ placeholder|dummy|example ]] && return 0
+  if [[ "$value" =~ (placeholder|dummy|example) ]]; then
+    return 0
+  fi
   return 1
 }
 
