@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 export type ProfilePopupSection = 'account' | 'security' | 'organizations' | 'developer' | 'billing';
 
@@ -56,15 +56,25 @@ let loadPromise: Promise<void> | null = null;
 
 const ensurePopupScript = (src: string) => {
   if (typeof window === 'undefined') return Promise.resolve();
-  if (window.JustEveryProfilePopup) return Promise.resolve();
+  if (window.JustEveryProfilePopup) {
+    debugLog('helper already available on window');
+    return Promise.resolve();
+  }
   if (loadPromise) return loadPromise;
 
   loadPromise = new Promise<void>((resolve, reject) => {
+    debugLog('injecting profile popup script', src);
     const script = document.createElement('script');
     script.src = src;
     script.defer = true;
-    script.onload = () => resolve();
-    script.onerror = () => reject(new Error('Failed to load profile-popup.js'));
+    script.onload = () => {
+      debugLog('profile popup script loaded', src);
+      resolve();
+    };
+    script.onerror = () => {
+      debugLog('profile popup script failed to load', src);
+      reject(new Error('Failed to load profile-popup.js'));
+    };
     document.head.appendChild(script);
   });
 
@@ -87,7 +97,55 @@ export function useJustEveryProfilePopup(options: UseJustEveryProfilePopupOption
   } = options;
 
   const instanceRef = useRef<PopupInstance | null>(null);
+  const pendingOpenRef = useRef<{ section?: ProfilePopupSection; organizationId?: string } | null>(null);
   const [isReady, setIsReady] = useState(false);
+  const callbacksRef = useRef({
+    onReady,
+    onOrganizationChange,
+    onSessionLogout,
+    onBillingCheckout,
+    onAccountMenu,
+    onClose,
+  });
+  const defaultsRef = useRef<{ section?: ProfilePopupSection; organizationId?: string }>({
+    section: defaultSection,
+    organizationId: defaultOrganizationId,
+  });
+
+  const resolvedBaseUrl = useMemo(() => {
+    const fallback = 'https://login.justevery.com';
+    const base = baseUrl ?? fallback;
+    const normalized = base.replace(/\/+$/, '') || fallback;
+    debugLog('resolved base URL', normalized);
+    return normalized;
+  }, [baseUrl]);
+
+  useEffect(() => {
+    callbacksRef.current = {
+      onReady,
+      onOrganizationChange,
+      onSessionLogout,
+      onBillingCheckout,
+      onAccountMenu,
+      onClose,
+    };
+  }, [onAccountMenu, onBillingCheckout, onClose, onOrganizationChange, onReady, onSessionLogout]);
+
+  useEffect(() => {
+    defaultsRef.current = {
+      section: defaultSection,
+      organizationId: defaultOrganizationId,
+    };
+  }, [defaultOrganizationId, defaultSection]);
+
+  const flushPendingOpen = useCallback(() => {
+    if (!pendingOpenRef.current || !instanceRef.current) {
+      return;
+    }
+    const payload = pendingOpenRef.current;
+    instanceRef.current.open(Object.keys(payload).length ? payload : undefined);
+    pendingOpenRef.current = null;
+  }, []);
 
   useEffect(() => {
     if (typeof window === 'undefined') return undefined;
@@ -95,8 +153,7 @@ export function useJustEveryProfilePopup(options: UseJustEveryProfilePopupOption
     let destroyed = false;
 
     const init = async () => {
-      const resolvedBase = (baseUrl ?? 'https://login.justevery.com').replace(/\/+$/, '');
-      const scriptSrc = `${resolvedBase}/profile-popup.js`;
+      const scriptSrc = `${resolvedBaseUrl}/profile-popup.js`;
       try {
         await ensurePopupScript(scriptSrc);
       } catch (error) {
@@ -105,33 +162,36 @@ export function useJustEveryProfilePopup(options: UseJustEveryProfilePopupOption
       }
 
       if (destroyed || !window.JustEveryProfilePopup) {
+        debugLog('helper unavailable after script load', { destroyed, hasHelper: Boolean(window.JustEveryProfilePopup) });
         return;
       }
 
       const handleEvent = (evt: PopupEvent) => {
+        const { onReady: readyCb, onOrganizationChange: orgCb, onSessionLogout: logoutCb, onBillingCheckout: billingCb, onAccountMenu: accountCb, onClose: closeCb } =
+          callbacksRef.current;
         switch (evt.event) {
           case 'ready':
             setIsReady(true);
-            onReady?.(evt.data ?? evt.payload);
+            readyCb?.(evt.data ?? evt.payload);
             break;
           case 'organization:change':
-            onOrganizationChange?.((evt.data ?? evt.payload ?? {}) as { organizationId?: string });
+            orgCb?.((evt.data ?? evt.payload ?? {}) as { organizationId?: string });
             break;
           case 'session:logout':
-            onSessionLogout?.(evt.data ?? evt.payload);
+            logoutCb?.(evt.data ?? evt.payload);
             break;
           case 'billing:checkout':
-            onBillingCheckout?.((evt.data ?? evt.payload ?? {}) as {
+            billingCb?.((evt.data ?? evt.payload ?? {}) as {
               status?: string;
               url?: string;
               error?: string;
             });
             break;
           case 'account:menu':
-            onAccountMenu?.(evt.data ?? evt.payload);
+            accountCb?.(evt.data ?? evt.payload);
             break;
           case 'close':
-            onClose?.(evt.data ?? evt.payload);
+            closeCb?.(evt.data ?? evt.payload);
             break;
           default:
             break;
@@ -139,13 +199,19 @@ export function useJustEveryProfilePopup(options: UseJustEveryProfilePopupOption
       };
 
       instanceRef.current = window.JustEveryProfilePopup({
-        baseUrl,
-        section: defaultSection,
-        organizationId: defaultOrganizationId,
+        baseUrl: resolvedBaseUrl,
+        section: defaultsRef.current.section,
+        organizationId: defaultsRef.current.organizationId,
         variant,
         returnUrl,
         onEvent: handleEvent,
       });
+      debugLog('initialized popup instance', {
+        section: defaultsRef.current.section,
+        organizationId: defaultsRef.current.organizationId,
+      });
+
+      flushPendingOpen();
     };
 
     void init();
@@ -154,22 +220,46 @@ export function useJustEveryProfilePopup(options: UseJustEveryProfilePopupOption
       destroyed = true;
       instanceRef.current?.destroy();
       instanceRef.current = null;
+      pendingOpenRef.current = null;
       setIsReady(false);
+      debugLog('cleaned up popup instance');
     };
-  }, [baseUrl, defaultSection, defaultOrganizationId, onAccountMenu, onBillingCheckout, onClose, onOrganizationChange, onReady, onSessionLogout, returnUrl, variant]);
+  }, [flushPendingOpen, resolvedBaseUrl, returnUrl, variant]);
 
   const open = useCallback((opts?: { section?: ProfilePopupSection; organizationId?: string }) => {
-    instanceRef.current?.open(
-      opts
-        ? {
-            ...(opts.section ? { section: opts.section } : {}),
-            ...(opts.organizationId ? { organizationId: opts.organizationId } : {}),
-          }
-        : undefined
-    );
+    const payload = {
+      ...(opts?.section ? { section: opts.section } : {}),
+      ...(opts?.organizationId ? { organizationId: opts.organizationId } : {}),
+    };
+
+    if (!payload.section && defaultsRef.current.section) {
+      payload.section = defaultsRef.current.section;
+    }
+    if (!payload.organizationId && defaultsRef.current.organizationId) {
+      payload.organizationId = defaultsRef.current.organizationId;
+    }
+
+    const nextPayload = Object.keys(payload).length ? payload : undefined;
+
+    debugLog('open requested', {
+      payload: nextPayload,
+      hasInstance: Boolean(instanceRef.current),
+    });
+
+    if (instanceRef.current) {
+      instanceRef.current.open(nextPayload);
+      return;
+    }
+
+    pendingOpenRef.current = nextPayload ?? {};
+    debugLog('queued open request', pendingOpenRef.current);
   }, []);
 
-  const close = useCallback(() => instanceRef.current?.close(), []);
+  const close = useCallback(() => {
+    pendingOpenRef.current = null;
+    instanceRef.current?.close();
+    debugLog('close requested');
+  }, []);
 
   const setSection = useCallback(
     (section: ProfilePopupSection) => instanceRef.current?.postMessage('set-section', { section }),
@@ -182,3 +272,49 @@ export function useJustEveryProfilePopup(options: UseJustEveryProfilePopupOption
 
   return { open, close, setSection, refreshSession, refreshOrgs, isReady };
 }
+
+export function __resetProfilePopupTestState() {
+  if (typeof window !== 'undefined') {
+    delete (window as Partial<Window>).JustEveryProfilePopup;
+  }
+  cachedDebugEnabled = null;
+  loadPromise = null;
+}
+type DebugWindow = Window & { __JUSTEVERY_PROFILE_POPUP_DEBUG?: boolean };
+
+const DEBUG_FLAG_KEY = 'EXPO_PUBLIC_PROFILE_POPUP_DEBUG';
+
+let cachedDebugEnabled: boolean | null = null;
+
+const isDebugEnabled = () => {
+  if (cachedDebugEnabled !== null) {
+    return cachedDebugEnabled;
+  }
+  let enabled = false;
+  if (typeof process !== 'undefined' && process.env) {
+    const raw = process.env[DEBUG_FLAG_KEY];
+    if (typeof raw === 'string') {
+      const normalized = raw.trim().toLowerCase();
+      if (normalized === 'true') {
+        enabled = true;
+      } else if (normalized === 'false') {
+        enabled = false;
+      }
+    }
+  }
+  if (!enabled && typeof window !== 'undefined') {
+    const flag = (window as DebugWindow).__JUSTEVERY_PROFILE_POPUP_DEBUG;
+    if (typeof flag === 'boolean') {
+      enabled = flag;
+    }
+  }
+  cachedDebugEnabled = enabled;
+  return enabled;
+};
+
+const debugLog = (...args: unknown[]) => {
+  if (!isDebugEnabled()) {
+    return;
+  }
+  console.info('[profile-popup:hook]', ...args);
+};

@@ -7,7 +7,8 @@
     "dev": "expo start --web --port 19006",
     "start": "expo start --web --port 19006",
     "build": "expo export -p web && pnpm run prerender",
-    "prerender": "TS_NODE_PROJECT=scripts/tsconfig.prerender.json TS_NODE_TRANSPILE_ONLY=1 node -r ts-node/register -r tsconfig-paths/register scripts/prerender.tsx"
+    "prerender": "TS_NODE_PROJECT=scripts/tsconfig.prerender.json TS_NODE_TRANSPILE_ONLY=1 node -r ts-node/register -r tsconfig-paths/register scripts/prerender.tsx",
+    "test": "vitest run --config vitest.config.ts"
   },
   "dependencies": {
     "@babel/runtime": "^7.26.0",
@@ -26,25 +27,29 @@
     "expo-secure-store": "~15.0.7",
     "expo-web-browser": "~15.0.9",
     "nativewind": "5.0.0-preview.2",
+    "postprocessing": "^6.35.3",
     "react": "19.1.0",
     "react-dom": "19.1.0",
     "react-native": "0.81.5",
     "react-native-css": "^3.0.1",
     "react-native-svg": "15.12.1",
-    "react-native-webview": "^13.8.2",
     "react-native-web": "0.21.0",
+    "react-native-webview": "^13.8.2",
     "tailwind-merge": "^3.4.0",
-    "zustand": "^5.0.8",
-    "postprocessing": "^6.35.3",
-    "three": "^0.163.0"
+    "three": "^0.163.0",
+    "zustand": "^5.0.8"
   },
   "devDependencies": {
     "@babel/core": "^7.26.0",
     "@tailwindcss/forms": "^0.5.10",
     "@tailwindcss/postcss": "^4.1.0",
     "@tailwindcss/typography": "^0.5.19",
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.0",
     "@types/react": "~19.1.10",
     "babel-preset-expo": "^54.0.7",
+    "happy-dom": "^20.0.10",
+    "jsdom": "^27.2.0",
     "lightningcss": "1.30.1",
     "module-alias": "2.2.3",
     "postcss": "^8.5.6",
@@ -52,6 +57,7 @@
     "ts-node": "^10.9.2",
     "tsconfig-paths": "^4.2.0",
     "tsx": "^4.20.6",
-    "typescript": "^5.9.3"
+    "typescript": "^5.9.3",
+    "vitest": "^4.0.8"
   }
 }

@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React, { useCallback, useEffect } from 'react';
 import { ActivityIndicator, Pressable, Text, View } from 'react-native';
 import { faChartSimple, faCreditCard, faFolderTree, faGear, faHouse, faUsers } from '@fortawesome/pro-solid-svg-icons';
 
@@ -111,30 +111,12 @@ const Dashboard = () => {
   const usageQuery = useUsageQuery(activeCompany?.id, activeCompany?.slug);
   const subscriptionQuery = useSubscriptionQuery(activeCompany?.id, activeCompany?.slug);
 
-  const { open: openProfilePopup } = useJustEveryProfilePopup({
-    baseUrl: loginOrigin,
-    defaultSection: 'account',
-    defaultOrganizationId: activeCompany?.id,
-    onReady: () => void companiesQuery.refetch(),
-    onOrganizationChange: (payload) => {
-      if (payload.organizationId) {
-        setActiveCompany(payload.organizationId);
-        void companiesQuery.refetch();
-      }
+  const handleNavigate = useCallback(
+    (segment: string) => {
+      navigate(toPath(segment));
     },
-    onSessionLogout: () => openHostedLogin({ returnPath: '/app/overview' }),
-  });
-
-  useEffect(() => {
-    if (authStatus === 'unauthenticated') {
-      const next = path.startsWith('/app') ? path : '/app/overview';
-      openHostedLogin({ returnPath: next });
-    }
-  }, [authStatus, openHostedLogin, path]);
-
-  const handleNavigate = (segment: string) => {
-    navigate(toPath(segment));
-  };
+    [navigate]
+  );
 
   const redirectSection = React.useMemo(() => {
     if (section === 'team') return 'organizations';
@@ -143,12 +125,63 @@ const Dashboard = () => {
     return null;
   }, [section]);
 
+  const refetchCompanies = companiesQuery.refetch;
+
+  const handlePopupReady = useCallback(() => {
+    void refetchCompanies();
+  }, [refetchCompanies]);
+
+  const handlePopupOrgChange = useCallback(
+    (payload: { organizationId?: string }) => {
+      if (payload.organizationId) {
+        setActiveCompany(payload.organizationId);
+        void refetchCompanies();
+      }
+    },
+    [refetchCompanies, setActiveCompany]
+  );
+
+  const handlePopupSessionLogout = useCallback(() => {
+    openHostedLogin({ returnPath: '/app/overview' });
+  }, [openHostedLogin]);
+
+  const handlePopupClose = useCallback(() => {
+    if (redirectSection) {
+      handleNavigate('overview');
+    }
+  }, [handleNavigate, redirectSection]);
+
+  const { open: openProfilePopup } = useJustEveryProfilePopup({
+    baseUrl: loginOrigin,
+    defaultSection: 'account',
+    defaultOrganizationId: activeCompany?.id,
+    onReady: handlePopupReady,
+    onOrganizationChange: handlePopupOrgChange,
+    onSessionLogout: handlePopupSessionLogout,
+    onClose: handlePopupClose,
+  });
+
+  const requestProfilePopup = useCallback(
+    (payload: { section?: string; organizationId?: string } | undefined, source: string) => {
+      console.info('[profile-popup:Dashboard] open', source, payload);
+      openProfilePopup(payload);
+    },
+    [openProfilePopup]
+  );
+
+  useEffect(() => {
+    if (authStatus === 'unauthenticated') {
+      const next = path.startsWith('/app') ? path : '/app/overview';
+      openHostedLogin({ returnPath: next });
+    }
+  }, [authStatus, openHostedLogin, path]);
+
   useEffect(() => {
     if (authStatus !== 'authenticated' || !isAuthenticated || !redirectSection) {
       return;
     }
-    openProfilePopup({ section: redirectSection as any, organizationId: activeCompany?.id });
-  }, [activeCompany?.id, authStatus, isAuthenticated, openProfilePopup, redirectSection]);
+    requestProfilePopup({ section: redirectSection as any, organizationId: activeCompany?.id }, `route:${section}`);
+  }, [activeCompany?.id, authStatus, isAuthenticated, redirectSection, requestProfilePopup, section]);
 
   if (authStatus !== 'authenticated' || !isAuthenticated) {
     const message = authStatus === 'checking' ? 'Checking your session…' : 'Redirecting to Better Auth…';
@@ -202,7 +235,7 @@ const Dashboard = () => {
           variant={billingReturnState.variant}
           sessionId={billingReturnState.sessionId}
           companyName={company?.name}
-          onManageInStripe={() => openProfilePopup({ section: 'billing', organizationId: company?.id })}
+          onManageInStripe={() => requestProfilePopup({ section: 'billing', organizationId: company?.id }, 'billing:return-screen')}
           isManagePending={false}
           onBackToBilling={() => handleNavigate('billing')}
         />
@@ -216,7 +249,7 @@ const Dashboard = () => {
           <Text className="mt-3 text-base text-slate-500">Opening {section} in your account profile…</Text>
           <Pressable
             className="mt-4 rounded-xl bg-ink px-6 py-3"
-            onPress={() => openProfilePopup({ section: redirectSection as any, organizationId: company?.id })}
+            onPress={() => requestProfilePopup({ section: redirectSection as any, organizationId: company?.id }, 'redirect:retry')}
           >
             <Text className="text-center text-sm font-semibold text-white">Retry</Text>
           </Pressable>

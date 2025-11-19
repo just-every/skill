@@ -15,7 +15,7 @@ import { Logo } from '../components/Logo';
 import { cn } from '../lib/cn';
 import { useAuth } from '../auth/AuthProvider';
 import { usePrefersReducedMotion } from '../lib/usePrefersReducedMotion';
-import { useJustEveryProfilePopup } from '../profile/useJustEveryProfilePopup';
+import { useJustEveryProfilePopup, type ProfilePopupSection } from '../profile/useJustEveryProfilePopup';
 import { DEFAULT_STARFIELD_VARIANT } from './components/Starfield';
 import { useRouterContext } from '../router/RouterProvider';
 
@@ -141,6 +141,14 @@ const AppShell = ({
     },
     onClose: () => setAccountMenuOpen(false),
   });
+
+  const requestProfilePopup = useCallback(
+    (payload: { section?: ProfilePopupSection; organizationId?: string } | undefined, source: string) => {
+      console.info('[profile-popup:AppShell] open', source, payload);
+      openProfilePopup(payload);
+    },
+    [openProfilePopup]
+  );
 
   const handleCompanyChange = useCallback(
     async (company: Company) => {
@@ -368,7 +376,7 @@ const AppShell = ({
               onPress={() => {
                 setAccountMenuOpen(false);
                 setMobileMenuOpen(false);
-                openProfilePopup({ section: 'account' });
+                requestProfilePopup({ section: 'account' }, 'account-menu');
               }}
               accessibilityRole="menuitem"
               className="mt-4 flex flex-row items-center justify-center gap-2 rounded-2xl border border-slate-700 px-4 py-2"
@@ -425,7 +433,7 @@ const AppShell = ({
     switcherRef,
     userEmail,
     accountMenuRef,
-    openProfilePopup,
+    requestProfilePopup,
   ]);
 
   return (
