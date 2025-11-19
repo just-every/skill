@@ -89,8 +89,8 @@ jobs:
           {
             echo "PROJECT_ID=ci-placeholder"
             echo "PROJECT_DOMAIN=https://ci-placeholder.justevery.test"
-            echo "CLOUDFLARE_ACCOUNT_ID=placeholder-account"
-            echo "CLOUDFLARE_API_TOKEN=placeholder-token"
+            echo "CLOUDFLARE_ACCOUNT_ID=0123456789abcdef0123456789abcdef"
+            echo "CLOUDFLARE_API_TOKEN=dummyAccountTokenForCiDryRun1234567"
             echo "CLOUDFLARE_ZONE_ID=placeholder-zone"
             echo "D1_DATABASE_NAME=ci-placeholder-d1"
             echo "D1_DATABASE_ID=placeholder-d1-id"
