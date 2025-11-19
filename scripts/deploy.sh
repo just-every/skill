@@ -51,6 +51,27 @@ log() {
   echo "[deploy] $*"
 }
 
+is_placeholder_token() {
+  local value="${1:-}"
+  [[ -z "$value" ]] && return 0
+  [[ "$value" =~ placeholder|dummy|example ]] && return 0
+  return 1
+}
+
+has_real_stripe_key() {
+  local key="${STRIPE_SECRET_KEY:-}"
+  if [[ -z "$key" ]]; then
+    return 1
+  fi
+  if [[ "$key" != sk_live_* && "$key" != sk_test_* ]]; then
+    return 1
+  fi
+  if is_placeholder_token "$key"; then
+    return 1
+  fi
+  return 0
+}
+
 post_deploy_smoke() {
   local base="${PROJECT_DOMAIN:-}"
   if [[ -z "$base" ]]; then
@@ -117,8 +138,12 @@ else
   log "Skipping env audit in dry-run mode"
 fi
 
-log "Rendering bootstrap deploy plan (dry run)"
-pnpm bootstrap:deploy:dry-run
+if [[ "$MODE" == "deploy" || has_real_stripe_key ]]; then
+  log "Rendering bootstrap deploy plan (dry run)"
+  pnpm bootstrap:deploy:dry-run
+else
+  log "Skipping bootstrap dry run (placeholder Stripe credentials detected)"
+fi
 
 if [[ "$MODE" == "deploy" ]]; then
   log "Running remote migrations"
