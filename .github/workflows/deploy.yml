@@ -116,92 +116,12 @@ jobs:
       - name: Sync Font Awesome registry token
         run: node scripts/sync-fontawesome-token.mjs
       - run: pnpm install --frozen-lockfile
-
-      - name: Verify Expo web build & prerender
-        env:
-          EXPO_NO_INTERACTIVE: '1'
-        run: pnpm --filter @justevery/web run build
-
-      - name: Smoke check exported client bundle
-        run: pnpm smoke:client
-
-      - name: Render Wrangler config (dry run)
-        run: pnpm bootstrap:deploy:dry-run
-
-      - name: Run migrations (remote)
-        if: env.MODE == 'deploy'
-        run: |
-          if ! echo "${D1_DATABASE_ID:-}" | grep -qiE '^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'; then
-            echo "Skipping migrations: invalid or missing D1_DATABASE_ID" && exit 0
-          fi
-          pnpm --filter @justevery/worker run migrate -- --remote
-
-      - name: Deploy (bootstrap)
+      - name: Run unified deploy script
         env:
           DEPLOY_MODE: ${{ env.MODE }}
+          EXPO_NO_INTERACTIVE: '1'
         run: |
-          if [ "$DEPLOY_MODE" = "dry-run" ]; then
-            pnpm bootstrap:deploy:dry-run
-          else
-            pnpm bootstrap:deploy
-          fi
-
-      - name: Post-deploy smoke checks
-        if: env.MODE == 'deploy'
-        env:
-          BASE_URL: ${{ env.PROJECT_DOMAIN }}
-        run: |
-          set -euo pipefail
-          if [ -z "${BASE_URL:-}" ]; then
-            echo "PROJECT_DOMAIN is required for smoke checks" >&2
-            exit 1
-          fi
-          BASE_URL="${BASE_URL%/}"
-          STATUS_URL="${BASE_URL}/api/status"
-          PRODUCTS_URL="${BASE_URL}/api/stripe/products"
-          max_attempts=4
-
-          attempt=1
-          while true; do
-            if response=$(curl -fsSL "$STATUS_URL"); then
-              status=$(printf '%s' "$response" | jq -r '.status // ""')
-              if [ "$status" = "ok" ]; then
-                echo "Status response reports ok"
-                break
-              fi
-              echo "Status check attempt $attempt returned status='$status'" >&2
-            else
-              echo "Status check attempt $attempt failed to fetch" >&2
-            fi
-
-            if [ "$attempt" -ge "$max_attempts" ]; then
-              echo "Status smoke check failed after $attempt attempts" >&2
-              exit 1
-            fi
-            sleep $((attempt * 3))
-            attempt=$((attempt + 1))
-          done
-
-          attempt=1
-          while true; do
-            if response=$(curl -fsSL "$PRODUCTS_URL"); then
-              count=$(printf '%s' "$response" | jq -r '.products | length // 0')
-              if [ "$count" -gt 0 ]; then
-                echo "Products endpoint returned $count entries"
-                break
-              fi
-              echo "Products check attempt $attempt returned empty list" >&2
-            else
-              echo "Products check attempt $attempt failed to fetch" >&2
-            fi
-
-            if [ "$attempt" -ge "$max_attempts" ]; then
-              echo "Products smoke check failed after $attempt attempts" >&2
-              exit 1
-            fi
-            sleep $((attempt * 3))
-            attempt=$((attempt + 1))
-          done
+          scripts/deploy.sh --mode "$DEPLOY_MODE"
 
       - name: Upload deployment artifacts
         if: always()

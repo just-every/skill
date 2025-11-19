@@ -16,9 +16,14 @@ This repository is the canonical justevery starter stack; future products should
 - `npm run build` – Runs workspace builds (`expo export`, Worker bundle).
 - `npm test --workspace workers/api` – Vitest unit suites.
 - `npm run test:e2e` – Playwright against `E2E_BASE_URL` or `PROJECT_DOMAIN`.
-- `pnpm bootstrap:deploy` – Render + deploy via the bootstrap CLI (actual deploy).
-- `pnpm bootstrap:deploy:dry-run` – Render without deploying; useful for validation in CI.
+- `scripts/deploy.sh --mode deploy|dry-run` – **Single source of truth for every deploy path**. This script runs the Expo build, client smoke tests, env audit, bootstrap plan, migrations, worker deploy, and HTTP smoke probes. Update this file (and nowhere else) when changing deploy behaviour.
+- `pnpm bootstrap:deploy` / `pnpm bootstrap:deploy:dry-run` – Still available under the hood, but the unified script orchestrates their usage. Call these directly only for debugging.
 - Pushing to `main` automatically triggers the GitHub deploy workflow to `starter.justevery.com`; monitor that run with `gh run watch --branch main` when shipping user-visible changes.
+
+## Deployment Flow
+- Always run `scripts/deploy.sh --mode deploy` for production pushes and `scripts/deploy.sh --mode dry-run` for validation. CI uses the exact same script, so any change to the deploy sequence must land in this file to avoid drift.
+- The deploy script executes `pnpm audit:deploy-env`, which reads `.env.ci` / `.env.generated` to ensure Cloudflare, Stripe, Better Auth, and billing credentials are present and non-placeholder before proceeding. Fix failing audits before re-running.
+- Post-deploy verification curls `/api/status` and `/api/stripe/products` using `PROJECT_DOMAIN`. Keep this updated if domains change.
 
 ## Coding Style & Naming Conventions
 - TypeScript is strict via `tsconfig.base.json`; add explicit return types on exported helpers and update `Env` when bindings change.
