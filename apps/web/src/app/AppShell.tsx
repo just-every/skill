@@ -17,6 +17,7 @@ import { useAuth } from '../auth/AuthProvider';
 import { usePrefersReducedMotion } from '../lib/usePrefersReducedMotion';
 import useProfilePopup from '../profile/useProfilePopup';
 import { DEFAULT_STARFIELD_VARIANT } from './components/Starfield';
+import { useRouterContext } from '../router/RouterProvider';
 
 export type AppNavItem = {
   key: string;
@@ -50,6 +51,7 @@ const AppShell = ({ navItems, activeItem, onNavigate, companies, isLoadingCompan
   const switcherRef = useRef<HTMLDivElement | null>(null);
   const accountMenuRef = useRef<HTMLDivElement | null>(null);
   const { session, signOut, loginOrigin, refresh } = useAuth();
+  const { path } = useRouterContext();
   const switchCompanyMutation = useSwitchCompanyMutation();
   const prefersReducedMotion = usePrefersReducedMotion();
   const sidebarContainerRef = useRef<HTMLDivElement | null>(null);
