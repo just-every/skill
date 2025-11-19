@@ -6,7 +6,7 @@ import {
   ensureSessionEndpoint,
 } from '@justevery/config/auth';
 
-export type AuthStatus = 'checking' | 'authenticated' | 'unauthenticated';
+export type AuthStatus = 'checking' | 'authenticated' | 'unauthenticated' | 'error';
 
 export interface AuthProviderProps {
   readonly children?: React.ReactNode;
@@ -19,6 +19,7 @@ type AuthContextValue = {
   status: AuthStatus;
   isAuthenticated: boolean;
   session: SessionPayload | null;
+  authError?: string;
   loginOrigin: string;
   betterAuthBaseUrl: string;
   sessionEndpoint: string;
@@ -42,9 +43,11 @@ export const AuthProvider = ({
 
   const client = useMemo(() => new SessionClient({ baseUrl: resolvedApiBase }), [resolvedApiBase]);
 
-  const [state, setState] = useState<{ status: AuthStatus; session: SessionPayload | null }>(
-    () => ({ status: 'checking', session: null })
-  );
+  const [state, setState] = useState<{
+    status: AuthStatus;
+    session: SessionPayload | null;
+    error?: string | null;
+  }>(() => ({ status: 'checking', session: null, error: null }));
 
   const syncWorkerSession = useCallback(async (token?: string | null, snapshot?: SessionPayload | null) => {
     if (!token || lastSyncedTokenRef.current === token) {
@@ -75,7 +78,9 @@ export const AuthProvider = ({
       return null;
     } catch (error) {
       if (!(error instanceof SessionClientError && error.status === 401)) {
+        const message = error instanceof Error ? error.message : 'Unknown authentication error';
         console.warn('Failed to fetch session', error);
+        setState({ status: 'error', session: null, error: message });
       }
       return null;
     }
@@ -91,9 +96,15 @@ export const AuthProvider = ({
     const bootstrap = async () => {
       const payload = await resolveSession();
       if (!cancelled) {
-        setState(
-          payload ? { status: 'authenticated', session: payload } : { status: 'unauthenticated', session: null }
-        );
+        if (payload) {
+          setState({ status: 'authenticated', session: payload, error: null });
+        } else {
+          setState((prev) =>
+            prev.status === 'error'
+              ? prev
+              : { status: 'unauthenticated', session: null, error: null }
+          );
+        }
       }
     };
     void bootstrap();
@@ -135,6 +146,7 @@ export const AuthProvider = ({
       status: state.status,
       isAuthenticated: state.status === 'authenticated',
       session: state.session,
+      authError: state.error ?? undefined,
       loginOrigin: sanitizedLoginOrigin,
       betterAuthBaseUrl: resolvedApiBase,
       sessionEndpoint: resolvedSessionEndpoint,
