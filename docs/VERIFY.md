@@ -27,6 +27,7 @@
 Notes
 - Local Team/Billing/Settings React screens have been replaced by hosted popup flows per `../login/docs/profile-popup-integration.md` and `docs/BILLING.md`.
 - Billing and team APIs remain server-side but are accessed via the popup; no local tables/forms should render on `/app/team` or `/app/billing`.
+- E2E: `tests/e2e/profile-popup.spec.ts` exercises login + popup wrappers when `TEST_LOGIN_EMAIL/TEST_LOGIN_PASSWORD` are set; otherwise it skips.
    - From Billing, choose a plan and trigger Checkout; the worker should POST to `/api/accounts/:slug/billing/checkout`, which now forwards the request to `login.justevery.com/api/billing/checkout` using the `BILLING_CHECKOUT_TOKEN`. Expect a Stripe URL in the response.
    - Use the same billing section to open the Customer Portal; the worker still POSTs `/api/accounts/:slug/billing/portal`, receives a portal `url`, and redirects the browser.
    - Ensure the enriched `/api/stripe/products` payload is non-empty (i.e., real price IDs and metadata) before hitting checkout.
