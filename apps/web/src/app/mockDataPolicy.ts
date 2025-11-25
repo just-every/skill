@@ -31,7 +31,10 @@ export function shouldUseMockData(): boolean {
   if (typeof window === 'undefined') {
     return false;
   }
-  const host = window.location.hostname.toLowerCase();
+  const host = typeof window !== 'undefined' ? window.location?.hostname?.toLowerCase() : undefined;
+  if (!host) {
+    return false;
+  }
   if (LOCAL_HOSTS.has(host)) {
     return true;
   }

@@ -21,6 +21,7 @@ export interface Env {
   SESSION_COOKIE_DOMAIN?: string;
   APP_BASE_URL?: string;
   PROJECT_DOMAIN?: string;
+  DEV_SESSION_TOKEN?: string;
   STRIPE_PRODUCTS?: string;
   STRIPE_SECRET_KEY?: string;
   STRIPE_WEBHOOK_SECRET?: string;
@@ -31,6 +32,7 @@ export interface Env {
   ASSETS?: AssetFetcher;
   TRIAL_PERIOD_DAYS?: string;
   STRIPE_REDIRECT_ALLOWLIST?: string;
+  APP_URL?: string;
 }
 
 type AccountBranding = {
@@ -1336,7 +1338,7 @@ const Worker: ExportedHandler<Env> = {
     // Basic CORS for API endpoints
     if (request.method === "OPTIONS") {
       if (pathname.startsWith("/api/")) {
-        return cors(new Response(null, { status: 204 }));
+        return cors(new Response(null, { status: 204 }), request, env);
       }
     }
 
@@ -1364,7 +1366,7 @@ const Worker: ExportedHandler<Env> = {
     }
 
     if (pathname === "/api/accounts" || pathname.startsWith("/api/accounts/")) {
-      return handleAccountsRoute(request, env, pathname);
+      return cors(await handleAccountsRoute(request, env, pathname), request, env);
     }
 
     switch (pathname) {
@@ -1377,31 +1379,31 @@ const Worker: ExportedHandler<Env> = {
       case "/app/shell":
         return htmlResponse(workerShellHtml(env));
       case "/api/session":
-        return handleSessionApi(request, env);
+        return cors(await handleSessionApi(request, env), request, env);
       case "/api/session/bootstrap":
-        return handleSessionBootstrap(request, env);
+        return cors(await handleSessionBootstrap(request, env), request, env);
       case "/api/session/logout":
-        return handleSessionLogout(request, env);
+        return cors(await handleSessionLogout(request, env), request, env);
       case "/api/me":
-        return handleMe(request, env);
+        return cors(await handleMe(request, env), request, env);
       case "/api/assets/list":
-        return handleAssetsList(request, env);
+        return cors(await handleAssetsList(request, env), request, env);
       case "/api/assets/get":
-        return handleAssetsGet(request, env);
+        return cors(await handleAssetsGet(request, env), request, env);
       case "/api/assets/put":
-      return handleAssetsPut(request, env);
+        return cors(await handleAssetsPut(request, env), request, env);
       case "/api/assets/delete":
-        return handleAssetsDelete(request, env);
+        return cors(await handleAssetsDelete(request, env), request, env);
       case "/api/stripe/products":
-        return handleStripeProducts(env);
+        return cors(await handleStripeProducts(env), request, env);
       case "/api/status":
-        return handleStatus(request, env);
+        return cors(await handleStatus(request, env), request, env);
       case "/api/subscription":
-        return handleSubscription(request, env);
+        return cors(await handleSubscription(request, env), request, env);
       case "/api/runtime-env":
-        return jsonResponse(resolveRuntimeEnvPayload(env, request));
+        return cors(jsonResponse(resolveRuntimeEnvPayload(env, request)), request, env);
       case "/webhook/stripe":
-        return handleStripeWebhook(request, env);
+        return cors(await handleStripeWebhook(request, env), request, env);
       default:
         break;
     }
@@ -1589,7 +1591,8 @@ function buildPlaceholderPortalUrl(returnUrl: string, account: AccountRecord): s
 type FetchFunction = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
 
 function resolveLoginFetcher(env: Env): FetchFunction {
-  if (env.LOGIN_SERVICE) {
+  const isLocalLogin = env.BETTER_AUTH_URL?.includes('127.0.0.1:9787') || env.LOGIN_ORIGIN?.includes('127.0.0.1:9787');
+  if (!isLocalLogin && env.LOGIN_SERVICE) {
     return (input, init) => {
       const request = input instanceof Request ? input : new Request(input, init);
       return env.LOGIN_SERVICE!.fetch(request);
@@ -1652,16 +1655,17 @@ function buildSessionCookie(token: string, env: Env, expiresAt?: string): string
   if (!trimmed) {
     return null;
   }
+  const isLocal = isLocalDev(env);
   const parts = [
     `better-auth.session_token=${encodeURIComponent(trimmed)}`,
     'Path=/',
-    'Secure',
     'HttpOnly',
-    'SameSite=None',
+    isLocal ? 'SameSite=Lax' : 'SameSite=None',
+    ...(isLocal ? [] : ['Secure']),
   ];
 
   const domain = env.SESSION_COOKIE_DOMAIN?.trim();
-  if (domain) {
+  if (domain && !isLocal && !/^127\.0\.0\.1$|^localhost$/i.test(domain)) {
     parts.push(`Domain=${domain}`);
   }
 
@@ -1676,17 +1680,18 @@ function buildSessionCookie(token: string, env: Env, expiresAt?: string): string
 }
 
 function buildExpiredSessionCookie(env: Env): string {
+  const isLocal = isLocalDev(env);
   const parts = [
     'better-auth.session_token=',
     'Path=/',
-    'Secure',
     'HttpOnly',
-    'SameSite=None',
+    isLocal ? 'SameSite=Lax' : 'SameSite=None',
+    ...(isLocal ? [] : ['Secure']),
     'Expires=Thu, 01 Jan 1970 00:00:00 GMT',
     'Max-Age=0',
   ];
   const domain = env.SESSION_COOKIE_DOMAIN?.trim();
-  if (domain) {
+  if (domain && !isLocal && !/^127\.0\.0\.1$|^localhost$/i.test(domain)) {
     parts.push(`Domain=${domain}`);
   }
   return parts.join('; ');
@@ -1727,14 +1732,15 @@ function readActiveAccountSlug(request: Request): string | null {
 
 function buildActiveAccountCookie(slug: string | null, env: Env): string {
   const encoded = slug ? encodeURIComponent(slug) : '';
+  const isLocal = isLocalDev(env);
   const parts = [
     `${ACTIVE_ACCOUNT_COOKIE}=${encoded}`,
     'Path=/',
     'SameSite=Lax',
-    'Secure',
+    ...(isLocal ? [] : ['Secure']),
   ];
   const domain = env.SESSION_COOKIE_DOMAIN?.trim();
-  if (domain) {
+  if (domain && !isLocal && !/^127\.0\.0\.1$|^localhost$/i.test(domain)) {
     parts.push(`Domain=${domain}`);
   }
   if (slug) {
@@ -1757,6 +1763,17 @@ function normalisePublicUrl(value?: string): string | null {
   } catch {
     return null;
   }
+}
+
+function isLocalDev(env: Env): boolean {
+  const origins = [
+    env.LOGIN_ORIGIN,
+    env.BETTER_AUTH_URL,
+    env.APP_BASE_URL,
+    env.PROJECT_DOMAIN,
+    env.EXPO_PUBLIC_WORKER_ORIGIN,
+  ];
+  return origins.some((value) => value && /^http:\/\/(127\.0\.0\.1|localhost)/i.test(value));
 }
 
 async function handleSessionApi(request: Request, env: Env): Promise<Response> {
@@ -1814,8 +1831,17 @@ async function handleSessionBootstrap(request: Request, env: Env): Promise<Respo
 
     const authResult = await authenticateRequest(probeRequest, env);
     if (!authResult.ok) {
+      console.warn('[bootstrap] auth failed', {
+        status: authResult.status,
+        reason: authResult.reason,
+        details: authResult.error,
+      });
       return authFailureResponse(authResult);
     }
+    console.info('[bootstrap] token accepted', {
+      user: authResult.session.user?.email,
+      expiresAt: authResult.session.expiresAt,
+    });
     expiresAt = authResult.session.expiresAt;
   }
 
@@ -2458,7 +2484,7 @@ async function handleAssetsGet(request: Request, env: Env): Promise<Response> {
   if (etag && ifNoneMatch === etag) {
     const headers = new Headers({ ETag: etag, "Cache-Control": cacheControl });
     if (lastModified) headers.set("Last-Modified", lastModified);
-    return cors(new Response(null, { status: 304, headers }));
+    return cors(new Response(null, { status: 304, headers }), request, env);
   }
 
   const headers = new Headers();
@@ -2484,6 +2510,8 @@ async function handleAssetsGet(request: Request, env: Env): Promise<Response> {
       status: 200,
       headers,
     }),
+    request,
+    env
   );
 }
 
@@ -3042,13 +3070,13 @@ async function handleStripeWebhook(request: Request, env: Env): Promise<Response
         : "stripe.unknown";
 
     try {
-    if (env.DB) {
-      await env.DB.prepare(
-        `INSERT INTO audit_log (id, user_id, action, metadata) VALUES (?1, ?2, ?3, ?4)`,
-      )
-        .bind(auditId, null, auditAction, rawBody)
-        .run();
-    }
+      if (env.DB) {
+        await env.DB.prepare(
+          `INSERT INTO audit_log (id, user_id, action, metadata) VALUES (?1, ?2, ?3, ?4)`,
+        )
+          .bind(auditId, null, auditAction, rawBody)
+          .run();
+      }
     } catch (dbError) {
       console.error("Failed to persist Stripe webhook event", dbError);
     }
@@ -3166,7 +3194,7 @@ async function handleSubscriptionWebhookEvent(
         cancel_at = excluded.cancel_at,
         cancel_at_period_end = excluded.cancel_at_period_end,
         updated_at = CURRENT_TIMESTAMP`
-      )
+    )
       .bind(
         `sub-${generateSessionId()}`,
         companyId,
@@ -3412,9 +3440,9 @@ function workerShellHtml(env: Env): string {
       </ul>
       <p><a href="${origin.replace(/\/+$/, '')}${appUrl}" target="_blank" rel="noopener">Open /app in new tab</a></p>
       <pre>${JSON.stringify({
-        loginOrigin: env.LOGIN_ORIGIN || null,
-        workerOrigin: origin || null,
-      }, null, 2)}</pre>
+    loginOrigin: env.LOGIN_ORIGIN || null,
+    workerOrigin: origin || null,
+  }, null, 2)}</pre>
     </main>
   </body>
 </html>`;
@@ -3756,9 +3784,35 @@ function hexToUint8Array(hex: string): Uint8Array {
   return result;
 }
 
-function cors(response: Response): Response {
+function cors(response: Response, request?: Request, env?: Env): Response {
   const headers = new Headers(response.headers);
-  headers.set("Access-Control-Allow-Origin", "*");
+  let origin = request?.headers.get("Origin") ?? request?.headers.get("origin");
+
+  if (!origin && env) {
+    if (env.APP_URL) {
+      try {
+        const url = new URL(env.APP_URL);
+        origin = url.origin;
+      } catch {
+        origin = env.APP_URL;
+      }
+    } else if (env.LOGIN_ORIGIN) {
+      try {
+        const url = new URL(env.LOGIN_ORIGIN);
+        origin = url.origin;
+      } catch {
+        origin = env.LOGIN_ORIGIN;
+      }
+    }
+  }
+
+  if (!origin) {
+    origin = "*";
+  }
+
+  headers.set("Access-Control-Allow-Origin", origin);
+  headers.set("Vary", "Origin");
+  headers.set("Access-Control-Allow-Credentials", "true");
   headers.set(
     "Access-Control-Allow-Headers",
     "Content-Type, Authorization, x-session-token",

@@ -1,5 +1,5 @@
 import React, { forwardRef } from 'react';
-import { Text, TextProps } from 'react-native';
+import { Platform, StyleSheet, Text, TextProps } from 'react-native';
 
 import { cn } from '../lib/cn';
 
@@ -19,10 +19,39 @@ export type TypographyProps = TextProps & {
   readonly variant?: TypographyVariant;
 };
 
-export const Typography = forwardRef<Text, TypographyProps>(
-  ({ variant = 'body', className, ...props }, ref) => (
-    <Text ref={ref} className={cn(variantClasses[variant], className)} {...props} />
-  ),
-);
+export const Typography = forwardRef<Text, TypographyProps>(({ variant = 'body', className, style, ...props }, ref) => {
+  // Normalise incoming className for web usage.
+  const safeClassName = Array.isArray(className) ? className.join(' ') : className ?? '';
+  const mergedClassName = cn(variantClasses[variant], safeClassName);
+
+  if (__DEV__) {
+    console.log('[Typography]', Platform.OS, typeof className, className);
+  }
+
+  if (Platform.OS === 'web') {
+    return <Text ref={ref} className={mergedClassName} style={style} {...props} />;
+  }
+
+  // On native we avoid className entirely to sidestep the RN bridge type error.
+  const nativeStyle = StyleSheet.flatten([variantNativeStyles[variant], style]);
+  return <Text ref={ref} style={nativeStyle} {...props} />;
+});
+
+const variantNativeStyles = StyleSheet.create({
+  h1: { fontSize: 36, lineHeight: 44, fontWeight: '600', color: '#0f172a' },
+  h2: { fontSize: 30, lineHeight: 36, fontWeight: '600', color: '#0f172a' },
+  h3: { fontSize: 24, lineHeight: 30, fontWeight: '600', color: '#0f172a' },
+  eyebrow: {
+    fontSize: 12,
+    lineHeight: 14,
+    fontWeight: '600',
+    letterSpacing: 4,
+    textTransform: 'uppercase',
+    color: '#64748b',
+  },
+  body: { fontSize: 16, lineHeight: 22, color: '#475569' },
+  bodySmall: { fontSize: 14, lineHeight: 20, color: '#475569' },
+  caption: { fontSize: 12, lineHeight: 18, color: '#475569' },
+});
 
 Typography.displayName = 'Typography';

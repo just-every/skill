@@ -1,11 +1,20 @@
 import React from 'react';
+import { AppRegistry } from 'react-native';
 import { createRoot } from 'react-dom/client';
 
 import App from './App';
 
-const rootElement = document.getElementById('root');
+const appName = 'main';
 
-if (rootElement) {
-  const root = createRoot(rootElement);
-  root.render(React.createElement(App));
+// Register the native entrypoint so iOS/Android can load the bundle.
+AppRegistry.registerComponent(appName, () => App);
+
+// Keep the existing web entrypoint so Expo Web continues to work.
+if (typeof document !== 'undefined') {
+  const rootElement = document.getElementById('root');
+
+  if (rootElement) {
+    const root = createRoot(rootElement);
+    root.render(React.createElement(App));
+  }
 }

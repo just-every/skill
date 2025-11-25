@@ -107,7 +107,7 @@ function buildRuntimeEnvPayload() {
     readEnv('EXPO_PUBLIC_BETTER_AUTH_URL') ??
     `${localBaseUrl}/api/auth`;
   const sessionEndpoint = readEnv('E2E_SESSION_ENDPOINT') ?? `${localBaseUrl}/api/auth/session`;
-  const workerOrigin = readEnv('E2E_WORKER_ORIGIN') ?? readEnv('EXPO_PUBLIC_WORKER_ORIGIN') ?? 'http://127.0.0.1:8787';
+  const workerOrigin = readEnv('E2E_WORKER_ORIGIN') ?? readEnv('EXPO_PUBLIC_WORKER_ORIGIN') ?? 'http://127.0.0.1:9788';
   const workerOriginLocal = readEnv('E2E_WORKER_ORIGIN_LOCAL') ?? workerOrigin;
 
   return {

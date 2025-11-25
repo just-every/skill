@@ -10,8 +10,10 @@
   ],
   "scripts": {
     "preinstall": "node ./scripts/sync-fontawesome-token.mjs",
-    "dev:web": "npm run dev --workspace apps/web",
-    "dev:worker": "npm run dev --workspace workers/api",
+    "dev:worker": "./scripts/dev-worker.sh",
+    "dev:worker:local": "JE_LOCAL_URLS=1 ./scripts/dev-worker.sh",
+    "dev:local": "JE_LOCAL_URLS=1 ./scripts/dev-web.sh",
+    "dev": "sh -c 'npm run dev:worker & npm run dev:local'",
     "build": "npm run build --workspaces --if-present",
     "lint": "echo 'No linting configured yet.'",
     "format": "echo 'No formatter configured yet.'",

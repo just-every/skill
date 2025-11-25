@@ -2,19 +2,36 @@ import http from 'node:http';
 import https from 'node:https';
 
 const LOGIN_ORIGIN = 'https://login.justevery.com';
-const PORT = Number(process.env.PORT || 4545);
+// Default to the real login port so the proxy can fully stand in for the worker during local dev.
+const PORT = Number(process.env.PORT || 9787);
 
-const sessionPayload = {
-  session: {
-    id: 'sess_dev_123',
-    userId: 'user_dev_123',
-    token: 'stub-token',
-  },
-  user: {
-    id: 'user_dev_123',
-    email: 'dev@example.com',
-    name: 'Dev Example',
-  },
+const now = () => new Date();
+const iso = (d) => d.toISOString();
+
+const buildSession = (token) => {
+  const createdAt = now();
+  const updatedAt = now();
+  const expiresAt = new Date(Date.now() + 1000 * 60 * 60 * 8); // 8h
+  return {
+    session: {
+      id: 'sess_dev_123',
+      userId: 'user_dev_123',
+      token,
+      createdAt: iso(createdAt),
+      updatedAt: iso(updatedAt),
+      expiresAt: iso(expiresAt),
+      ipAddress: '127.0.0.1',
+      userAgent: 'dev-proxy',
+    },
+    user: {
+      id: 'user_dev_123',
+      email: 'dev@example.com',
+      emailVerified: true,
+      name: 'Dev Example',
+      createdAt: iso(createdAt),
+      updatedAt: iso(updatedAt),
+    },
+  };
 };
 
 const companiesPayload = {
@@ -39,14 +56,20 @@ const assetsPayload = [];
 const usagePayload = { points: [] };
 const subscriptionPayload = { subscription: { status: 'active', planName: 'Founders' } };
 
-const jsonHeaders = (origin) => ({
-  'Content-Type': 'application/json',
-  'Access-Control-Allow-Origin': origin || '*',
-  'Access-Control-Allow-Credentials': 'true',
-});
+const jsonHeaders = (origin, setCookie) => {
+  const headers = {
+    'Content-Type': 'application/json',
+    'Access-Control-Allow-Origin': origin || '*',
+    'Access-Control-Allow-Credentials': 'true',
+  };
+  if (setCookie) {
+    headers['Set-Cookie'] = setCookie;
+  }
+  return headers;
+};
 
-const sendJson = (res, status, payload, origin) => {
-  res.writeHead(status, jsonHeaders(origin));
+const sendJson = (res, status, payload, origin, setCookie) => {
+  res.writeHead(status, jsonHeaders(origin, setCookie));
   res.end(JSON.stringify(payload));
 };
 
@@ -102,7 +125,11 @@ const server = http.createServer((req, res) => {
   }
 
   if (url.pathname === '/api/auth/session') {
-    sendJson(res, 200, sessionPayload, origin);
+    const token =
+      (req.headers.cookie || '').match(/better-auth\.session_token=([^;]+)/)?.[1] ||
+      'dev-token';
+    const setCookie = `better-auth.session_token=${encodeURIComponent(token)}; Path=/api; HttpOnly; SameSite=Lax`;
+    sendJson(res, 200, buildSession(token), origin, setCookie);
     return;
   }
 

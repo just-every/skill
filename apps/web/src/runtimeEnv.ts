@@ -1,4 +1,7 @@
 import * as React from 'react';
+import { Platform } from 'react-native';
+import Constants from 'expo-constants';
+
 import {
   DEFAULT_LOGIN_ORIGIN,
   ensureBetterAuthBaseUrl,
@@ -58,7 +61,16 @@ const fetchRuntimeEnvOnce = () => {
       if (!response.ok) {
         return undefined;
       }
-      return (await response.json()) as InjectedEnvPayload;
+      const contentType = response.headers.get('content-type') ?? '';
+      if (!/application\/json/i.test(contentType)) {
+        return undefined;
+      }
+      try {
+        return (await response.json()) as InjectedEnvPayload;
+      } catch (parseError) {
+        console.warn('Failed to parse runtime env payload', parseError);
+        return undefined;
+      }
     } catch (runtimeError) {
       console.warn('Failed to fetch runtime env', runtimeError);
       return undefined;
@@ -79,18 +91,29 @@ const getInjectedEnv = (): InjectedEnvPayload | undefined => {
 };
 
 const buildClientEnv = (injected?: InjectedEnvPayload): ClientEnv => {
-  const loginOrigin = resolveLoginOrigin(injected?.loginOrigin ?? staticEnv.loginOrigin);
-  const betterAuthBaseUrl = ensureBetterAuthBaseUrl(
+  const resolvedLoginOrigin = resolveLoginOrigin(injected?.loginOrigin ?? staticEnv.loginOrigin);
+  const loginOrigin = replaceLocalhost(resolvedLoginOrigin) ?? resolvedLoginOrigin;
+
+  const ensuredBetterAuthBaseUrl = ensureBetterAuthBaseUrl(
     injected?.betterAuthBaseUrl ?? staticEnv.betterAuthBaseUrl,
     loginOrigin
   );
-  const sessionEndpoint = ensureSessionEndpoint(
+  const betterAuthBaseUrl = replaceLocalhost(ensuredBetterAuthBaseUrl) ?? ensuredBetterAuthBaseUrl;
+
+  const ensuredSessionEndpoint = ensureSessionEndpoint(
     injected?.sessionEndpoint ?? staticEnv.sessionEndpoint,
     betterAuthBaseUrl
   );
+  const sessionEndpoint = replaceLocalhost(ensuredSessionEndpoint) ?? ensuredSessionEndpoint;
 
-  const overrideWorker = trimValue(injected?.workerOrigin ?? staticEnv.workerOrigin);
-  const overrideWorkerLocal = trimValue(injected?.workerOriginLocal ?? staticEnv.workerOriginLocal);
+  const overrideWorker = replaceLocalhost(
+    trimValue(injected?.workerOrigin ?? staticEnv.workerOrigin)
+  ) ?? trimValue(injected?.workerOrigin ?? staticEnv.workerOrigin);
+
+  const overrideWorkerLocal = replaceLocalhost(
+    trimValue(injected?.workerOriginLocal ?? staticEnv.workerOriginLocal)
+  ) ?? trimValue(injected?.workerOriginLocal ?? staticEnv.workerOriginLocal);
+
   const workerOrigin = resolveWorkerOrigin(overrideWorker, overrideWorkerLocal);
 
   return {
@@ -110,7 +133,11 @@ export const usePublicEnv = (): ClientEnv => {
   const [env, setEnv] = React.useState<ClientEnv>(() => resolveClientEnv());
 
   React.useEffect(() => {
-    if (typeof window === 'undefined') {
+    if (
+      typeof window === 'undefined' ||
+      typeof window.addEventListener !== 'function' ||
+      typeof window.removeEventListener !== 'function'
+    ) {
       return;
     }
 
@@ -132,7 +159,7 @@ export const usePublicEnv = (): ClientEnv => {
   }, []);
 
   React.useEffect(() => {
-    if (typeof window === 'undefined') {
+    if (typeof window === 'undefined' || Platform.OS !== 'web') {
       return;
     }
 
@@ -156,11 +183,11 @@ function resolveWorkerOrigin(remote?: string | null, local?: string | null): str
   const trimmedRemote = remote?.trim() || undefined;
   const trimmedLocal = local?.trim() || undefined;
 
-  if (typeof window === 'undefined') {
+  const host = typeof window !== 'undefined' ? window.location?.hostname : undefined;
+  if (!host) {
     return trimmedRemote ?? trimmedLocal;
   }
 
-  const host = window.location.hostname;
   const isLocalHost = host === 'localhost' || host === '127.0.0.1';
   if (isLocalHost) {
     if (trimmedLocal) {
@@ -169,7 +196,8 @@ function resolveWorkerOrigin(remote?: string | null, local?: string | null): str
     return window.location.origin;
   }
 
-  return trimmedRemote ?? window.location.origin;
+  const origin = typeof window !== 'undefined' ? window.location?.origin : undefined;
+  return trimmedRemote ?? origin;
 }
 
 function resolveLoginOrigin(value?: string | null): string {
@@ -202,3 +230,68 @@ function trimValue(value?: string | null): string | undefined {
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : undefined;
 }
+
+export function replaceLocalhost(value?: string | null): string | undefined {
+  if (!value) {
+    return undefined;
+  }
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return undefined;
+  }
+
+  try {
+    const url = new URL(trimmed);
+    if (!isLocalHost(url.hostname)) {
+      return url.toString();
+    }
+
+    const replacementHost = resolveHostForDevice();
+    if (!replacementHost) {
+      return url.toString();
+    }
+
+    url.hostname = replacementHost;
+    return url.toString();
+  } catch {
+    return trimmed;
+  }
+}
+
+function resolveHostForDevice(): string | null {
+  if (Platform.OS === 'android') {
+    return '10.0.2.2';
+  }
+
+  if (Platform.OS === 'ios') {
+    const hostUri =
+      (Constants as { expoConfig?: { hostUri?: string } }).expoConfig?.hostUri ??
+      // manifest2 for Expo Router projects (fallback).
+      (Constants as { manifest2?: { extra?: { expoClient?: { hostUri?: string } } } }).manifest2?.extra
+        ?.expoClient?.hostUri;
+
+    if (hostUri) {
+      try {
+        const parsed = new URL(`http://${hostUri}`);
+        if (parsed.hostname) {
+          return parsed.hostname;
+        }
+      } catch {
+        // ignore parsing errors and fall through
+      }
+    }
+
+    return '127.0.0.1';
+  }
+
+  if (Platform.OS === 'web') {
+    return '127.0.0.1';
+  }
+
+  return null;
+}
+
+const isLocalHost = (host?: string | null): boolean => {
+  if (!host) return false;
+  return host === 'localhost' || host === '127.0.0.1';
+};

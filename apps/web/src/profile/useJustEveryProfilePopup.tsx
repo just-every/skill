@@ -52,17 +52,30 @@ declare global {
   }
 }
 
+const hasDOM = typeof window !== 'undefined' && typeof document !== 'undefined';
+
 let loadPromise: Promise<void> | null = null;
 
-const ensurePopupScript = (src: string) => {
-  if (typeof window === 'undefined') return Promise.resolve();
-  if (window.JustEveryProfilePopup) {
-    debugLog('helper already available on window');
-    return Promise.resolve();
-  }
-  if (loadPromise) return loadPromise;
+const installStubPopup = () => {
+  if (window.JustEveryProfilePopup) return;
+  console.warn('[profile-popup] using local stub; start login worker or dev proxy for full UI');
+  window.JustEveryProfilePopup = ({ onEvent }) => {
+    const emit = (event: string, data?: Record<string, unknown>) => {
+      onEvent?.({ event, data });
+    };
+    // announce readiness so consumers continue to work in dev
+    setTimeout(() => emit('ready', {}), 0);
+    return {
+      open: () => emit('open'),
+      close: () => emit('close'),
+      postMessage: () => {},
+      destroy: () => {},
+    };
+  };
+};
 
-  loadPromise = new Promise<void>((resolve, reject) => {
+const loadScriptOnce = (src: string): Promise<void> =>
+  new Promise<void>((resolve, reject) => {
     debugLog('injecting profile popup script', src);
     const script = document.createElement('script');
     script.src = src;
@@ -77,6 +90,35 @@ const ensurePopupScript = (src: string) => {
     };
     document.head.appendChild(script);
   });
+
+const ensurePopupScript = (primarySrc: string, fallbackSrc?: string) => {
+  if (!hasDOM) {
+    debugLog('skipping profile popup script injection (no DOM available)');
+    return Promise.resolve();
+  }
+  if (window.JustEveryProfilePopup) {
+    debugLog('helper already available on window');
+    return Promise.resolve();
+  }
+  if (loadPromise) return loadPromise;
+
+  loadPromise = (async () => {
+    try {
+      await loadScriptOnce(primarySrc);
+      return;
+    } catch (primaryError) {
+      console.warn('[profile-popup] primary load failed', primaryError);
+      if (fallbackSrc && fallbackSrc !== primarySrc) {
+        try {
+          await loadScriptOnce(fallbackSrc);
+          return;
+        } catch (fallbackError) {
+          console.warn('[profile-popup] fallback load failed', fallbackError);
+        }
+      }
+      installStubPopup();
+    }
+  })();
 
   return loadPromise;
 };
@@ -95,6 +137,18 @@ export function useJustEveryProfilePopup(options: UseJustEveryProfilePopupOption
     onAccountMenu,
     onClose,
   } = options;
+
+  if (!hasDOM) {
+    const noop = () => undefined;
+    return {
+      open: noop,
+      close: noop,
+      setSection: noop,
+      refreshSession: noop,
+      refreshOrgs: noop,
+      isReady: false,
+    };
+  }
 
   const instanceRef = useRef<PopupInstance | null>(null);
   const pendingOpenRef = useRef<{ section?: ProfilePopupSection; organizationId?: string } | null>(null);
@@ -148,14 +202,18 @@ export function useJustEveryProfilePopup(options: UseJustEveryProfilePopupOption
   }, []);
 
   useEffect(() => {
-    if (typeof window === 'undefined') return undefined;
+    if (!hasDOM) {
+      debugLog('skipping profile popup initialization (no DOM available)');
+      return undefined;
+    }
 
     let destroyed = false;
 
     const init = async () => {
       const scriptSrc = `${resolvedBaseUrl}/profile-popup.js`;
+      const fallbackSrc = hasDOM ? `${window.location.origin.replace(/\/$/, '')}/profile-popup.js` : undefined;
       try {
-        await ensurePopupScript(scriptSrc);
+        await ensurePopupScript(scriptSrc, fallbackSrc);
       } catch (error) {
         console.warn(error);
         return;
@@ -313,7 +371,7 @@ const isDebugEnabled = () => {
 };
 
 const debugLog = (...args: unknown[]) => {
-  if (!isDebugEnabled()) {
+  if (!hasDOM || !isDebugEnabled()) {
     return;
   }
   console.info('[profile-popup:hook]', ...args);

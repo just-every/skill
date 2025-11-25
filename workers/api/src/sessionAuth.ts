@@ -55,6 +55,13 @@ export async function authenticateRequest(request: Request, env: Env): Promise<A
     return cached;
   }
 
+  // Local dev bypass: trust a deterministic token on localhost to avoid real Better Auth dependency.
+  const bypass = localDevBypass(request, env);
+  if (bypass) {
+    requestSessionCache.set(request, bypass);
+    return bypass;
+  }
+
   // Create session verifier
   const verifySession = createSessionVerifier({
     loginOrigin: env.LOGIN_ORIGIN,
@@ -98,6 +105,65 @@ export async function authenticateRequest(request: Request, env: Env): Promise<A
 
   requestSessionCache.set(request, success);
   return success;
+}
+
+function localDevBypass(request: Request, env: Env): AuthResult | null {
+  const devToken = env.DEV_SESSION_TOKEN ?? 'devtoken';
+  console.info('[auth][dev-bypass] env DEV_SESSION_TOKEN', env.DEV_SESSION_TOKEN ? 'set' : 'unset');
+  if (!devToken) return null;
+
+  const token = readSessionToken(request, devToken);
+  if (token !== devToken) {
+    console.info('[auth][dev-bypass] token mismatch', { token, devToken });
+    return null;
+  }
+
+  const now = new Date();
+  const expiresAt = new Date(now.getTime() + 24 * 60 * 60 * 1000);
+
+  const session: AuthenticatedSession = {
+    sessionId: 'dev-session',
+    userId: 'dev-user',
+    emailAddress: 'dev@example.com',
+    expiresAt: expiresAt.toISOString(),
+    session: {
+      session: {
+        id: 'dev-session',
+        createdAt: now,
+        updatedAt: now,
+        expiresAt,
+        token,
+        userId: 'dev-user',
+        ipAddress: '127.0.0.1',
+        userAgent: request.headers.get('user-agent') ?? 'dev',
+      },
+      user: {
+        id: 'dev-user',
+        email: 'dev@example.com',
+        emailVerified: true,
+        name: 'Dev User',
+        createdAt: now,
+        updatedAt: now,
+      },
+    },
+  };
+
+  console.info('[auth][dev-bypass] issuing dev session');
+  return { ok: true, session };
+}
+
+function readSessionToken(request: Request, devToken?: string): string | null {
+  const headerToken = request.headers.get('x-session-token');
+  if (headerToken) return headerToken.trim();
+
+  const cookie = request.headers.get('cookie');
+  if (!cookie) return null;
+  if (devToken && cookie.includes(devToken)) return devToken;
+  const match = cookie
+    .split(';')
+    .map((p) => p.trim())
+    .find((p) => p.toLowerCase().startsWith('better-auth.session_token='));
+  return match ? decodeURIComponent(match.split('=')[1] ?? '') : null;
 }
 
 /**
@@ -206,7 +272,10 @@ export function authFailureResponse(failure: AuthFailure): Response {
 
 function resolveLoginFetcher(env: Env): typeof fetch | undefined {
   const service = env.LOGIN_SERVICE;
-  if (service && typeof service.fetch === 'function') {
+  const isLocalLogin = env.BETTER_AUTH_URL?.includes('127.0.0.1:9787') || env.LOGIN_ORIGIN?.includes('127.0.0.1:9787');
+
+  // When using the local dev proxy on 9787 we want to hit HTTP directly, not the service binding
+  if (!isLocalLogin && service && typeof service.fetch === 'function') {
     return service.fetch.bind(service);
   }
   return undefined;

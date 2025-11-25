@@ -64,13 +64,15 @@ Minimal flow to go from clone → deploy in 10–15 minutes.
    ```bash
    npm run dev:worker
    ```
-   - Default URL: `http://127.0.0.1:8787`
+   - Default URL: `http://127.0.0.1:9788`
    - Optional: copy `workers/api/.dev.vars.example` → `.dev.vars` for custom bindings.
+   - Need the Worker to respect localhost overrides while `.env` stays production? Run `npm run dev:worker:local` to rewrite `.env.local` + `workers/api/.dev.vars`, then boot Wrangler with those values.
 
 5. Run the web app (point to the worker)
    ```bash
-   EXPO_PUBLIC_WORKER_ORIGIN=http://127.0.0.1:8787 npm run dev:web
+   npm run dev:local          # rewrites `.env.local` + `.dev.vars`, then launches Expo using localhost origins
    ```
+   - Assumes the Better Auth/login worker is reachable at `http://127.0.0.1:9787`; override via `JE_LOCAL_LOGIN_ORIGIN` if needed.
 
 6. Deploy the Worker
    ```bash

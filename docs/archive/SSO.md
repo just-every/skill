@@ -21,7 +21,7 @@ verified whenever you rename the project or change the public domain.
 1. Run `pnpm bootstrap:env` to regenerate `.env.generated` and
    `workers/api/.dev.vars`.
 2. Start the worker with `npm run dev:worker` so Miniflare loads the bindings.
-3. Start the Expo shell with `EXPO_PUBLIC_WORKER_ORIGIN=http://127.0.0.1:8787`.
+3. Start the Expo shell with `npm run dev:local`, which auto-generates `.env.local` and points the UI at `http://127.0.0.1:9788`.
 4. Use Better Auth credentials in the hosted login page to obtain a session and
    exercise `/app` flows.
 

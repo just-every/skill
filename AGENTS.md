@@ -11,8 +11,9 @@ This repository is the canonical justevery starter stack; future products should
 - Root helpers: `pnpm bootstrap:*` commands provision Cloudflare + Stripe resources via the typed CLI.
 
 ## Build, Test, and Development Commands
-- `npm run dev:web` – Expo web dev server with hot reload. Source `.env.generated` (or export `EXPO_PUBLIC_*`) first so the shell can reach the Worker (`EXPO_PUBLIC_WORKER_ORIGIN=http://127.0.0.1:8787` for local Miniflare).
-- `npm run dev:worker` – Wrangler dev server (`wrangler dev --config workers/api/wrangler.toml`) backed by Miniflare; honours `.dev.vars` for env/bindings. Add D1/R2 bindings there so tests mirror production.
+- `npm run dev` – Starts both dev processes: the Worker (`dev:worker`) and the Expo web shell (`dev:local`) with loopback overrides.
+- `npm run dev:worker` – Wrangler dev server (`wrangler dev --config workers/api/wrangler.toml`) backed by Miniflare; honours `.dev.vars` for env/bindings. Add D1/R2 bindings there so tests mirror production. Use `npm run dev:worker:local` when you need localhost overrides without mutating `.env`.
+- `npm run dev:local` – Rewrites `.env.local` + `workers/api/.dev.vars` for localhost origins and launches the Expo web shell with those overrides (mirrors the login repo’s `dev:local`). Assumes the Better Auth worker runs at `http://127.0.0.1:9787`; export `JE_LOCAL_LOGIN_ORIGIN` to change it.
 - `npm run build` – Runs workspace builds (`expo export`, Worker bundle).
 - `npm test --workspace workers/api` – Vitest unit suites.
 - `npm run test:e2e` – Playwright against `E2E_BASE_URL` or `PROJECT_DOMAIN`.
@@ -52,6 +53,8 @@ This repository is the canonical justevery starter stack; future products should
 - Better Auth now scopes `better-auth.session_token` to `/api/*`. All browsers
   must call the Worker’s `/api` routes (or a server-side proxy) to send the
   cookie—calling out to other origins/paths will never include it.
+- For local auth, cookies are set on `127.0.0.1`; the app now normalizes any
+  `localhost` return/login URLs to `127.0.0.1` so callbacks keep the session.
 - Placeholder/mock data must never be served on production domains. Keep
   `ALLOW_PLACEHOLDER_DATA` unset in prod and treat any Cloudflare D1 issues as
   blockers that require migrations or DB fixes rather than falling back to

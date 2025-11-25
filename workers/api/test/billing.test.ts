@@ -132,7 +132,7 @@ function createMockEnv(overrides: Partial<Env> = {}): Env {
     ]),
     STRIPE_WEBHOOK_SECRET: 'whsec_test',
     STRIPE_SECRET_KEY: 'sk_test_123',
-    EXPO_PUBLIC_WORKER_ORIGIN: 'http://127.0.0.1:8787',
+    EXPO_PUBLIC_WORKER_ORIGIN: 'http://127.0.0.1:9788',
     ALLOW_PLACEHOLDER_DATA: 'true',
     DB: createDbMock(),
     ASSETS: assetsFetcher as unknown as Env['ASSETS'],

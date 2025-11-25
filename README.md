@@ -41,8 +41,17 @@ hit the DNS origin directly and time out.
    ```
 4. Develop locally
    ```bash
-   pnpm run dev:worker
-   EXPO_PUBLIC_WORKER_ORIGIN=http://127.0.0.1:8787 pnpm run dev:web
+   # One-shot: start worker + Expo web shell together
+   pnpm run dev                 # spawns dev:worker and dev:local with loopback overrides
+
+   # Separate processes if you prefer
+   pnpm run dev:worker          # loads .env.generated automatically
+   pnpm run dev:local           # rewrites .env.local + workers/api/.dev.vars and launches Expo for localhost
+
+   # Need the Worker itself to run with localhost overrides?
+   pnpm run dev:worker:local    # same rewrites, then wrangler dev with .env.local
+
+   # dev:local assumes Better Auth/login at http://127.0.0.1:9787; export JE_LOCAL_LOGIN_ORIGIN to override
    ```
 5. Deploy & verify
    ```bash
@@ -108,6 +117,9 @@ See `docs/BOOTSTRAP-CLI-MIGRATION.md` for the full migration guide.
 **SSR Validation** – Follow `docs/SSR_MARKETING.md` (or run `pnpm --filter @justevery/web run build` + `pnpm bootstrap:smoke`) before promoting changes.
 
 **Smoke Tests** – `pnpm bootstrap:smoke` exercises Worker APIs, assets, and Better Auth bindings; add `--minimal` in CI for fast checks.
+
+**Local auth host** – Better Auth cookies in dev are scoped to `127.0.0.1`. The app normalizes
+any `localhost` return/login URLs to `127.0.0.1` automatically to keep sessions valid.
 
 For runbooks and deeper troubleshooting, start with the `docs/` folder.
 

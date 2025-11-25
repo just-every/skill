@@ -17,3 +17,22 @@
 1. Extend the global Tailwind tokens (spacing scale, container widths, typography ramp) so the primitives can consume semantic names instead of raw `px` classes.
 2. Apply `Container`/`Typography` across the pricing/contact/dashboard screens to keep the rhythm consistent everywhere.
 3. Refine responsive padding/breakpoints (360px → 1280px) and document the spacing rules in `apps/web/docs` if more detail is helpful.
+
+## Local auth testing (login worker)
+
+The login worker can run locally from `../login` (`JE_LOCAL_URLS=1 npm run dev -- --port 9787`). With that running, start the Expo app pointed at the local login:
+
+- Android emulator (uses 10.0.2.2 loopback):
+  ```bash
+  cd apps/web
+  pnpm dev:login:android
+  # If auto-open doesn't load, open Expo Go and enter exp://10.0.2.2:8081
+  ```
+
+- iOS simulator (127.0.0.1):
+  ```bash
+  cd apps/web
+  pnpm dev:login:ios
+  ```
+
+These scripts set `EXPO_PUBLIC_LOGIN_ORIGIN/BETTER_AUTH_URL/SESSION_ENDPOINT` to the local login worker, so the app can log in without hitting the remote service.

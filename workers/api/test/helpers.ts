@@ -104,7 +104,7 @@ export function createMockEnv(overrides: Partial<Env> = {}): Env {
     ]),
     STRIPE_WEBHOOK_SECRET: 'whsec_test',
     STRIPE_SECRET_KEY: 'sk_test_123',
-    EXPO_PUBLIC_WORKER_ORIGIN: 'http://127.0.0.1:8787',
+    EXPO_PUBLIC_WORKER_ORIGIN: 'http://127.0.0.1:9788',
     ALLOW_PLACEHOLDER_DATA: 'true',
     ALLOW_SAMPLE_ACCOUNT_AUTO_MEMBERS: 'false',
     DB: createDbMock(),

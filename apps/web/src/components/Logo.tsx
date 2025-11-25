@@ -1,5 +1,5 @@
 import React from 'react';
-import { Text } from 'react-native';
+import { Platform, Text } from 'react-native';
 import type { SvgProps } from 'react-native-svg';
 
 const LOGO_ASPECT_RATIO = 800 / 151;
@@ -107,7 +107,7 @@ export const Logo = (props: LogoProps) => {
       height={computedHeight}
       viewBox="0 0 800 151"
       fill="none"
-      accessible
+      {...(Platform.OS !== 'web' ? { accessible: true } : {})}
       accessibilityRole="image"
       accessibilityLabel={accessibilityLabel}
     >

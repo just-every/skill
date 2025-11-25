@@ -200,7 +200,7 @@ function buildEnv(overrides: Partial<Env> = {}): Env {
     BILLING_CHECKOUT_TOKEN: 'svc_token_123',
     STRIPE_SECRET_KEY: 'sk_test_mock',
     STRIPE_WEBHOOK_SECRET: 'whsec_mock',
-    EXPO_PUBLIC_WORKER_ORIGIN: 'http://127.0.0.1:8787',
+    EXPO_PUBLIC_WORKER_ORIGIN: 'http://127.0.0.1:9788',
   } as Env;
   return { ...defaults, ...overrides };
 }

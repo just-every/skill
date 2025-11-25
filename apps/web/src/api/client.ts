@@ -1,7 +1,7 @@
 import { useCallback } from 'react';
 
 import { useAuth } from '../auth/AuthProvider';
-import { usePublicEnv } from '../runtimeEnv';
+import { replaceLocalhost, usePublicEnv } from '../runtimeEnv';
 
 const resolveWorkerUrl = (origin?: string, path?: string) => {
   if (!path) {
@@ -14,7 +14,9 @@ const resolveWorkerUrl = (origin?: string, path?: string) => {
     return new URL(path, window.location.origin).toString();
   }
 
-  return new URL(path, normalizedOrigin ?? 'http://127.0.0.1:8787').toString();
+  const fallbackOrigin = replaceLocalhost('http://127.0.0.1:9788') ?? 'http://127.0.0.1:9788';
+
+  return new URL(path, normalizedOrigin ?? fallbackOrigin).toString();
 };
 
 const normaliseWorkerOrigin = (origin?: string): string | undefined => {
@@ -26,12 +28,15 @@ const normaliseWorkerOrigin = (origin?: string): string | undefined => {
     return undefined;
   }
 
-  if (typeof window === 'undefined') {
+  const host = typeof window !== 'undefined' ? window.location?.hostname : undefined;
+  const protocol = typeof window !== 'undefined' ? window.location?.protocol : undefined;
+
+  if (!host) {
     return trimmed;
   }
 
-  const isLocalHost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
-  if (!isLocalHost && window.location.protocol === 'https:' && trimmed.startsWith('http://')) {
+  const isLocalHost = host === 'localhost' || host === '127.0.0.1';
+  if (!isLocalHost && protocol === 'https:' && trimmed.startsWith('http://')) {
     return window.location.origin;
   }
 

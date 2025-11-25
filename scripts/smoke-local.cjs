@@ -5,7 +5,7 @@
  *
  * This script:
  * 1. Installs Playwright browsers if missing
- * 2. Starts wrangler dev on port 8787
+ * 2. Starts wrangler dev on port 9788
  * 3. Waits for the server to be ready
  * 4. Runs smoke tests against the local server (defaults to /,/api/session)
  * 5. Captures artifacts under test-results/smoke-local/
@@ -24,7 +24,7 @@ const fs = require('node:fs/promises');
 
 const execFileAsync = promisify(execFile);
 
-const WRANGLER_PORT = 8787;
+const WRANGLER_PORT = 9788;
 const BASE_URL = `http://127.0.0.1:${WRANGLER_PORT}`;
 const WRANGLER_CONFIG = 'workers/api/wrangler.toml';
 const OUTPUT_DIR = 'test-results/smoke-local';

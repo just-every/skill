@@ -1,11 +1,12 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import React, { Component, PropsWithChildren, ReactNode, useEffect, useMemo, useRef } from 'react';
-import { ActivityIndicator, Pressable, Text, View } from 'react-native';
+import React, { Component, PropsWithChildren, ReactNode, useEffect, useMemo, useRef, useState } from 'react';
+import { ActivityIndicator, DevSettings, Pressable, Text, View } from 'react-native';
 
 import './global.css';
 
 import { AuthProvider, useAuth } from './src/auth/AuthProvider';
 import Layout from './src/components/Layout';
+import { clearErrorLog, copyErrorLogToClipboard, getLogPath, logError, useGlobalErrorLogging } from './src/debug/errorLogging';
 import { Callback, Contact, Dashboard, DevSidebarSandbox, Home, Pricing } from './src/pages';
 import { RouterProvider, useRouterContext } from './src/router/RouterProvider';
 import { usePublicEnv } from './src/runtimeEnv';
@@ -54,6 +55,7 @@ class RootErrorBoundary extends Component<
   }
 
   componentDidCatch(error: Error, info: React.ErrorInfo) {
+    logError(error, 'root-error-boundary');
     console.error('Unhandled error in root boundary', error, info);
   }
 
@@ -65,7 +67,20 @@ class RootErrorBoundary extends Component<
           message="The web app hit an unexpected error."
           detail={this.state.error?.message}
           actionLabel="Reload"
-          onAction={() => window.location.reload()}
+          onAction={() => {
+            try {
+              if (typeof window !== 'undefined' && window?.location?.reload) {
+                window.location.reload();
+                return;
+              }
+              if (DevSettings?.reload) {
+                DevSettings.reload();
+                return;
+              }
+            } catch (reloadError) {
+              logError(reloadError, 'reload-handler');
+            }
+          }}
         />
       );
     }
@@ -74,6 +89,8 @@ class RootErrorBoundary extends Component<
 }
 
 const App = (): ReactNode => {
+  useGlobalErrorLogging();
+
   const env = usePublicEnv();
   const queryClientRef = useRef<QueryClient>();
 
@@ -97,6 +114,8 @@ const App = (): ReactNode => {
             loginOrigin={env.loginOrigin}
             betterAuthBaseUrl={env.betterAuthBaseUrl}
             sessionEndpoint={env.sessionEndpoint}
+            workerOrigin={env.workerOrigin}
+            workerOriginLocal={env.workerOriginLocal}
           >
             <AuthStatusGate>
               <RouterProvider>
@@ -199,6 +218,55 @@ const StatusScreen = ({
           </Text>
         </Pressable>
       ) : null}
+      {__DEV__ ? <DebugLogActions /> : null}
+    </View>
+  );
+};
+
+const DebugLogActions = () => {
+  const [status, setStatus] = useState<string | null>(null);
+  const mountedRef = useRef(true);
+
+  useEffect(() => {
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
+
+  const handleCopy = async () => {
+    const content = await copyErrorLogToClipboard();
+    if (mountedRef.current) {
+      setStatus(`Copied ${content.length} chars to clipboard`);
+    }
+  };
+
+  const handleClear = async () => {
+    await clearErrorLog();
+    if (mountedRef.current) {
+      setStatus('Cleared log file');
+    }
+  };
+
+  return (
+    <View className="items-center gap-2">
+      <Text className="text-[10px] text-slate-400">Log file: {getLogPath()}</Text>
+      <View className="flex-row items-center gap-2">
+        <Pressable
+          accessibilityRole="button"
+          className="rounded-xl bg-slate-800 px-4 py-2"
+          onPress={handleCopy}
+        >
+          <Text className="text-xs font-semibold text-white">Copy error log</Text>
+        </Pressable>
+        <Pressable
+          accessibilityRole="button"
+          className="rounded-xl bg-slate-700 px-4 py-2"
+          onPress={handleClear}
+        >
+          <Text className="text-xs font-semibold text-white">Clear log</Text>
+        </Pressable>
+      </View>
+      {status ? <Text className="text-[10px] text-slate-400">{status}</Text> : null}
     </View>
   );
 };

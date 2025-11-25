@@ -76,7 +76,7 @@ function buildSubstitutions(
     LOGIN_ORIGIN: escapeToml(env.LOGIN_ORIGIN ?? projectDomain),
     SESSION_COOKIE_DOMAIN: escapeToml(env.SESSION_COOKIE_DOMAIN ?? projectHost),
     EXPO_PUBLIC_WORKER_ORIGIN_LOCAL: escapeToml(
-      env.EXPO_PUBLIC_WORKER_ORIGIN_LOCAL ?? 'http://127.0.0.1:8787'
+      env.EXPO_PUBLIC_WORKER_ORIGIN_LOCAL ?? 'http://127.0.0.1:9788'
     ),
     PROJECT_DOMAIN: escapeToml(projectDomain),
     APP_BASE_URL: escapeToml(appBaseUrl),

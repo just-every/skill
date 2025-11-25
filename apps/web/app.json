@@ -17,6 +17,13 @@
     "userInterfaceStyle": "automatic",
     "plugins": [
       "expo-secure-store"
-    ]
+    ],
+    "ios": {
+      "infoPlist": {
+        "NSAppTransportSecurity": {
+          "NSAllowsArbitraryLoads": true
+        }
+      }
+    }
   }
 }

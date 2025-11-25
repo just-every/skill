@@ -3,7 +3,7 @@ import { expect, test } from '@playwright/test';
 const baseURL =
   process.env.E2E_BASE_URL ??
   process.env.PROJECT_DOMAIN ??
-  'http://127.0.0.1:8787';
+  'http://127.0.0.1:9788';
 
 const loginOrigin = process.env.LOGIN_ORIGIN ?? 'https://login.justevery.com';
 const email = process.env.TEST_LOGIN_EMAIL;

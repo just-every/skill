@@ -163,9 +163,9 @@ function deriveCanonicalOrigin(env: BootstrapEnv): string {
 }
 
 function deriveLocalOrigin(env: BootstrapEnv): string {
-  const candidate = env.EXPO_PUBLIC_WORKER_ORIGIN_LOCAL ?? 'http://127.0.0.1:8787';
+  const candidate = env.EXPO_PUBLIC_WORKER_ORIGIN_LOCAL ?? 'http://127.0.0.1:9788';
   const normalised = originFromUrl(candidate);
-  return normalised || 'http://127.0.0.1:8787';
+  return normalised || 'http://127.0.0.1:9788';
 }
 
 function originFromUrl(url: string): string {

@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
-import { Pressable, ScrollView, Text, View } from 'react-native';
+import { Platform, Pressable, ScrollView, Text, View } from 'react-native';
 import { FontAwesomeIcon } from '@fortawesome/react-native-fontawesome';
 import type { IconDefinition } from '@fortawesome/fontawesome-svg-core';
 import { faAngleDown, faArrowRightFromBracket, faBars, faEnvelope, faIdBadge, faUserPlus, faXmark } from '@fortawesome/pro-solid-svg-icons';
@@ -16,6 +16,7 @@ import { cn } from '../lib/cn';
 import { useAuth } from '../auth/AuthProvider';
 import { usePrefersReducedMotion } from '../lib/usePrefersReducedMotion';
 import { useJustEveryProfilePopup, type ProfilePopupSection } from '../profile/useJustEveryProfilePopup';
+import { replaceLocalhost } from '../runtimeEnv';
 import { DEFAULT_STARFIELD_VARIANT } from './components/Starfield';
 import { useRouterContext } from '../router/RouterProvider';
 
@@ -109,19 +110,29 @@ const AppShell = ({
     [onRefreshCompanies, setActiveCompany]
   );
 
+  const isWeb = Platform.OS === 'web';
+
+  const appOrigin = useMemo(() => {
+    if (!isWeb || typeof window === 'undefined') {
+      return undefined;
+    }
+    const candidate = window.location?.origin;
+    return replaceLocalhost(candidate) ?? candidate;
+  }, [isWeb]);
+
   const handlePopupLogout = useCallback(async () => {
-    await signOut({ returnUrl: typeof window !== 'undefined' ? window.location.origin : undefined });
-    if (typeof window !== 'undefined') {
+    await signOut({ returnUrl: appOrigin });
+    if (isWeb && appOrigin) {
       window.location.assign('/');
     }
-  }, [signOut]);
+  }, [appOrigin, signOut]);
 
   const handlePopupReady = useCallback(() => {
     void refresh();
     onRefreshCompanies();
   }, [onRefreshCompanies, refresh]);
 
-  const profileReturnUrl = typeof window !== 'undefined' ? window.location.origin + path : undefined;
+  const profileReturnUrl = isWeb && appOrigin ? `${appOrigin}${path}` : undefined;
 
   const { open: openProfilePopup } = useJustEveryProfilePopup({
     baseUrl: loginOrigin,
@@ -132,7 +143,7 @@ const AppShell = ({
     onOrganizationChange: handlePopupOrgChange,
     onSessionLogout: handlePopupLogout,
     onBillingCheckout: ({ status, url, error }) => {
-      if (status === 'ready' && url) {
+      if (status === 'ready' && url && isWeb) {
         window.open(url, '_blank', 'noopener');
       }
       if (status === 'error' && error) {
@@ -215,17 +226,17 @@ const AppShell = ({
       console.warn('Failed to clear worker session', error);
     }
     try {
-      await signOut({ returnUrl: typeof window !== 'undefined' ? window.location.origin : undefined });
+      await signOut({ returnUrl: appOrigin });
     } catch (error) {
       console.warn('Sign out failed', error);
     } finally {
       setAccountMenuOpen(false);
-      if (typeof window !== 'undefined') {
+      if (isWeb && appOrigin) {
         window.location.assign('/');
       }
       setIsSigningOut(false);
     }
-  }, [api, isSigningOut, setAccountMenuOpen, signOut]);
+  }, [api, appOrigin, isSigningOut, isWeb, setAccountMenuOpen, signOut]);
 
   const closeMenus = useCallback(() => {
     setShowSwitcher(false);
@@ -243,7 +254,7 @@ const AppShell = ({
   );
 
   useEffect(() => {
-    if (typeof document === 'undefined') {
+    if (!isWeb || typeof document === 'undefined') {
       return undefined;
     }
     const handleGlobalPress = (event: Event) => {
@@ -269,7 +280,7 @@ const AppShell = ({
       document.removeEventListener('touchstart', handleGlobalPress);
       document.removeEventListener('keydown', handleGlobalKeydown);
     };
-  }, [accountMenuOpen, closeMenus, showSwitcher]);
+  }, [accountMenuOpen, closeMenus, isWeb, showSwitcher]);
 
   const StarfieldComponent = starfieldModule?.Starfield;
 

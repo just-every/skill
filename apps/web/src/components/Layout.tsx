@@ -230,7 +230,7 @@ const Layout = ({ children }: LayoutProps) => {
                   <View className="space-y-2">
                     {column.links.map((link) => (
                       <Pressable
-                        key={link.href}
+                        key={`${column.title}-${link.href}-${link.label}`}
                         onPress={() => navigate(link.href)}
                         accessibilityRole="link"
                         className="focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:rounded"

@@ -4,7 +4,7 @@
   "private": true,
   "main": "src/index.ts",
   "scripts": {
-    "dev": "wrangler dev --config wrangler.toml --port 8787",
+    "dev": "wrangler dev --config wrangler.toml --port 9788",
     "deploy": "wrangler deploy --config wrangler.toml",
     "typecheck": "tsc --project tsconfig.json --noEmit",
     "migrate": "bash -lc 'wrangler --config wrangler.toml d1 migrations apply DB --remote'",
