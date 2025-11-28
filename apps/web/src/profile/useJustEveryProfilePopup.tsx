@@ -53,6 +53,13 @@ declare global {
 }
 
 const hasDOM = typeof window !== 'undefined' && typeof document !== 'undefined';
+const HOSTED_PROFILE_POPUP_ORIGIN = 'https://login.justevery.com';
+const LOCAL_HOST_HINTS = ['localhost', '127.0.0.1'];
+
+const isLocalHost = (host?: string | null) => {
+  if (!host) return false;
+  return LOCAL_HOST_HINTS.some((hint) => host.includes(hint));
+};
 
 let loadPromise: Promise<void> | null = null;
 
@@ -169,7 +176,25 @@ export function useJustEveryProfilePopup(options: UseJustEveryProfilePopupOption
   const resolvedBaseUrl = useMemo(() => {
     const fallback = 'https://login.justevery.com';
     const base = baseUrl ?? fallback;
-    const normalized = base.replace(/\/+$/, '') || fallback;
+    let normalized = base.replace(/\/+$/, '') || fallback;
+
+    if (hasDOM) {
+      try {
+        const currentHost = new URL(window.location.href).hostname;
+        const targetHost = new URL(normalized).hostname;
+        if (isLocalHost(currentHost) && !isLocalHost(targetHost)) {
+          console.warn('[profile-popup] forcing local popup script in dev (target was prod)', {
+            currentHost,
+            targetHost,
+            originalBase: normalized,
+          });
+          normalized = window.location.origin.replace(/\/+$/, '');
+        }
+      } catch {
+        // ignore URL parse errors; fall through
+      }
+    }
+
     debugLog('resolved base URL', normalized);
     return normalized;
   }, [baseUrl]);
@@ -211,7 +236,8 @@ export function useJustEveryProfilePopup(options: UseJustEveryProfilePopupOption
 
     const init = async () => {
       const scriptSrc = `${resolvedBaseUrl}/profile-popup.js`;
-      const fallbackSrc = hasDOM ? `${window.location.origin.replace(/\/$/, '')}/profile-popup.js` : undefined;
+      const hostedFallbackSrc = `${HOSTED_PROFILE_POPUP_ORIGIN}/profile-popup.js`;
+      const fallbackSrc = scriptSrc === hostedFallbackSrc ? undefined : hostedFallbackSrc;
       try {
         await ensurePopupScript(scriptSrc, fallbackSrc);
       } catch (error) {
@@ -227,6 +253,11 @@ export function useJustEveryProfilePopup(options: UseJustEveryProfilePopupOption
       const handleEvent = (evt: PopupEvent) => {
         const { onReady: readyCb, onOrganizationChange: orgCb, onSessionLogout: logoutCb, onBillingCheckout: billingCb, onAccountMenu: accountCb, onClose: closeCb } =
           callbacksRef.current;
+        debugLog('popup event', {
+          event: evt.event,
+          hasPayload: Boolean(evt.payload ?? evt.data),
+          nonce: evt.nonce,
+        });
         switch (evt.event) {
           case 'ready':
             setIsReady(true);

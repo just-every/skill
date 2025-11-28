@@ -17,19 +17,19 @@
     "test": "vitest"
   },
   "dependencies": {
-    "@playwright/test": "^1.56.1",
-    "chalk": "^5.3.0",
+    "@playwright/test": "^1.57.0",
+    "chalk": "^5.6.2",
     "commander": "^14.0.2",
     "dotenv": "^17.2.3",
     "execa": "^9.6.0",
     "listr2": "^9.0.5",
-    "stripe": "^19.3.1",
-    "zod": "^4.1.12"
+    "stripe": "^20.0.0",
+    "zod": "^4.1.13"
   },
   "devDependencies": {
     "@types/node": "^24.10.1",
     "tsx": "^4.20.6",
     "typescript": "^5.9.3",
-    "vitest": "^4.0.8"
+    "vitest": "^4.0.14"
   }
 }

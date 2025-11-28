@@ -8,6 +8,53 @@ import {
 } from './sessionAuth';
 import { BillingCheckoutError, createBillingCheckout } from '@justevery/login-client/billing';
 
+const LOCAL_HOST_HINTS = ['127.0.0.1', 'localhost'];
+
+const mask = (value?: string | null) => {
+  if (!value) return value ?? '';
+  if (value.length <= 8) return `${value[0]}***${value[value.length - 1]}`;
+  return `${value.slice(0, 4)}…${value.slice(-4)}`;
+};
+
+const looksLocal = (candidate?: string | null) => {
+  if (!candidate) return false;
+  return LOCAL_HOST_HINTS.some((hint) => candidate.includes(hint));
+};
+
+const shouldTrace = (request: Request, env: Env): boolean => {
+  const header = request.headers.get('x-debug-session-trace');
+  if (header && ['1', 'true', 'yes'].includes(header.toLowerCase())) return true;
+  try {
+    const host = new URL(request.url).hostname;
+    if (looksLocal(host)) return true;
+  } catch {
+    // ignore
+  }
+  return (
+    looksLocal(env.LOGIN_ORIGIN) ||
+    looksLocal(env.BETTER_AUTH_URL) ||
+    looksLocal(env.SESSION_COOKIE_DOMAIN) ||
+    looksLocal(env.PROJECT_DOMAIN)
+  );
+};
+
+const getRequestId = (request: Request): string => {
+  const existing = (request as unknown as { __traceId?: string }).__traceId;
+  if (existing) return existing;
+  const next =
+    request.headers.get('cf-ray') ||
+    request.headers.get('x-request-id') ||
+    (typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : Math.random().toString(16).slice(2));
+  (request as unknown as { __traceId?: string }).__traceId = next;
+  return next;
+};
+
+const trace = (request: Request, env: Env, label: string, data: Record<string, unknown>) => {
+  if (!shouldTrace(request, env)) return;
+  const requestId = getRequestId(request);
+  console.info('[session-trace]', label, { requestId, ...data });
+};
+
 type AssetFetcher = {
   fetch(input: Request | string, init?: RequestInit): Promise<Response>;
 };
@@ -1778,6 +1825,10 @@ function isLocalDev(env: Env): boolean {
 
 async function handleSessionApi(request: Request, env: Env): Promise<Response> {
   const auth = await authenticateRequest(request, env);
+  trace(request, env, 'session.api', {
+    ok: auth.ok,
+    reason: auth.ok ? undefined : auth.reason,
+  });
   if (!auth.ok) {
     return sessionFailureResponse(auth);
   }
@@ -1807,17 +1858,41 @@ async function handleSessionBootstrap(request: Request, env: Env): Promise<Respo
     return jsonResponse({ error: 'invalid_json' }, 400);
   }
 
-  const token = typeof payload === 'object' && payload && 'token' in payload
-    ? String((payload as { token?: string }).token ?? '').trim()
-    : '';
-
-  if (!token) {
-    return jsonResponse({ error: 'invalid_token' }, 400);
-  }
+  const cookieToken = (() => {
+    const cookie = request.headers.get('cookie');
+    if (!cookie) return '';
+    const match = cookie
+      .split(';')
+      .map((p) => p.trim())
+      .find((p) => p.toLowerCase().startsWith('better-auth.session_token='));
+    return match ? decodeURIComponent(match.split('=')[1] ?? '') : '';
+  })();
 
   const snapshot = typeof payload === 'object' && payload && 'session' in payload
     ? (payload as { session?: SessionSnapshot }).session
     : undefined;
+
+  const payloadToken = typeof payload === 'object' && payload && 'token' in payload
+    ? String((payload as { token?: string }).token ?? '').trim()
+    : '';
+
+  const snapshotToken = isSessionSnapshot(snapshot)
+    ? String(snapshot.session?.token ?? '').trim()
+    : '';
+
+  // Prefer the longest/most structured token we have (cookie tends to carry the full signed token).
+  const token = chooseBestToken(payloadToken, cookieToken, snapshotToken);
+
+  trace(request, env, 'session.bootstrap.tokens', {
+    cookieToken: mask(cookieToken),
+    payloadToken: mask(payloadToken),
+    snapshotToken: mask(snapshotToken),
+    chosen: mask(token),
+  });
+
+  if (!token) {
+    return jsonResponse({ error: 'invalid_token' }, 400);
+  }
 
   let expiresAt: string | undefined;
   if (isSessionSnapshot(snapshot)) {
@@ -1838,8 +1913,8 @@ async function handleSessionBootstrap(request: Request, env: Env): Promise<Respo
       });
       return authFailureResponse(authResult);
     }
-    console.info('[bootstrap] token accepted', {
-      user: authResult.session.user?.email,
+    trace(request, env, 'session.bootstrap.verified', {
+      user: mask(authResult.session.user?.email),
       expiresAt: authResult.session.expiresAt,
     });
     expiresAt = authResult.session.expiresAt;
@@ -1847,14 +1922,43 @@ async function handleSessionBootstrap(request: Request, env: Env): Promise<Respo
 
   const headers = new Headers({ 'Content-Type': 'application/json' });
   const sessionCookie = buildSessionCookie(token, env, expiresAt);
-  if (sessionCookie) {
+  if (sessionCookie && shouldSetCookie(token, cookieToken)) {
     headers.append('Set-Cookie', sessionCookie);
+    trace(request, env, 'session.bootstrap.set-cookie', {
+      sessionCookie,
+      expiresAt,
+    });
   }
 
   return new Response(JSON.stringify({ ok: true, cached: Boolean(snapshot) }), {
     status: 200,
     headers,
   });
+}
+
+function chooseBestToken(payloadToken: string, cookieToken: string, snapshotToken: string): string {
+  const candidates = [payloadToken, cookieToken, snapshotToken].filter(Boolean);
+  if (candidates.length === 0) return '';
+
+  // Prefer tokens that look signed (contain a dot), breaking ties by length.
+  const scored = candidates.map((value) => ({
+    value,
+    score: (value.includes('.') ? 10 : 0) + value.length,
+  }));
+
+  scored.sort((a, b) => b.score - a.score);
+  return scored[0]?.value ?? '';
+}
+
+function shouldSetCookie(chosen: string, existing: string): boolean {
+  if (!existing) return true;
+  if (chosen === existing) return true; // refresh expiry
+
+  const chosenScore = (chosen.includes('.') ? 10 : 0) + chosen.length;
+  const existingScore = (existing.includes('.') ? 10 : 0) + existing.length;
+
+  // Only write if the chosen token is strictly better than what the browser already has.
+  return chosenScore > existingScore;
 }
 
 async function handleSessionLogout(request: Request, env: Env): Promise<Response> {
@@ -1865,6 +1969,10 @@ async function handleSessionLogout(request: Request, env: Env): Promise<Response
   const headers = new Headers();
   headers.append('Set-Cookie', buildExpiredSessionCookie(env));
   headers.append('Set-Cookie', buildActiveAccountCookie(null, env));
+
+  trace(request, env, 'session.logout', {
+    clearedSession: true,
+  });
 
   return jsonResponse({ ok: true }, 200, headers);
 }
@@ -1970,6 +2078,7 @@ async function handleMe(request: Request, env: Env): Promise<Response> {
     session: {
       email_address: session.emailAddress ?? null,
       session_id: session.sessionId,
+      session_token: session.session.session?.token ?? null,
       expires_at: session.expiresAt,
     },
   });

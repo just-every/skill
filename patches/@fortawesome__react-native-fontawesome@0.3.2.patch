@@ -1,0 +1,13 @@
+diff --git a/package.json b/package.json
+index 5805b11de91192a96cf2d6ca99056feb2963c050..2b4e563e06321526403d0770d60317ca176cda4c 100644
+--- a/package.json
++++ b/package.json
+@@ -31,7 +31,7 @@
+   ],
+   "license": "MIT",
+   "peerDependencies": {
+-    "@fortawesome/fontawesome-svg-core": "~1 || ~6",
++    "@fortawesome/fontawesome-svg-core": "~1 || ~6 || ~7",
+     "react-native": ">= 0.67",
+     "react-native-svg": ">= 11.x"
+   },

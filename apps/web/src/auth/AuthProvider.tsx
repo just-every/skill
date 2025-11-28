@@ -126,12 +126,14 @@ export const AuthProvider = ({
   const [loginOverlayUrl, setLoginOverlayUrl] = useState<string | null>(null);
 
   const client = useMemo(() => new SessionClient({ baseUrl: resolvedApiBase }), [resolvedApiBase]);
-  
+
   const [state, setState] = useState<{
     status: AuthStatus;
     session: SessionPayload | null;
     error?: string | null;
   }>(() => ({ status: 'checking', session: null, error: null }));
+
+  const lastGoodSessionRef = useRef<SessionPayload | null>(null);
 
   const processedTokensRef = useRef<Set<string>>(new Set());
 
@@ -154,43 +156,66 @@ export const AuthProvider = ({
     }
   }, [workerBase]);
 
-  const resolveSession = useCallback(async (): Promise<SessionPayload | null> => {
-    // First try Better Auth directly (requires cookie). Works when login is performed inside the in-app webview.
+  const fetchWithTimeout = useCallback(async (
+    url: string,
+    init: RequestInit,
+    timeoutMs: number,
+    label: string
+  ) => {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(`${label} timed out after ${timeoutMs}ms`), timeoutMs);
     try {
-      const payload = await client.getSession();
-      if (hasActiveSession(payload)) {
-        void syncWorkerSession(payload.session?.token as string | undefined, payload);
-        return payload;
-      }
-    } catch (error) {
-      if (!(error instanceof SessionClientError && error.status === 401)) {
-        const message = error instanceof Error ? error.message : 'Unknown authentication error';
-        console.warn('Failed to fetch session from login origin', error);
-        setState({ status: 'error', session: null, error: message });
+      const response = await fetch(url, { ...init, signal: controller.signal });
+      return response;
+    } finally {
+      clearTimeout(timer);
+    }
+  }, []);
+
+  const withTimeout = useCallback(async <T,>(promise: Promise<T>, timeoutMs: number, label: string): Promise<T> => {
+    let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      timeoutHandle = setTimeout(() => reject(new Error(`${label} timed out after ${timeoutMs}ms`)), timeoutMs);
+    });
+    try {
+      return await Promise.race([promise, timeoutPromise]);
+    } finally {
+      if (timeoutHandle) {
+        clearTimeout(timeoutHandle);
       }
     }
+  }, []);
 
-    // Fallback: try worker API (in case cookie already bootstrapped).
+  const fetchWorkerSession = useCallback(async (): Promise<SessionPayload | null> => {
     try {
-      const response = await fetch(`${workerBase}/api/me`, {
-        method: 'GET',
-        credentials: 'include',
-        headers: { accept: 'application/json' },
-      });
+      const response = await fetchWithTimeout(
+        `${workerBase}/api/me`,
+        {
+          method: 'GET',
+          credentials: 'include',
+          headers: { accept: 'application/json' },
+        },
+        1500,
+        'worker /api/me'
+      );
 
       if (!response.ok) {
         return null;
       }
 
-      const payload = (await response.json()) as { session?: { session_id?: string; email_address?: string; expires_at?: string } };
-      if (!payload?.session?.session_id) {
+      const payload = (await response.json()) as {
+        session?: { session_id?: string; session_token?: string | null; email_address?: string; expires_at?: string };
+      };
+      if (!payload?.session?.session_id && !payload?.session?.session_token) {
         return null;
       }
+
+      const token = payload.session.session_token || payload.session.session_id || 'session';
 
       const session: SessionPayload = {
         session: {
           id: payload.session.session_id ?? 'session',
-          token: payload.session.session_id ?? 'session',
+          token,
           expiresAt: payload.session.expires_at,
         },
         user: {
@@ -200,17 +225,57 @@ export const AuthProvider = ({
 
       return session;
     } catch (error) {
-      // Worker may be offline in dev; fall back to unauthenticated instead of hard error.
+      // Worker may be offline in dev; treat as soft failure.
       const message = error instanceof Error ? error.message : 'Unknown authentication error';
-      console.warn('Failed to fetch session from worker (treating as unauthenticated)', error);
-      setState({ status: 'unauthenticated', session: null, error: null });
+      console.warn('Failed to fetch session from worker (soft failure)', message);
       return null;
     }
-  }, [client, syncWorkerSession, workerBase]);
+  }, [fetchWithTimeout, workerBase]);
+
+  const resolveSession = useCallback(async (): Promise<SessionPayload | null> => {
+    const loginPromise = withTimeout(client.getSession(), 1500, 'login session')
+      .then((payload) => {
+        if (hasActiveSession(payload)) {
+          return payload;
+        }
+        return null;
+      })
+      .catch((error) => {
+        if (!(error instanceof SessionClientError && error.status === 401)) {
+          console.warn('Failed to fetch session from login origin', error);
+        }
+        return null;
+      });
+
+    const workerPromise = fetchWorkerSession();
+
+    const [loginResult, workerResult] = await Promise.allSettled([loginPromise, workerPromise]);
+
+    const session = [loginResult, workerResult]
+      .map((r) => (r.status === 'fulfilled' ? r.value : null))
+      .find((value): value is SessionPayload => Boolean(value));
+
+    if (session) {
+      lastGoodSessionRef.current = session;
+      if (session.session?.token) {
+        void syncWorkerSession(session.session.token, session);
+      }
+      return session;
+    }
+
+    return lastGoodSessionRef.current;
+  }, [client, fetchWorkerSession, syncWorkerSession, withTimeout]);
 
   const refresh = useCallback(async () => {
     const payload = await resolveSession();
-    setState(payload ? { status: 'authenticated', session: payload } : { status: 'unauthenticated', session: null });
+    if (payload) {
+      setState({ status: 'authenticated', session: payload, error: null });
+      lastGoodSessionRef.current = payload;
+    } else if (lastGoodSessionRef.current) {
+      setState({ status: 'authenticated', session: lastGoodSessionRef.current, error: null });
+    } else {
+      setState({ status: 'unauthenticated', session: null, error: null });
+    }
   }, [resolveSession]);
 
   const bootstrapFromToken = useCallback(async (token: string) => {
@@ -248,10 +313,28 @@ export const AuthProvider = ({
   useEffect(() => {
     let cancelled = false;
     const bootstrap = async () => {
+      const cookieToken = readCookieSessionToken();
+      if (Platform.OS === 'web' && cookieToken && !lastGoodSessionRef.current) {
+        const optimisticSession: SessionPayload = {
+          session: {
+            id: cookieToken,
+            token: cookieToken,
+            expiresAt: undefined,
+          },
+          user: { email: '' },
+        } as SessionPayload;
+        lastGoodSessionRef.current = optimisticSession;
+        setState({ status: 'authenticated', session: optimisticSession, error: null });
+        void syncWorkerSession(cookieToken, optimisticSession);
+      }
+
       const payload = await resolveSession();
       if (!cancelled) {
         if (payload) {
           setState({ status: 'authenticated', session: payload, error: null });
+          lastGoodSessionRef.current = payload;
+        } else if (lastGoodSessionRef.current) {
+          setState({ status: 'authenticated', session: lastGoodSessionRef.current, error: null });
         } else {
           setState((prev) =>
             prev.status === 'error'
@@ -302,6 +385,7 @@ export const AuthProvider = ({
       }
       setState({ status: 'unauthenticated', session: null });
       lastSyncedTokenRef.current = null;
+      lastGoodSessionRef.current = null;
     },
     [workerBase]
   );
@@ -491,6 +575,23 @@ function extractTokenFromUrl(url?: string | null): string | null {
   } catch (error) {
     logError(error, 'extract-token-from-url');
     return null;
+  }
+}
+
+function readCookieSessionToken(): string | null {
+  if (typeof document === 'undefined') return null;
+  const raw = document.cookie ?? '';
+  const match = raw
+    .split(';')
+    .map((p) => p.trim())
+    .find((p) => p.toLowerCase().startsWith('better-auth.session_token='));
+  if (!match) return null;
+  const value = match.split('=')[1] ?? '';
+  if (!value) return null;
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
   }
 }
 

@@ -4,6 +4,10 @@ import path from 'node:path';
 const reactNativeVirtualId = '\0vitest-react-native-stub';
 const reactNativeSvgVirtualId = '\0vitest-react-native-svg-stub';
 const fontAwesomeVirtualId = '\0vitest-fontawesome-stub';
+const expoModulesVirtualId = '\0vitest-expo-modules-core-stub';
+const expoConstantsVirtualId = '\0vitest-expo-constants-stub';
+const expoClipboardVirtualId = '\0vitest-expo-clipboard-stub';
+const expoFileSystemVirtualId = '\0vitest-expo-file-system-stub';
 
 export default defineConfig({
   test: {
@@ -29,6 +33,18 @@ export default defineConfig({
         }
         if (source === '@fortawesome/react-native-fontawesome') {
           return fontAwesomeVirtualId;
+        }
+        if (source === 'expo-modules-core' || source.startsWith('expo-modules-core/')) {
+          return expoModulesVirtualId;
+        }
+        if (source === 'expo-constants') {
+          return expoConstantsVirtualId;
+        }
+        if (source === 'expo-clipboard') {
+          return expoClipboardVirtualId;
+        }
+        if (source === 'expo-file-system') {
+          return expoFileSystemVirtualId;
         }
         return null;
       },
@@ -73,7 +89,11 @@ const Pressable = React.forwardRef(({ children, onPress, ...props }, ref) =>
     children
   )
 );
-export { View, Text, ScrollView, ActivityIndicator, Pressable };
+const Platform = {
+  OS: 'web',
+  select: (spec) => spec?.web ?? spec?.default ?? spec?.native ?? spec,
+};
+export { View, Text, ScrollView, ActivityIndicator, Pressable, Platform };
 export default {
   View,
   Text,
@@ -81,7 +101,80 @@ export default {
   ActivityIndicator,
   Pressable,
   StyleSheet: { create: (styles) => styles },
-  Platform: { OS: 'web' },
+  Platform,
+};`;
+        }
+        if (id === expoModulesVirtualId) {
+          return `class CodedError extends Error {
+  constructor(code, message) {
+    super(message);
+    this.code = code;
+  }
+}
+class UnavailabilityError extends CodedError {
+  constructor(moduleName, propertyName) {
+    super(
+      'ERR_MODULE_UNAVAILABLE',
+      moduleName + '.' + propertyName + ' is not available on web test environment.'
+    );
+  }
+}
+class EventEmitter {
+  addListener() {
+    return { remove: () => {} };
+  }
+  removeAllListeners() {}
+  emit() {}
+  removeSubscription() {}
+}
+const Platform = { OS: 'web', select: (spec) => spec?.web ?? spec?.default ?? spec?.native ?? spec };
+const NativeModules = {};
+const NativeModulesProxy = {};
+const requireNativeModule = (_name) => ({
+  getLinkingURL: () => null,
+});
+const requireOptionalNativeModule = (_name) => null;
+const NativeModule = class {};
+globalThis.ExpoModulesCore = { EventEmitter };
+export { CodedError, UnavailabilityError, EventEmitter, Platform, NativeModules, NativeModulesProxy, requireNativeModule, requireOptionalNativeModule, NativeModule };
+export default {
+  CodedError,
+  UnavailabilityError,
+  EventEmitter,
+  Platform,
+  NativeModules,
+  NativeModulesProxy,
+  requireNativeModule,
+  requireOptionalNativeModule,
+  NativeModule,
+};`;
+        }
+        if (id === expoConstantsVirtualId) {
+          return `const Constants = {
+  appOwnership: null,
+  expoConfig: { hostUri: '127.0.0.1' },
+  manifest2: { extra: { expoClient: { hostUri: '127.0.0.1' } } },
+};
+export default Constants;
+export const ExecutionEnvironment = { Standalone: 'standalone' };
+export const UserInterfaceIdiom = { Phone: 'phone', Tablet: 'tablet', Unknown: 'unknown' };`;
+        }
+        if (id === expoClipboardVirtualId) {
+          return `export const setStringAsync = async () => {};
+export default { setStringAsync };`;
+        }
+        if (id === expoFileSystemVirtualId) {
+          return `export const cacheDirectory = '/tmp/';
+export const EncodingType = { UTF8: 'utf8' };
+export const writeAsStringAsync = async () => {};
+export const readAsStringAsync = async () => '';
+export const deleteAsync = async () => {};
+export default {
+  cacheDirectory,
+  EncodingType,
+  writeAsStringAsync,
+  readAsStringAsync,
+  deleteAsync,
 };`;
         }
         if (id === reactNativeSvgVirtualId) {

@@ -11,10 +11,10 @@
     "test": "node ./scripts/run-vitest-seq.mjs"
   },
   "devDependencies": {
-    "@cloudflare/workers-types": "^4.20251111.0",
+    "@cloudflare/workers-types": "^4.20251128.0",
     "typescript": "^5.9.3",
-    "vitest": "^4.0.8",
-    "wrangler": "^4.47.0"
+    "vitest": "^4.0.14",
+    "wrangler": "^4.51.0"
   },
   "dependencies": {
     "@justevery/auth-shared": "workspace:*",

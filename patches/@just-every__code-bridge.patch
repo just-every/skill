@@ -1,0 +1,74 @@
+diff --git a/dist/index.js b/dist/index.js
+index 50a5f2e8bdc3cb150b5b43161abe8f115b9f3fbe..ee92cc4afc2fc47d0b7f714aea5e5becdf48a7b7 100644
+--- a/dist/index.js
++++ b/dist/index.js
+@@ -38,21 +38,18 @@ function detectPlatform() {
+   }
+   return "unknown";
+ }
+-function isDevMode() {
+-  if (typeof process !== "undefined" && process.env.NODE_ENV === "development") {
+-    return true;
+-  }
+-  try {
+-    if (typeof import_meta !== "undefined" && import_meta.env?.DEV) {
++  function isDevMode() {
++    if (typeof process !== "undefined" && process.env.NODE_ENV === "development") {
+       return true;
+     }
+-  } catch {
+-  }
+-  if (typeof globalThis !== "undefined" && globalThis.__DEV__) {
+-    return true;
++    if (globalThis?.__CODE_BRIDGE_DEV__ === true) {
++      return true;
++    }
++    if (typeof globalThis !== "undefined" && globalThis.__DEV__) {
++      return true;
++    }
++    return false;
+   }
+-  return false;
+-}
+ 
+ // src/websocket.ts
+ var BridgeWebSocket = class {
+diff --git a/dist/index.mjs b/dist/index.mjs
+index 69c4f6247386d5a6aa2a9f844dee7ea8b2cde8cb..5a4f29774a7f6d1db12d8159ffac8d3555dc734d 100644
+--- a/dist/index.mjs
++++ b/dist/index.mjs
+@@ -22,11 +22,8 @@ function isDevMode() {
+   if (typeof process !== "undefined" && process.env.NODE_ENV === "development") {
+     return true;
+   }
+-  try {
+-    if (typeof import.meta !== "undefined" && import.meta.env?.DEV) {
+-      return true;
+-    }
+-  } catch {
++  if (globalThis?.__CODE_BRIDGE_DEV__ === true) {
++    return true;
+   }
+   if (typeof globalThis !== "undefined" && globalThis.__DEV__) {
+     return true;
+diff --git a/src/platform.ts b/src/platform.ts
+index 14e60952ca2a0384cbefcaf67268e5b6c3ff614e..859276e80be370a415025ad123d936ce278865b8 100644
+--- a/src/platform.ts
++++ b/src/platform.ts
+@@ -20,12 +20,10 @@ export function isDevMode(): boolean {
+     return true;
+   }
+ 
+-  try {
+-    if (typeof import.meta !== 'undefined' && (import.meta as any).env?.DEV) {
+-      return true;
+-    }
+-  } catch {
+-    // ignore
++  // Avoid using import.meta to keep the bundle valid for non-module scripts (Metro web).
++  const metaDevFlag = (globalThis as any)?.__CODE_BRIDGE_DEV__;
++  if (metaDevFlag === true) {
++    return true;
+   }
+ 
+   if (typeof globalThis !== 'undefined' && (globalThis as any).__DEV__) {

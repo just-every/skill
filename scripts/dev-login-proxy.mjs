@@ -119,7 +119,13 @@ const server = http.createServer((req, res) => {
     return;
   }
 
-  if (url.pathname === '/profile-popup.js' || url.pathname.startsWith('/profile')) {
+  if (url.pathname === '/profile-popup.js') {
+    res.writeHead(200, { 'Content-Type': 'application/javascript', 'Access-Control-Allow-Origin': '*' });
+    res.end('console.log("Profile popup placeholder loaded"); window.JustEveryProfile = { init: () => {} };');
+    return;
+  }
+
+  if (url.pathname.startsWith('/profile')) {
     proxyToLogin(req, res);
     return;
   }

@@ -15,7 +15,8 @@ if (!fs.existsSync(envGeneratedPath)) {
 }
 
 const generated = readEnvFile(envGeneratedPath);
-const overrides = buildOverrides(generated.map);
+const discoveredLogin = discoverLoginSettings();
+const overrides = buildOverrides(generated.map, discoveredLogin);
 
 const envLocalExisting = readEnvFile(envLocalPath);
 const mergedEnv = mergeEntries(generated, envLocalExisting, overrides.env);
@@ -101,24 +102,28 @@ function writeEnvFile(filePath, header, entries) {
   fs.writeFileSync(filePath, output, 'utf8');
 }
 
-function buildOverrides(baseEnv) {
+function buildOverrides(baseEnv, discoveredLogin) {
   const workerOrigin = normaliseOrigin(
     process.env.LOCAL_WORKER_ORIGIN ?? 'http://127.0.0.1:9788',
     'http://127.0.0.1:9788'
   );
 
   const loginOrigin = normaliseOrigin(
-    process.env.LOCAL_LOGIN_ORIGIN ?? 'http://127.0.0.1:9787',
-    'http://127.0.0.1:9787'
+    process.env.LOCAL_LOGIN_ORIGIN ?? discoveredLogin.loginOrigin ?? 'http://127.0.0.1:9787',
+    discoveredLogin.loginOrigin ?? 'http://127.0.0.1:9787'
   );
 
   const betterAuthUrl = normaliseUrl(
-    process.env.LOCAL_BETTER_AUTH_URL ?? `${trimTrailingSlash(loginOrigin)}/api/auth`,
+    process.env.LOCAL_BETTER_AUTH_URL ??
+      discoveredLogin.betterAuthUrl ??
+      `${trimTrailingSlash(loginOrigin)}/api/auth`,
     `${trimTrailingSlash(loginOrigin)}/api/auth`
   );
 
   const sessionEndpoint = normaliseUrl(
-    process.env.LOCAL_SESSION_ENDPOINT ?? `${trimTrailingSlash(betterAuthUrl)}/session`,
+    process.env.LOCAL_SESSION_ENDPOINT ??
+      discoveredLogin.sessionEndpoint ??
+      `${trimTrailingSlash(betterAuthUrl)}/session`,
     `${trimTrailingSlash(betterAuthUrl)}/session`
   );
 
@@ -167,6 +172,61 @@ function buildOverrides(baseEnv) {
   };
 }
 
+function discoverLoginSettings() {
+  const result = { loginOrigin: null, betterAuthUrl: null, sessionEndpoint: null };
+
+  // Highest priority after explicit env: metadata file written by ../login dev script.
+  const loginRoot = path.resolve(projectRoot, '..', 'login');
+  const metaPath = path.join(loginRoot, '.dev-url.json');
+  if (fs.existsSync(metaPath)) {
+    try {
+      const metaRaw = fs.readFileSync(metaPath, 'utf8');
+      const meta = JSON.parse(metaRaw);
+      if (meta?.loginOrigin) {
+        result.loginOrigin = normaliseOrigin(meta.loginOrigin, null);
+      }
+    } catch (error) {
+      console.warn('[dev-local] failed to parse ../login/.dev-url.json', error);
+    }
+  }
+
+  // Next: look at ../login/.dev.vars (wrangler mirror) and .env for hints.
+  const loginDevVars = readEnvFile(path.join(loginRoot, '.dev.vars'));
+  const loginEnv = readEnvFile(path.join(loginRoot, '.env'));
+
+  const pick = (map, key) => (map && map[key] ? map[key] : undefined);
+
+  if (!result.betterAuthUrl) {
+    result.betterAuthUrl = normaliseUrl(
+      pick(loginDevVars.map, 'BETTER_AUTH_URL') ?? pick(loginEnv.map, 'BETTER_AUTH_URL'),
+      null
+    );
+  }
+
+  if (!result.sessionEndpoint) {
+    result.sessionEndpoint = normaliseUrl(
+      pick(loginDevVars.map, 'SESSION_ENDPOINT') ?? pick(loginEnv.map, 'SESSION_ENDPOINT'),
+      null
+    );
+  }
+
+  if (!result.loginOrigin) {
+    const originFromEnv = pick(loginDevVars.map, 'LOGIN_ORIGIN') ?? pick(loginEnv.map, 'LOGIN_ORIGIN');
+    if (originFromEnv) {
+      result.loginOrigin = normaliseOrigin(originFromEnv, null);
+    }
+  }
+
+  if (!result.loginOrigin && result.betterAuthUrl) {
+    const derived = deriveOriginFromUrl(result.betterAuthUrl);
+    if (derived) {
+      result.loginOrigin = derived;
+    }
+  }
+
+  return result;
+}
+
 function normaliseOrigin(value, fallback) {
   const candidate = (value ?? '').trim();
   if (!candidate) return fallback;
@@ -191,6 +251,15 @@ function normaliseUrl(value, fallback) {
     return url.toString();
   } catch {
     return fallback;
+  }
+}
+
+function deriveOriginFromUrl(value) {
+  try {
+    const url = new URL(value);
+    return `${url.protocol}//${url.host}`;
+  } catch {
+    return null;
   }
 }
 

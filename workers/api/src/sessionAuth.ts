@@ -45,6 +45,53 @@ export type AuthResult = AuthSuccess | AuthFailure;
  */
 const requestSessionCache = new WeakMap<Request, AuthResult>();
 
+const LOCAL_HOST_HINTS = ['127.0.0.1', 'localhost'];
+
+const mask = (value?: string | null) => {
+  if (!value) return value ?? '';
+  if (value.length <= 8) return `${value[0]}***${value[value.length - 1]}`;
+  return `${value.slice(0, 4)}…${value.slice(-4)}`;
+};
+
+const hostLooksLocal = (candidate?: string | null) => {
+  if (!candidate) return false;
+  return LOCAL_HOST_HINTS.some((hint) => candidate.includes(hint));
+};
+
+const shouldTrace = (request: Request, env: Env): boolean => {
+  const header = request.headers.get('x-debug-session-trace');
+  if (header && ['1', 'true', 'yes'].includes(header.toLowerCase())) return true;
+  try {
+    const host = new URL(request.url).hostname;
+    if (hostLooksLocal(host)) return true;
+  } catch {
+    // ignore
+  }
+  return (
+    hostLooksLocal(env.LOGIN_ORIGIN) ||
+    hostLooksLocal(env.BETTER_AUTH_URL) ||
+    hostLooksLocal(env.SESSION_COOKIE_DOMAIN) ||
+    hostLooksLocal(env.PROJECT_DOMAIN)
+  );
+};
+
+const getRequestId = (request: Request): string => {
+  const existing = (request as unknown as { __traceId?: string }).__traceId;
+  if (existing) return existing;
+  const next =
+    request.headers.get('cf-ray') ||
+    request.headers.get('x-request-id') ||
+    (typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : Math.random().toString(16).slice(2));
+  (request as unknown as { __traceId?: string }).__traceId = next;
+  return next;
+};
+
+const trace = (request: Request, env: Env, label: string, data: Record<string, unknown>) => {
+  if (!shouldTrace(request, env)) return;
+  const requestId = getRequestId(request);
+  console.info('[session-trace]', label, { requestId, ...data });
+};
+
 /**
  * Authenticate a request using Better Auth session verification
  */
@@ -52,6 +99,9 @@ export async function authenticateRequest(request: Request, env: Env): Promise<A
   // Check request cache
   const cached = requestSessionCache.get(request);
   if (cached) {
+    trace(request, env, 'authenticate.cached', {
+      result: cached.ok ? 'ok' : 'fail',
+    });
     return cached;
   }
 
@@ -59,6 +109,7 @@ export async function authenticateRequest(request: Request, env: Env): Promise<A
   const bypass = localDevBypass(request, env);
   if (bypass) {
     requestSessionCache.set(request, bypass);
+    trace(request, env, 'authenticate.dev-bypass', { ok: bypass.ok });
     return bypass;
   }
 
@@ -75,6 +126,11 @@ export async function authenticateRequest(request: Request, env: Env): Promise<A
   // Verify session
   const result = await verifySession(request);
 
+  trace(request, env, 'authenticate.verify', {
+    ok: result.ok,
+    detail: result.detail ?? result.error,
+  });
+
   if (!result.ok) {
     const reason = (result.error as AuthFailureReason) ?? 'unauthorized';
     const failure: AuthFailure = {
@@ -82,6 +138,10 @@ export async function authenticateRequest(request: Request, env: Env): Promise<A
       reason,
       errorDescription: result.detail ?? result.error,
     };
+    trace(request, env, 'authenticate.failure', {
+      reason,
+      description: failure.errorDescription,
+    });
     requestSessionCache.set(request, failure);
     return failure;
   }
@@ -103,20 +163,28 @@ export async function authenticateRequest(request: Request, env: Env): Promise<A
     session: authenticatedSession,
   };
 
+  trace(request, env, 'authenticate.success', {
+    sessionId: mask(session.session.id),
+    userId: mask(session.user.id),
+    email: mask(session.user.email),
+    expiresAt,
+  });
+
   requestSessionCache.set(request, success);
   return success;
 }
 
 function localDevBypass(request: Request, env: Env): AuthResult | null {
   const devToken = env.DEV_SESSION_TOKEN ?? 'devtoken';
-  console.info('[auth][dev-bypass] env DEV_SESSION_TOKEN', env.DEV_SESSION_TOKEN ? 'set' : 'unset');
   if (!devToken) return null;
 
   const token = readSessionToken(request, devToken);
-  if (token !== devToken) {
-    console.info('[auth][dev-bypass] token mismatch', { token, devToken });
-    return null;
-  }
+  const isMatch = token === devToken;
+  trace(request, env, 'dev-bypass.check', {
+    provided: Boolean(token),
+    match: isMatch,
+  });
+  if (!isMatch) return null;
 
   const now = new Date();
   const expiresAt = new Date(now.getTime() + 24 * 60 * 60 * 1000);

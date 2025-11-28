@@ -7,6 +7,7 @@ import './global.css';
 import { AuthProvider, useAuth } from './src/auth/AuthProvider';
 import Layout from './src/components/Layout';
 import { clearErrorLog, copyErrorLogToClipboard, getLogPath, logError, useGlobalErrorLogging } from './src/debug/errorLogging';
+import { useCodeBridge } from './src/debug/codeBridge';
 import { Callback, Contact, Dashboard, DevSidebarSandbox, Home, Pricing } from './src/pages';
 import { RouterProvider, useRouterContext } from './src/router/RouterProvider';
 import { usePublicEnv } from './src/runtimeEnv';
@@ -90,6 +91,7 @@ class RootErrorBoundary extends Component<
 
 const App = (): ReactNode => {
   useGlobalErrorLogging();
+  useCodeBridge();
 
   const env = usePublicEnv();
   const queryClientRef = useRef<QueryClient>();
