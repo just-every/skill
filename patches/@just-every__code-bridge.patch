@@ -1,8 +1,75 @@
+diff --git a/bin/code-bridge-host.js b/bin/code-bridge-host.js
+index 62e687cc23dbba14c7bbf359fe77f89ee6350386..b4d997af06923774447505bf9026b514e1f5f22e 100755
+--- a/bin/code-bridge-host.js
++++ b/bin/code-bridge-host.js
+@@ -17,6 +17,7 @@ const preferredPort = portArg ? parseInt(portArg.split('=')[1], 10) : 9876;
+ const codeDir = path.join(workspacePath, '.code');
+ const lockFile = path.join(codeDir, 'code-bridge.lock');
+ const metaFile = path.join(codeDir, 'code-bridge.json');
++const HEARTBEAT_INTERVAL_MS = 5000;
+ 
+ // Ensure .code directory exists
+ if (!fs.existsSync(codeDir)) {
+@@ -97,12 +98,25 @@ function writeMetadata(port, secret) {
+     port,
+     secret,
+     workspacePath,
+-    startedAt: new Date().toISOString()
++    startedAt: new Date().toISOString(),
++    pid: process.pid,
++    heartbeatAt: new Date().toISOString()
+   };
+   fs.writeFileSync(metaFile, JSON.stringify(metadata, null, 2));
+   return metadata;
+ }
+ 
++function startHeartbeat(metadata) {
++  return setInterval(() => {
++    try {
++      metadata.heartbeatAt = new Date().toISOString();
++      fs.writeFileSync(metaFile, JSON.stringify(metadata, null, 2));
++    } catch (err) {
++      console.error(`Failed to write heartbeat: ${err.message}`);
++    }
++  }, HEARTBEAT_INTERVAL_MS);
++}
++
+ // Main server logic
+ async function startServer() {
+   // Acquire lock
+@@ -116,6 +130,7 @@ async function startServer() {
+ 
+   // Write metadata
+   const metadata = writeMetadata(port, secret);
++  const heartbeatTimer = startHeartbeat(metadata);
+ 
+   console.log(`code-bridge-host started`);
+   console.log(`  Workspace: ${workspacePath}`);
+@@ -473,6 +488,9 @@ async function startServer() {
+   // Handle shutdown
+   function shutdown() {
+     console.log('\nShutting down...');
++    if (heartbeatTimer) {
++      clearInterval(heartbeatTimer);
++    }
+     wss.close(() => {
+       releaseLock();
+       console.log('Server stopped');
+@@ -490,6 +508,9 @@ async function startServer() {
+   process.on('SIGINT', shutdown);
+   process.on('SIGTERM', shutdown);
+   process.on('exit', () => {
++    if (heartbeatTimer) {
++      clearInterval(heartbeatTimer);
++    }
+     releaseLock();
+   });
+ }
 diff --git a/dist/index.js b/dist/index.js
-index 50a5f2e8bdc3cb150b5b43161abe8f115b9f3fbe..ee92cc4afc2fc47d0b7f714aea5e5becdf48a7b7 100644
+index a8795be47eebb4dc8695927634cf2da76670a3bb..a6634b905bff1c84e0ec10e9268533276c18fca7 100644
 --- a/dist/index.js
 +++ b/dist/index.js
-@@ -38,21 +38,18 @@ function detectPlatform() {
+@@ -53,21 +53,18 @@ function detectPlatform() {
    }
    return "unknown";
  }
@@ -33,11 +100,31 @@ index 50a5f2e8bdc3cb150b5b43161abe8f115b9f3fbe..ee92cc4afc2fc47d0b7f714aea5e5bec
  
  // src/websocket.ts
  var BridgeWebSocket = class {
+@@ -432,6 +429,7 @@ function startBridge(options = {}) {
+ }
+ function ensureHostIfPossible(options) {
+   if (!isDevMode()) return void 0;
++  if (typeof process === "undefined" || !process.versions || !process.versions.node) return void 0;
+   const workspace = options.projectId ? process.cwd() : process.cwd();
+   const lockPath = import_path.default.join(workspace, HOST_LOCK);
+   const metaPath = import_path.default.join(workspace, HOST_META);
+@@ -474,6 +472,11 @@ function readHealthyMeta(metaPath) {
+       const age = Date.now() - new Date(meta.heartbeatAt).getTime();
+       if (age > HOST_HEARTBEAT_STALE_MS) return void 0;
+     }
++    if (!meta.heartbeatAt && !meta.pid) {
++      const stat = import_fs.default.statSync(metaPath);
++      const age = Date.now() - stat.mtimeMs;
++      if (age > HOST_HEARTBEAT_STALE_MS) return void 0;
++    }
+     return meta;
+   } catch {
+     return void 0;
 diff --git a/dist/index.mjs b/dist/index.mjs
-index 69c4f6247386d5a6aa2a9f844dee7ea8b2cde8cb..5a4f29774a7f6d1db12d8159ffac8d3555dc734d 100644
+index b4546770dbbc8e7eaf7342a19e83e88cbac7c621..2081040bf043885c698fdc197f8cf127f211bf3f 100644
 --- a/dist/index.mjs
 +++ b/dist/index.mjs
-@@ -22,11 +22,8 @@ function isDevMode() {
+@@ -27,11 +27,8 @@ function isDevMode() {
    if (typeof process !== "undefined" && process.env.NODE_ENV === "development") {
      return true;
    }
@@ -51,6 +138,56 @@ index 69c4f6247386d5a6aa2a9f844dee7ea8b2cde8cb..5a4f29774a7f6d1db12d8159ffac8d35
    }
    if (typeof globalThis !== "undefined" && globalThis.__DEV__) {
      return true;
+@@ -402,6 +399,7 @@ function startBridge(options = {}) {
+ }
+ function ensureHostIfPossible(options) {
+   if (!isDevMode()) return void 0;
++  if (typeof process === "undefined" || !process.versions || !process.versions.node) return void 0;
+   const workspace = options.projectId ? process.cwd() : process.cwd();
+   const lockPath = path.join(workspace, HOST_LOCK);
+   const metaPath = path.join(workspace, HOST_META);
+@@ -444,6 +442,11 @@ function readHealthyMeta(metaPath) {
+       const age = Date.now() - new Date(meta.heartbeatAt).getTime();
+       if (age > HOST_HEARTBEAT_STALE_MS) return void 0;
+     }
++    if (!meta.heartbeatAt && !meta.pid) {
++      const stat = fs.statSync(metaPath);
++      const age = Date.now() - stat.mtimeMs;
++      if (age > HOST_HEARTBEAT_STALE_MS) return void 0;
++    }
+     return meta;
+   } catch {
+     return void 0;
+diff --git a/src/client.ts b/src/client.ts
+index 10fc9267c00fdb1fee183f6fb42c83c52c903911..aa28447726e796aff0c71e5763234eecf23eb781 100644
+--- a/src/client.ts
++++ b/src/client.ts
+@@ -316,6 +316,11 @@ function ensureHostIfPossible(options: BridgeOptions): HostMeta | undefined {
+   // Only attempt in dev; production should stay no-op unless explicitly enabled
+   if (!isDevMode()) return undefined;
+ 
++  // Host auto-spawn only makes sense in Node environments; browsers/React Native skip
++  if (typeof process === 'undefined' || !process.versions?.node) {
++    return undefined;
++  }
++
+   const workspace = options.projectId ? process.cwd() : process.cwd();
+   const lockPath = path.join(workspace, HOST_LOCK);
+   const metaPath = path.join(workspace, HOST_META);
+@@ -373,6 +378,13 @@ function readHealthyMeta(metaPath: string): HostMeta | undefined {
+       if (age > HOST_HEARTBEAT_STALE_MS) return undefined;
+     }
+ 
++    // If no heartbeat or pid is present (older hosts), fall back to file mtime as staleness signal
++    if (!meta.heartbeatAt && !meta.pid) {
++      const stat = fs.statSync(metaPath);
++      const age = Date.now() - stat.mtimeMs;
++      if (age > HOST_HEARTBEAT_STALE_MS) return undefined;
++    }
++
+     return meta;
+   } catch {
+     return undefined;
 diff --git a/src/platform.ts b/src/platform.ts
 index 14e60952ca2a0384cbefcaf67268e5b6c3ff614e..859276e80be370a415025ad123d936ce278865b8 100644
 --- a/src/platform.ts

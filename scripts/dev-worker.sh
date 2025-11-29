@@ -13,7 +13,17 @@ if [ ! -f "$ENV_FILE" ]; then
 fi
 
 if [ "${JE_LOCAL_URLS:-0}" = "1" ]; then
-  DEFAULT_WORKER_PORT="${JE_LOCAL_WORKER_PORT:-9788}"
+  # Pick a free port starting at 9788 to avoid collisions when multiple dev runs are active
+  find_port() {
+    local start="$1"
+    local port="$start"
+    while lsof -i tcp:"$port" >/dev/null 2>&1; do
+      port=$((port + 1))
+    done
+    echo "$port"
+  }
+
+  DEFAULT_WORKER_PORT=$(find_port "${JE_LOCAL_WORKER_PORT:-9788}")
   LOCAL_WORKER_ORIGIN="${JE_LOCAL_WORKER_ORIGIN:-http://127.0.0.1:${DEFAULT_WORKER_PORT}}"
   LOCAL_LOGIN_ORIGIN="${JE_LOCAL_LOGIN_ORIGIN:-http://127.0.0.1:9787}"
   LOCAL_APP_URL="${JE_LOCAL_APP_URL:-http://127.0.0.1:19006}"
@@ -38,5 +48,9 @@ set -a
 # shellcheck disable=SC1090
 source "$ENV_FILE"
 set +a
+
+# Force-enable code-bridge in dev for worker instrumentation
+export CODE_BRIDGE=1
+export DEV_SESSION_TOKEN=${DEV_SESSION_TOKEN:-devtoken}
 
 exec npm run dev --workspace "$CONFIG_WORKSPACE" "$@"

@@ -8,6 +8,38 @@ import {
 } from './sessionAuth';
 import { BillingCheckoutError, createBillingCheckout } from '@justevery/login-client/billing';
 
+let __codeBridge: any = null;
+
+// Initialize code-bridge in dev when CODE_BRIDGE=1 and metadata is present
+(async () => {
+  try {
+    if (typeof process === 'undefined' || process.env.CODE_BRIDGE !== '1') return;
+    const [{ startBridge }, fsMod, pathMod] = await Promise.all([
+      import('@just-every/code-bridge'),
+      import('node:fs'),
+      import('node:path'),
+    ]);
+    const fs = (fsMod as any).default ?? fsMod;
+    const path = (pathMod as any).default ?? pathMod;
+    const root = path.resolve(__dirname, '..', '..');
+    const metaPath = path.join(root, '.code', 'code-bridge.json');
+    if (!fs.existsSync(metaPath)) return;
+    const meta = JSON.parse(fs.readFileSync(metaPath, 'utf8')) as { url: string; secret: string };
+    if (!meta?.url || !meta?.secret) return;
+    console.info('[code-bridge][worker] initializing bridge', { url: meta.url });
+    __codeBridge = startBridge({
+      url: meta.url,
+      secret: meta.secret,
+      projectId: 'worker-api',
+      enabled: true,
+      enableControl: true,
+    });
+    console.info('[code-bridge][worker] bridge started');
+  } catch (err) {
+    console.warn('[code-bridge][worker-api] failed to init bridge', err);
+  }
+})();
+
 const LOCAL_HOST_HINTS = ['127.0.0.1', 'localhost'];
 
 const mask = (value?: string | null) => {

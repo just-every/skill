@@ -7,7 +7,7 @@ import './global.css';
 import { AuthProvider, useAuth } from './src/auth/AuthProvider';
 import Layout from './src/components/Layout';
 import { clearErrorLog, copyErrorLogToClipboard, getLogPath, logError, useGlobalErrorLogging } from './src/debug/errorLogging';
-import { useCodeBridge } from './src/debug/codeBridge';
+import { useCodeBridge, sendBridgeError } from './src/debug/codeBridge';
 import { Callback, Contact, Dashboard, DevSidebarSandbox, Home, Pricing } from './src/pages';
 import { RouterProvider, useRouterContext } from './src/router/RouterProvider';
 import { usePublicEnv } from './src/runtimeEnv';
@@ -57,6 +57,7 @@ class RootErrorBoundary extends Component<
 
   componentDidCatch(error: Error, info: React.ErrorInfo) {
     logError(error, 'root-error-boundary');
+    sendBridgeError(error, 'root-error-boundary');
     console.error('Unhandled error in root boundary', error, info);
   }
 

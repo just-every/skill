@@ -13,7 +13,7 @@ patchedDependencies:
     hash: d2344df1a8dde15ad7aff027388efda2a24b99a77e171c3ec995ac34ad9c8c16
     path: patches/@fortawesome__react-native-fontawesome@0.3.2.patch
   '@just-every/code-bridge':
-    hash: 6a8d56e4a98b164733ad0d168686017d608174c23090c64eaebdd6c0491e3a98
+    hash: de3adad0ca8123f3f77c7f0f94f70c23ac440deb4182f989a73574fed073676c
     path: patches/@just-every__code-bridge.patch
 
 importers:
@@ -22,7 +22,7 @@ importers:
     devDependencies:
       '@just-every/code-bridge':
         specifier: ^0.1.3
-        version: 0.1.3(patch_hash=6a8d56e4a98b164733ad0d168686017d608174c23090c64eaebdd6c0491e3a98)
+        version: 0.1.3(patch_hash=de3adad0ca8123f3f77c7f0f94f70c23ac440deb4182f989a73574fed073676c)
       '@playwright/test':
         specifier: ^1.57.0
         version: 1.57.0
@@ -6736,7 +6736,7 @@ snapshots:
       '@jridgewell/resolve-uri': 3.1.2
       '@jridgewell/sourcemap-codec': 1.5.5
 
-  '@just-every/code-bridge@0.1.3(patch_hash=6a8d56e4a98b164733ad0d168686017d608174c23090c64eaebdd6c0491e3a98)':
+  '@just-every/code-bridge@0.1.3(patch_hash=de3adad0ca8123f3f77c7f0f94f70c23ac440deb4182f989a73574fed073676c)':
     dependencies:
       ws: 8.18.3
     transitivePeerDependencies:
