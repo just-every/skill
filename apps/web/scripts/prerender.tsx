@@ -33,6 +33,10 @@ const expoLinkingShimPath = path.resolve(
   __dirname,
   'shims/expo-linking.ts',
 );
+const reactNativeInternalsShimPath = path.resolve(
+  __dirname,
+  'shims/react-native-internals.ts',
+);
 
 moduleAlias.addAliases({
   'react-native/Libraries/Utilities/codegenNativeComponent': codegenShimPath,
@@ -43,6 +47,7 @@ moduleAlias.addAliases({
   'expo-linking': expoLinkingShimPath,
 });
 moduleAlias.addAlias('react-native', reactNativeShimPath);
+moduleAlias.addAlias(/^react-native\/.+$/, reactNativeInternalsShimPath);
 moduleAlias.addAlias(/^expo-modules-core(\/.*)?$/, expoModulesShimPath);
 
 (globalThis as unknown as { __DEV__?: boolean }).__DEV__ = false;
