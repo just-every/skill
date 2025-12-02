@@ -9,21 +9,25 @@ const codegenShimPath = path.resolve(
   __dirname,
   'shims/react-native-codegen-native-component.ts',
 );
+const reactNativeShimPath = path.resolve(
+  __dirname,
+  'prerender-react-native-shim.ts',
+);
 
 moduleAlias.addAliases({
   'react-native/Libraries/Utilities/codegenNativeComponent': codegenShimPath,
   'react-native-web/Libraries/Utilities/codegenNativeComponent': codegenShimPath,
 });
-moduleAlias.addAlias(/^react-native$/, 'react-native-web');
+moduleAlias.addAlias('react-native', reactNativeShimPath);
 
-import { AppRegistry } from 'react-native-web';
-import Layout from '../src/components/Layout';
-import Home from '../src/pages/Home';
-import Pricing from '../src/pages/Pricing';
-import Contact from '../src/pages/Contact';
-import { RouterProvider } from '../src/router/RouterProvider';
-import { AuthProvider } from '../src/auth/AuthProvider';
-import { DEFAULT_LOGIN_ORIGIN } from '@justevery/config/auth';
+const { AppRegistry } = require('react-native-web');
+const Layout = require('../src/components/Layout').default;
+const Home = require('../src/pages/Home').default;
+const Pricing = require('../src/pages/Pricing').default;
+const Contact = require('../src/pages/Contact').default;
+const { RouterProvider } = require('../src/router/RouterProvider');
+const { AuthProvider } = require('../src/auth/AuthProvider');
+const { DEFAULT_LOGIN_ORIGIN } = require('@justevery/config/auth');
 
 const routes = [
   { path: '/', component: <Home /> }
