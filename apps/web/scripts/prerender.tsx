@@ -13,12 +13,37 @@ const reactNativeShimPath = path.resolve(
   __dirname,
   'prerender-react-native-shim.ts',
 );
+const expoModulesShimPath = path.resolve(
+  __dirname,
+  'shims/expo-modules-core.ts',
+);
+const expoConstantsShimPath = path.resolve(
+  __dirname,
+  'shims/expo-constants.ts',
+);
+const expoClipboardShimPath = path.resolve(
+  __dirname,
+  'shims/expo-clipboard.ts',
+);
+const expoFileSystemShimPath = path.resolve(
+  __dirname,
+  'shims/expo-file-system.ts',
+);
+const expoLinkingShimPath = path.resolve(
+  __dirname,
+  'shims/expo-linking.ts',
+);
 
 moduleAlias.addAliases({
   'react-native/Libraries/Utilities/codegenNativeComponent': codegenShimPath,
   'react-native-web/Libraries/Utilities/codegenNativeComponent': codegenShimPath,
+  'expo-constants': expoConstantsShimPath,
+  'expo-clipboard': expoClipboardShimPath,
+  'expo-file-system': expoFileSystemShimPath,
+  'expo-linking': expoLinkingShimPath,
 });
 moduleAlias.addAlias('react-native', reactNativeShimPath);
+moduleAlias.addAlias(/^expo-modules-core(\/.*)?$/, expoModulesShimPath);
 
 (globalThis as unknown as { __DEV__?: boolean }).__DEV__ = false;
 
