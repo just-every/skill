@@ -14,10 +14,13 @@ let __codeBridge: any = null;
 (async () => {
   try {
     if (typeof process === 'undefined' || process.env.CODE_BRIDGE !== '1') return;
+    const dynamicImport = new Function('specifier', 'return import(specifier);') as <T = unknown>(
+      specifier: string,
+    ) => Promise<T>;
     const [{ startBridge }, fsMod, pathMod] = await Promise.all([
-      import('@just-every/code-bridge'),
-      import('node:fs'),
-      import('node:path'),
+      dynamicImport<typeof import('@just-every/code-bridge')>('@just-every/code-bridge'),
+      dynamicImport<typeof import('node:fs')>('node:fs'),
+      dynamicImport<typeof import('node:path')>('node:path'),
     ]);
     const fs = (fsMod as any).default ?? fsMod;
     const path = (pathMod as any).default ?? pathMod;
