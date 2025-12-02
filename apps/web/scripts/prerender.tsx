@@ -52,17 +52,35 @@ moduleAlias.addAlias(/^expo-modules-core(\/.*)?$/, expoModulesShimPath);
 
 (globalThis as unknown as { __DEV__?: boolean }).__DEV__ = false;
 
-const { AppRegistry } = require('react-native-web');
-const Layout = require('../src/components/Layout').default;
-const Home = require('../src/pages/Home').default;
-const Pricing = require('../src/pages/Pricing').default;
-const Contact = require('../src/pages/Contact').default;
-const { RouterProvider } = require('../src/router/RouterProvider');
-const { AuthProvider } = require('../src/auth/AuthProvider');
-const { DEFAULT_LOGIN_ORIGIN } = require('@justevery/config/auth');
+type RenderDeps = {
+  AppRegistry: typeof import('react-native-web').AppRegistry;
+  Layout: React.ComponentType<{ children?: React.ReactNode }>;
+  Home: React.ComponentType;
+  Pricing: React.ComponentType;
+  Contact: React.ComponentType;
+  RouterProvider: React.ComponentType<{ children?: React.ReactNode }>;
+  AuthProvider: React.ComponentType<{
+    children?: React.ReactNode;
+    loginOrigin: string;
+    betterAuthBaseUrl: string;
+    sessionEndpoint: string;
+  }>;
+  DEFAULT_LOGIN_ORIGIN: string;
+};
 
-const routes = [
-  { path: '/', component: <Home /> }
+type Route = {
+  path: string;
+  render: (deps: RenderDeps) => React.ReactNode;
+};
+
+const routes: Route[] = [
+  {
+    path: '/',
+    render: (deps) => {
+      const HomeComponent = deps.Home;
+      return <HomeComponent />;
+    },
+  },
 ];
 
 const expoScriptPattern = /<script([^>]*)src="\/_expo\/static\/js\/web\/[^\"]+"([^>]*)><\/script>/i;
@@ -109,20 +127,31 @@ const patchBundleImportMeta = async (distDir: string): Promise<void> => {
   await fs.writeFile(entryPath, patched, 'utf8');
 };
 
-const buildPage = (Component: React.ReactNode) => {
+const loadRenderDeps = (): RenderDeps => ({
+  AppRegistry: require('react-native-web').AppRegistry,
+  Layout: require('../src/components/Layout').default,
+  Home: require('../src/pages/Home').default,
+  Pricing: require('../src/pages/Pricing').default,
+  Contact: require('../src/pages/Contact').default,
+  RouterProvider: require('../src/router/RouterProvider').RouterProvider,
+  AuthProvider: require('../src/auth/AuthProvider').AuthProvider,
+  DEFAULT_LOGIN_ORIGIN: require('@justevery/config/auth').DEFAULT_LOGIN_ORIGIN,
+});
+
+const buildPage = (Component: React.ReactNode, deps: RenderDeps) => {
   const Entry = () => (
-    <RouterProvider>
-      <AuthProvider
-        loginOrigin={DEFAULT_LOGIN_ORIGIN}
-        betterAuthBaseUrl={`${DEFAULT_LOGIN_ORIGIN}/api/auth`}
-        sessionEndpoint={`${DEFAULT_LOGIN_ORIGIN}/api/auth/session`}
+    <deps.RouterProvider>
+      <deps.AuthProvider
+        loginOrigin={deps.DEFAULT_LOGIN_ORIGIN}
+        betterAuthBaseUrl={`${deps.DEFAULT_LOGIN_ORIGIN}/api/auth`}
+        sessionEndpoint={`${deps.DEFAULT_LOGIN_ORIGIN}/api/auth/session`}
       >
-        <Layout>{Component}</Layout>
-      </AuthProvider>
-    </RouterProvider>
+        <deps.Layout>{Component}</deps.Layout>
+      </deps.AuthProvider>
+    </deps.RouterProvider>
   );
-  AppRegistry.registerComponent('Marketing', () => Entry);
-  const { element, getStyleElement } = AppRegistry.getApplication('Marketing');
+  deps.AppRegistry.registerComponent('Marketing', () => Entry);
+  const { element, getStyleElement } = deps.AppRegistry.getApplication('Marketing');
   const html = ReactDOMServer.renderToString(element);
   const styles = ReactDOMServer.renderToStaticMarkup(getStyleElement());
   return { html, styles };
@@ -136,10 +165,26 @@ async function prerender() {
   await patchBundleImportMeta(distRoot);
   const baseTemplate = await patchIndexHtml(templatePath);
 
+  let deps: RenderDeps | null = null;
+  try {
+    deps = loadRenderDeps();
+  } catch (error) {
+    console.warn('SSR prerender dependencies unavailable; falling back to base template.', error);
+  }
+
   for (const route of routes) {
-    const { html, styles } = buildPage(route.component);
-    let document = baseTemplate.replace('<div id="root"></div>', `<div id="root">${html}</div>`);
-    document = document.replace('</head>', `${styles}</head>`);
+    let document = baseTemplate;
+
+    if (deps) {
+      try {
+        const { html, styles } = buildPage(route.render(deps), deps);
+        document = baseTemplate.replace('<div id="root"></div>', `<div id="root">${html}</div>`);
+        document = document.replace('</head>', `${styles}</head>`);
+      } catch (renderError) {
+        console.warn(`Failed to prerender ${route.path}; writing unrendered template.`, renderError);
+      }
+    }
+
     const filename = route.path === '/' ? 'index.html' : `${route.path.replace(/^\//, '')}.html`;
     await fs.writeFile(path.join(outDir, filename), document, 'utf8');
   }
