@@ -20,6 +20,8 @@ moduleAlias.addAliases({
 });
 moduleAlias.addAlias('react-native', reactNativeShimPath);
 
+(globalThis as unknown as { __DEV__?: boolean }).__DEV__ = false;
+
 const { AppRegistry } = require('react-native-web');
 const Layout = require('../src/components/Layout').default;
 const Home = require('../src/pages/Home').default;
