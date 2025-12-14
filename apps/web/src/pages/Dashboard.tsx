@@ -100,16 +100,22 @@ const Dashboard = () => {
     if (companies.length === 0) {
       return;
     }
-    if (!activeCompanyId) {
-      const preferred = companiesQuery.data?.currentAccountId ?? companies[0].id;
+    const hasActiveCompany = Boolean(activeCompanyId && companies.some((company) => company.id === activeCompanyId));
+    if (hasActiveCompany) {
+      return;
+    }
+
+    const preferred = companiesQuery.data?.currentAccountId ?? companies[0].id;
+    if (preferred) {
       setActiveCompany(preferred);
     }
   }, [activeCompanyId, companies, companiesQuery.data?.currentAccountId, setActiveCompany]);
 
   const activeCompany = useCompanyById(companies, activeCompanyId);
-  const assetsQuery = useAssetsQuery(activeCompany?.id, activeCompany?.slug);
-  const usageQuery = useUsageQuery(activeCompany?.id, activeCompany?.slug);
-  const subscriptionQuery = useSubscriptionQuery(activeCompany?.id, activeCompany?.slug);
+  const activeCompanyForQueries = companiesQuery.isPlaceholderData ? undefined : activeCompany;
+  const assetsQuery = useAssetsQuery(activeCompanyForQueries?.id, activeCompanyForQueries?.slug);
+  const usageQuery = useUsageQuery(activeCompanyForQueries?.id, activeCompanyForQueries?.slug);
+  const subscriptionQuery = useSubscriptionQuery(activeCompanyForQueries?.id, activeCompanyForQueries?.slug);
 
   const handleNavigate = useCallback(
     (segment: string) => {
@@ -154,7 +160,7 @@ const Dashboard = () => {
   const { open: openProfilePopup } = useJustEveryProfilePopup({
     baseUrl: loginOrigin,
     defaultSection: 'account',
-    defaultOrganizationId: activeCompany?.id,
+    defaultOrganizationId: activeCompanyForQueries?.id,
     onReady: handlePopupReady,
     onOrganizationChange: handlePopupOrgChange,
     onSessionLogout: handlePopupSessionLogout,
@@ -180,8 +186,8 @@ const Dashboard = () => {
     if (authStatus !== 'authenticated' || !isAuthenticated || !redirectSection) {
       return;
     }
-    requestProfilePopup({ section: redirectSection as any, organizationId: activeCompany?.id }, `route:${section}`);
-  }, [activeCompany?.id, authStatus, isAuthenticated, redirectSection, requestProfilePopup, section]);
+    requestProfilePopup({ section: redirectSection as any, organizationId: activeCompanyForQueries?.id }, `route:${section}`);
+  }, [activeCompanyForQueries?.id, authStatus, isAuthenticated, redirectSection, requestProfilePopup, section]);
 
   if (authStatus !== 'authenticated' || !isAuthenticated) {
     const message = authStatus === 'checking' ? 'Checking your session…' : 'Redirecting to Better Auth…';

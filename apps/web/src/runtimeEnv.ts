@@ -29,10 +29,7 @@ export type ClientEnv = {
 };
 
 const staticEnv = (() => {
-  const source = typeof process !== 'undefined' && process.env ? process.env : {};
-
-  const read = (key: string): string | undefined => {
-    const value = source[key];
+  const read = (value: unknown): string | undefined => {
     if (typeof value !== 'string') {
       return undefined;
     }
@@ -41,11 +38,12 @@ const staticEnv = (() => {
   };
 
   return {
-    loginOrigin: read('EXPO_PUBLIC_LOGIN_ORIGIN') ?? read('LOGIN_ORIGIN'),
-    betterAuthBaseUrl: read('EXPO_PUBLIC_BETTER_AUTH_URL') ?? read('BETTER_AUTH_URL'),
-    sessionEndpoint: read('EXPO_PUBLIC_SESSION_ENDPOINT') ?? read('SESSION_ENDPOINT'),
-    workerOrigin: read('EXPO_PUBLIC_WORKER_ORIGIN'),
-    workerOriginLocal: read('EXPO_PUBLIC_WORKER_ORIGIN_LOCAL'),
+    // Keep direct process.env access so Expo/Metro can inline EXPO_PUBLIC_* values in the web bundle.
+    loginOrigin: read(process.env.EXPO_PUBLIC_LOGIN_ORIGIN) ?? read(process.env.LOGIN_ORIGIN),
+    betterAuthBaseUrl: read(process.env.EXPO_PUBLIC_BETTER_AUTH_URL) ?? read(process.env.BETTER_AUTH_URL),
+    sessionEndpoint: read(process.env.EXPO_PUBLIC_SESSION_ENDPOINT) ?? read(process.env.SESSION_ENDPOINT),
+    workerOrigin: read(process.env.EXPO_PUBLIC_WORKER_ORIGIN),
+    workerOriginLocal: read(process.env.EXPO_PUBLIC_WORKER_ORIGIN_LOCAL),
   } satisfies InjectedEnvPayload;
 })();
 

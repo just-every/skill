@@ -51,6 +51,27 @@ log() {
   echo "[deploy] $*"
 }
 
+load_env_for_build() {
+  local env_file=""
+
+  if [[ -f ".env.ci" ]]; then
+    env_file=".env.ci"
+  elif [[ -f ".env.generated" ]]; then
+    env_file=".env.generated"
+  fi
+
+  if [[ -z "$env_file" ]]; then
+    log "No .env.ci or .env.generated found; Expo build may miss EXPO_PUBLIC_* variables"
+    return 0
+  fi
+
+  log "Loading env from $env_file"
+  set -a
+  # shellcheck disable=SC1090
+  source "$env_file"
+  set +a
+}
+
 is_placeholder_token() {
   local value="${1:-}"
   [[ -z "$value" ]] && return 0
@@ -128,6 +149,7 @@ post_deploy_smoke() {
 }
 
 log "Running Expo web build"
+load_env_for_build
 EXPO_NO_INTERACTIVE="${EXPO_NO_INTERACTIVE:-1}" pnpm --filter @justevery/web run build
 
 log "Running client smoke tests"

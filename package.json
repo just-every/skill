@@ -38,7 +38,7 @@
     "node": ">=18.18"
   },
   "devDependencies": {
-    "@just-every/code-bridge": "^0.1.3",
+    "@just-every/code-bridge": "^0.1.5",
     "@playwright/test": "^1.57.0",
     "wrangler": "^4.51.0"
   },
@@ -48,7 +48,7 @@
       "vite": "6.0.11"
     },
     "patchedDependencies": {
-      "@just-every/code-bridge": "patches/@just-every__code-bridge.patch",
+      "@just-every/code-bridge@0.1.5": "patches/@just-every__code-bridge@0.1.5.patch",
       "@fortawesome/react-native-fontawesome@0.3.2": "patches/@fortawesome__react-native-fontawesome@0.3.2.patch"
     }
   }

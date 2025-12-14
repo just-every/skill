@@ -1,0 +1,35 @@
+diff --git a/dist/index.mjs b/dist/index.mjs
+index 9342362c1d0ace29b3733b78b0b76b1c718c9b95..67a32f97e55e98cf978d92ec83630c242a23241c 100644
+--- a/dist/index.mjs
++++ b/dist/index.mjs
+@@ -31,12 +31,6 @@ function isDevMode() {
+   if (typeof globalThis !== "undefined" && globalThis.__DEV__) {
+     return true;
+   }
+-  try {
+-    if (typeof import.meta !== "undefined" && import.meta.env?.DEV) {
+-      return true;
+-    }
+-  } catch {
+-  }
+   return false;
+ }
+
+diff --git a/src/platform.ts b/src/platform.ts
+index 1a826df263a4f0bf4716c4e359c58640450bc782..de13273ec11de3d2025bcda5e28c95285e6d093e 100644
+--- a/src/platform.ts
++++ b/src/platform.ts
+@@ -35,13 +35,5 @@ export function isDevMode(): boolean {
+     return true;
+   }
+
+-  try {
+-    if (typeof import.meta !== 'undefined' && (import.meta as any).env?.DEV) {
+-      return true;
+-    }
+-  } catch {
+-    // ignore
+-  }
+-
+   return false;
+ }

@@ -29,6 +29,7 @@ workers/api/.dev.vars
 
 # Env files
 .env
+.env.ci
 .env.local
 .env.development
 .env.production

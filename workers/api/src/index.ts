@@ -1072,12 +1072,12 @@ function shouldAllowPlaceholderData(request: Request, env: Env): boolean {
   if (LOCAL_PLACEHOLDER_HOSTS.has(hostname)) {
     return true;
   }
-  if (hostname.endsWith('.workers.dev') || hostname.endsWith('.pages.dev')) {
-    return true;
-  }
   const projectHost = extractHostname(env.PROJECT_DOMAIN);
   if (projectHost && hostname === projectHost) {
     return false;
+  }
+  if (hostname.endsWith('.workers.dev') || hostname.endsWith('.pages.dev')) {
+    return true;
   }
   return false;
 }
@@ -1315,6 +1315,15 @@ async function serveAppShell(request: Request, env: Env): Promise<Response | nul
       headers.set("Cache-Control", "no-store, max-age=0");
     }
 
+    // Respect no-body statuses (304/HEAD) where we cannot inject HTML.
+    if (response.status === 304 || request.method === 'HEAD') {
+      return new Response(null, {
+        status: response.status,
+        statusText: response.statusText,
+        headers,
+      });
+    }
+
     try {
       const html = await response.text();
       const payload = resolveRuntimeEnvPayload(env, request);
@@ -1327,7 +1336,7 @@ async function serveAppShell(request: Request, env: Env): Promise<Response | nul
       });
     } catch (error) {
       console.warn("Failed to inject runtime env", error);
-      return new Response(response.body, {
+      return new Response(response.body ?? null, {
         status: response.status,
         statusText: response.statusText,
         headers,
