@@ -93,3 +93,46 @@ export type Invoice = {
   hostedInvoiceUrl?: string | null;
   invoicePdf?: string | null;
 };
+
+export type DesignRunStatus = 'pending' | 'running' | 'completed' | 'failed' | 'cancelled';
+
+export type DesignRun = {
+  id: string;
+  name: string;
+  status: DesignRunStatus;
+  createdAt: string;
+  updatedAt: string;
+  startedAt?: string | null;
+  completedAt?: string | null;
+  progress?: number;
+  error?: string | null;
+  prompt?: string | null;
+  config?: {
+    name?: string;
+    prompt?: string;
+    variants?: number;
+    style?: string;
+  };
+};
+
+export type DesignRunDetail = DesignRun & {
+  timeline?: Array<{
+    timestamp: string;
+    event: string;
+    message?: string;
+  }>;
+  outputs?: Array<{
+    id: string;
+    type: 'image' | 'video' | 'html' | 'json';
+    url: string;
+    thumbnail?: string;
+    metadata?: Record<string, unknown>;
+  }>;
+};
+
+export type DesignRunCreateInput = {
+  name: string;
+  prompt: string;
+  variants?: number;
+  style?: string;
+};

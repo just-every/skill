@@ -2,7 +2,7 @@ import { useMemo } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import { useApiClient } from '../api/client';
-import type { AssetObject, Company, Invoice, InviteDraft, Invite, Member, Product, SubscriptionSummary, UsagePoint } from './types';
+import type { AssetObject, Company, DesignRun, DesignRunCreateInput, DesignRunDetail, Invoice, InviteDraft, Invite, Member, Product, SubscriptionSummary, UsagePoint } from './types';
 import { usePublicEnv } from '../runtimeEnv';
 
 type AccountsResponse = {
@@ -476,6 +476,220 @@ export const useUpdateBillingEmailMutation = (companyId?: string, companySlug?: 
     },
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: ['companies'] });
+    }
+  });
+};
+
+// Design runs hooks
+type DesignRunsResponse = {
+  runs: Array<Record<string, unknown>>;
+};
+
+type DesignRunDetailResponse = {
+  run: Record<string, unknown>;
+};
+
+type DesignRunCreateResponse = {
+  run: Record<string, unknown>;
+};
+
+type DesignRunConfig = {
+  name?: string;
+  prompt?: string;
+  variants?: number;
+  style?: string;
+};
+
+const parseDesignRunConfig = (raw: unknown): DesignRunConfig | undefined => {
+  if (!raw) {
+    return undefined;
+  }
+  if (typeof raw === 'string') {
+    try {
+      const parsed = JSON.parse(raw) as DesignRunConfig;
+      if (parsed && typeof parsed === 'object') {
+        return parsed;
+      }
+    } catch {
+      return undefined;
+    }
+  }
+  if (typeof raw === 'object') {
+    return raw as DesignRunConfig;
+  }
+  return undefined;
+};
+
+const normaliseDesignRun = (raw: Record<string, unknown>): DesignRun => {
+  const config = parseDesignRunConfig(raw.config) ?? {};
+  const prompt = (raw.prompt as string | undefined) ?? config.prompt ?? '';
+  const createdAt = String((raw.createdAt ?? raw['created_at'] ?? new Date().toISOString()) as string);
+  const startedAt = raw.startedAt ?? raw['started_at'] ?? null;
+  const completedAt = raw.completedAt ?? raw['completed_at'] ?? null;
+  const updatedAt = String((raw.updatedAt ?? raw['updated_at'] ?? completedAt ?? startedAt ?? createdAt) as string);
+  const name = (config.name && config.name.trim()) || (prompt ? prompt.slice(0, 64) : 'Untitled Run');
+
+  return {
+    id: String(raw.id ?? ''),
+    name,
+    status: String(raw.status ?? 'pending') as DesignRun['status'],
+    createdAt,
+    updatedAt,
+    startedAt: startedAt ? String(startedAt) : null,
+    completedAt: completedAt ? String(completedAt) : null,
+    progress: typeof raw.progress === 'number' ? raw.progress : undefined,
+    error: raw.error ? String(raw.error) : null,
+    config: {
+      name: typeof config.name === 'string' && config.name.trim() ? config.name.trim() : undefined,
+      prompt,
+      variants: typeof config.variants === 'number' ? config.variants : undefined,
+      style: typeof config.style === 'string' && config.style.trim() ? config.style.trim() : undefined,
+    },
+  };
+};
+
+const normaliseDesignRunDetail = (raw: Record<string, unknown>): DesignRunDetail => {
+  const base = normaliseDesignRun(raw);
+  const timeline = Array.isArray(raw.timeline)
+    ? raw.timeline
+      .map((entry) => {
+        if (!entry || typeof entry !== 'object') {
+          return null;
+        }
+        const record = entry as Record<string, unknown>;
+        const timestamp = record.timestamp ? String(record.timestamp) : '';
+        const event = record.event ? String(record.event) : '';
+        if (!timestamp || !event) {
+          return null;
+        }
+        return {
+          timestamp,
+          event,
+          message: record.message ? String(record.message) : undefined,
+        };
+      })
+      .filter(Boolean)
+    : undefined;
+
+  const outputs = Array.isArray(raw.outputs)
+    ? raw.outputs
+      .map((entry) => {
+        if (!entry || typeof entry !== 'object') {
+          return null;
+        }
+        const record = entry as Record<string, unknown>;
+        const id = record.id ? String(record.id) : '';
+        const url = record.url ? String(record.url) : '';
+        if (!id || !url) {
+          return null;
+        }
+        const type = record.type ? String(record.type) : 'json';
+        return {
+          id,
+          type: (['image', 'video', 'html', 'json'].includes(type) ? type : 'json') as DesignRunDetail['outputs'][number]['type'],
+          url,
+          thumbnail: record.thumbnail ? String(record.thumbnail) : undefined,
+          metadata: typeof record.metadata === 'object' && record.metadata ? (record.metadata as Record<string, unknown>) : undefined,
+        };
+      })
+      .filter(Boolean)
+    : undefined;
+
+  return {
+    ...base,
+    timeline,
+    outputs,
+  };
+};
+
+export const useDesignRunsQuery = (companyId?: string, companySlug?: string) => {
+  const api = useApiClient();
+  return useQuery<DesignRun[]>({
+    queryKey: ['design-runs', companyId],
+    enabled: Boolean(companyId),
+    queryFn: async () => {
+      const response = await api.get<DesignRunsResponse>(`/api/design/runs`);
+      return (response.runs ?? []).map(normaliseDesignRun);
+    },
+    refetchInterval: (query) => {
+      const data = query.state.data;
+      if (!data) return false;
+      const hasActiveRuns = data.some((run) => run.status === 'pending' || run.status === 'running');
+      return hasActiveRuns ? 5000 : false;
+    }
+  });
+};
+
+export const useDesignRunDetailQuery = (companyId?: string, companySlug?: string, runId?: string) => {
+  const api = useApiClient();
+  return useQuery<DesignRunDetail>({
+    queryKey: ['design-run', companyId, runId],
+    enabled: Boolean(companyId && runId),
+    queryFn: async () => {
+      if (!runId) {
+        throw new Error('Run ID is required');
+      }
+      const response = await api.get<DesignRunDetailResponse>(`/api/design/runs/${runId}`);
+      return normaliseDesignRunDetail(response.run);
+    },
+    refetchInterval: (query) => {
+      const data = query.state.data;
+      if (!data) return false;
+      const isActive = data.status === 'pending' || data.status === 'running';
+      return isActive ? 3000 : false;
+    }
+  });
+};
+
+export const useCreateDesignRunMutation = (companyId?: string, companySlug?: string) => {
+  const api = useApiClient();
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (input: DesignRunCreateInput) => {
+      const payload = {
+        prompt: input.prompt,
+        config: {
+          name: input.name,
+          variants: input.variants,
+          style: input.style,
+        },
+      };
+      return await api.post<DesignRunCreateResponse>(`/api/design/runs`, payload);
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ['design-runs', companyId] });
+      const run = normaliseDesignRun(data.run);
+      queryClient.setQueryData(['design-run', companyId, run.id], run);
+    }
+  });
+};
+
+export const useDeleteDesignRunMutation = (companyId?: string, companySlug?: string) => {
+  const api = useApiClient();
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (runId: string) => {
+      return await api.delete(`/api/design/runs/${runId}`);
+    },
+    onMutate: async (runId) => {
+      await queryClient.cancelQueries({ queryKey: ['design-runs', companyId] });
+      const previousRuns = queryClient.getQueryData<DesignRun[]>(['design-runs', companyId]);
+
+      queryClient.setQueryData<DesignRun[]>(['design-runs', companyId], (old = []) =>
+        old.filter((run) => run.id !== runId)
+      );
+
+      return { previousRuns };
+    },
+    onError: (err, runId, context) => {
+      if (context?.previousRuns) {
+        queryClient.setQueryData(['design-runs', companyId], context.previousRuns);
+      }
+    },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: ['design-runs', companyId] });
     }
   });
 };

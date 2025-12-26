@@ -28,6 +28,11 @@ EXPO_PUBLIC_WORKER_ORIGIN = "{{EXPO_PUBLIC_WORKER_ORIGIN}}"
 # --- Cloudflare metadata ---
 CLOUDFLARE_ZONE_ID = "{{CLOUDFLARE_ZONE_ID}}"
 
+# --- Design Runner & Daytona ---
+# RUNNER_AUTH_SECRET = "your-secure-runner-secret"
+# DAYTONA_API_URL = "https://daytona.example.com/api"
+# DAYTONA_API_KEY = "your-daytona-api-key"
+
 [[d1_databases]]
 binding = "DB"
 database_name = "{{D1_DATABASE_NAME}}"

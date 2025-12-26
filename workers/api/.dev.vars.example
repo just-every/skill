@@ -20,3 +20,11 @@ STRIPE_PRODUCTS=
 
 # Uncomment to override Expo defaults while pairing with the worker locally
 #EXPO_PUBLIC_WORKER_ORIGIN=http://127.0.0.1:8787
+
+# Design Runner & Daytona Configuration
+# Shared secret for authenticating runner callbacks (required for runner endpoints)
+RUNNER_AUTH_SECRET=your-secure-runner-secret-change-in-production
+
+# Daytona API configuration (optional, for job triggering)
+# DAYTONA_API_URL=https://daytona.example.com/api
+# DAYTONA_API_KEY=your-daytona-api-key

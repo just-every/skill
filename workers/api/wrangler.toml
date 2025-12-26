@@ -25,6 +25,10 @@ APP_BASE_URL = "/app"
 STRIPE_PRODUCTS = '''Founders:2500,usd,month;Scale:4900,usd,month'''
 EXPO_PUBLIC_WORKER_ORIGIN = "https://starter.justevery.com"
 
+# --- Daytona / Runner ---
+DAYTONA_API_URL = "https://api.daytona.io/monaco/server"
+# Secrets: DAYTONA_API_KEY, RUNNER_AUTH_SECRET
+
 # --- Cloudflare metadata ---
 CLOUDFLARE_ZONE_ID = "723318de8bc1f3353196efc02c4a09ed"
 

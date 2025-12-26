@@ -93,6 +93,21 @@ const requiredChecks = [
     validate: (value) => value.startsWith('https://'),
     help: 'Expo client must know the deployed worker origin',
   },
+  {
+    name: 'RUNNER_AUTH_SECRET',
+    validate: (value) => value.length >= 24 && !PLACEHOLDER_REGEX.test(value),
+    help: 'Shared secret used to sign/verify runner callbacks (24+ chars)',
+  },
+  {
+    name: 'DAYTONA_API_URL',
+    validate: (value) => value.startsWith('https://') && !PLACEHOLDER_REGEX.test(value),
+    help: 'Daytona API base URL (https://...)',
+  },
+  {
+    name: 'DAYTONA_API_KEY',
+    validate: (value) => value.length >= 12 && !PLACEHOLDER_REGEX.test(value),
+    help: 'Daytona API key for job triggers',
+  },
 ];
 
 const issues = [];
