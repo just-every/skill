@@ -34,6 +34,7 @@ workers/api/.dev.vars
 .env.development
 .env.production
 .env.generated
+.env.repo
 
 # Editor
 .DS_Store
