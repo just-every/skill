@@ -116,6 +116,9 @@ export interface Env {
   TRIAL_PERIOD_DAYS?: string;
   STRIPE_REDIRECT_ALLOWLIST?: string;
   APP_URL?: string;
+  RUNNER_AUTH_SECRET?: string;
+  DAYTONA_API_URL?: string;
+  DAYTONA_API_KEY?: string;
 }
 
 type AccountBranding = {
@@ -1468,6 +1471,14 @@ const Worker: ExportedHandler<Env> = {
 
     if (pathname === "/api/accounts" || pathname.startsWith("/api/accounts/")) {
       return cors(await handleAccountsRoute(request, env, pathname), request, env);
+    }
+
+    if (pathname === "/api/design/runs" || pathname.startsWith("/api/design/runs/")) {
+      return cors(await handleDesignRoute(request, env, pathname), request, env);
+    }
+
+    if (pathname.startsWith("/api/runner/")) {
+      return cors(await handleRunnerRoute(request, env, pathname), request, env);
     }
 
     switch (pathname) {
@@ -3839,6 +3850,18 @@ async function safeJson(response: Response): Promise<unknown | null> {
   }
 }
 
+function safeJsonParse(raw: string): Record<string, unknown> | undefined {
+  try {
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed === 'object') {
+      return parsed as Record<string, unknown>;
+    }
+    return undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 async function verifyStripeSignature(
   request: Request,
   payload: string,
@@ -4269,4 +4292,1160 @@ function formatAllowedOrigins(origins: Set<string>): string {
     return 'no allowed origins are configured';
   }
   return Array.from(origins).join(', ');
+}
+
+// ============================================================================
+// Design API Routes
+// ============================================================================
+
+type DesignRun = {
+  id: string;
+  accountId: string;
+  userId: string;
+  status: 'pending' | 'running' | 'completed' | 'failed' | 'cancelled';
+  prompt?: string | null;
+  config?: string | null;
+  createdAt: string;
+  updatedAt?: string | null;
+  startedAt?: string | null;
+  completedAt?: string | null;
+  progress?: number | null;
+  error?: string | null;
+};
+
+type DesignRunEvent = {
+  id: string;
+  runId: string;
+  eventType: string;
+  message?: string | null;
+  metadata?: string | null;
+  createdAt: string;
+};
+
+type DesignRunArtifact = {
+  id: string;
+  runId: string;
+  artifactType: string;
+  storageKey: string;
+  contentType?: string | null;
+  sizeBytes?: number | null;
+  metadata?: string | null;
+  createdAt: string;
+};
+
+async function handleDesignRoute(request: Request, env: Env, pathname: string): Promise<Response> {
+  const auth = await requireAuthenticatedSession(request, env);
+  if (!auth.ok) {
+    return authFailureResponse(auth);
+  }
+
+  const accountSlug = readActiveAccountSlug(request);
+  if (!accountSlug) {
+    return jsonResponse({ error: 'No active account selected' }, 400);
+  }
+
+  const account = await fetchCompanyBySlugFromDb(env, accountSlug);
+  if (!account) {
+    return jsonResponse({ error: 'Account not found' }, 404);
+  }
+
+  const userHasAccess = await checkUserAccountAccess(env, auth.session.userId, account.id);
+  if (!userHasAccess) {
+    return jsonResponse({ error: 'Access denied' }, 403);
+  }
+
+  if (pathname === "/api/design/runs") {
+    if (request.method === "POST") {
+      return handleDesignRunCreate(request, env, auth.session, account.id);
+    }
+    if (request.method === "GET") {
+      return handleDesignRunList(request, env, account.id);
+    }
+    return jsonResponse({ error: 'Method not allowed' }, 405);
+  }
+
+  const segments = pathname.split('/').filter(Boolean);
+  if (segments.length >= 4 && segments[0] === 'api' && segments[1] === 'design' && segments[2] === 'runs') {
+    const runId = segments[3];
+    const action = segments[4];
+
+    if (!action) {
+      if (request.method === "GET") {
+        return handleDesignRunDetail(request, env, account.id, runId);
+      }
+      if (request.method === "DELETE") {
+        return handleDesignRunDelete(request, env, account.id, runId);
+      }
+      return jsonResponse({ error: 'Method not allowed' }, 405);
+    }
+
+    if (action === 'events') {
+      if (request.method === "GET") {
+        return handleDesignRunEvents(request, env, account.id, runId);
+      }
+      return jsonResponse({ error: 'Method not allowed' }, 405);
+    }
+
+    if (action === 'artifacts') {
+      if (request.method === "GET") {
+        if (segments.length >= 6) {
+          const artifactId = segments[5];
+          return handleDesignRunArtifactDownload(request, env, account.id, runId, artifactId);
+        }
+        return handleDesignRunArtifacts(request, env, account.id, runId);
+      }
+      return jsonResponse({ error: 'Method not allowed' }, 405);
+    }
+  }
+
+  return jsonResponse({ error: 'Not found' }, 404);
+}
+
+async function checkUserAccountAccess(env: Env, userId: string, accountId: string): Promise<boolean> {
+  if (!env.DB) {
+    return false;
+  }
+
+  try {
+    const result = await queryFirst(
+      env.DB,
+      `SELECT 1 FROM company_members
+       WHERE company_id = ?1 AND user_id = ?2 AND status = 'active'
+       LIMIT 1`,
+      [accountId, userId]
+    );
+    return result !== null;
+  } catch (error) {
+    console.error('Failed to check user account access', error);
+    return false;
+  }
+}
+
+async function triggerDaytonaJob(
+  env: Env,
+  runId: string,
+  accountId: string,
+  prompt: string | null,
+  config: string | null
+): Promise<void> {
+  const daytonaUrl = env.DAYTONA_API_URL;
+  const daytonaKey = env.DAYTONA_API_KEY;
+
+  if (!env.RUNNER_AUTH_SECRET) {
+    console.warn('Runner auth secret missing; skipping Daytona trigger', { runId });
+    return;
+  }
+
+  if (!daytonaUrl || !daytonaKey) {
+    console.warn('Daytona not configured', { runId });
+    return;
+  }
+
+  const markTriggerFailed = async (error: unknown) => {
+    if (!env.DB) return;
+    const now = new Date().toISOString();
+    const message = error instanceof Error ? error.message : String(error);
+    try {
+      await env.DB.prepare(
+        `UPDATE design_runs
+         SET status = 'failed', error = ?1, updated_at = ?2, completed_at = COALESCE(completed_at, ?2), progress = 1
+         WHERE id = ?3`
+      ).bind(message, now, runId).run();
+
+      const eventId = crypto.randomUUID();
+      await env.DB.prepare(
+        `INSERT INTO design_run_events (id, run_id, event_type, message, metadata, created_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6)`
+      ).bind(eventId, runId, 'trigger_failed', message, null, now).run();
+    } catch (dbError) {
+      console.error('Failed to persist Daytona trigger failure', { runId, dbError });
+    }
+  };
+
+  try {
+    const workerOrigin = resolveWorkerOrigin(env);
+    if (!workerOrigin) {
+      const error = new Error('Worker origin not configured');
+      console.warn('Worker origin not configured; skipping Daytona trigger', { runId });
+      await markTriggerFailed(error);
+      return;
+    }
+
+    const daytonaIsLocal = looksLocal(daytonaUrl);
+    if (!daytonaIsLocal && looksLocal(workerOrigin)) {
+      throw new Error('Worker origin resolves to a local host; Daytona cannot reach callback URL');
+    }
+
+    const callbackUrl = `${workerOrigin}/api/runner/runs/${runId}`;
+    const runnerToken = await createRunnerJwt(env, runId, accountId);
+    let parsedConfig: unknown = null;
+    if (config) {
+      try {
+        parsedConfig = JSON.parse(config);
+      } catch (error) {
+        console.warn('Failed to parse design run config for Daytona payload', { runId, error });
+      }
+    }
+
+    const response = await fetch(`${daytonaUrl}/jobs`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${daytonaKey}`,
+      },
+      body: JSON.stringify({
+        runId,
+        accountId,
+        prompt,
+        config: parsedConfig,
+        callbackUrl,
+        runnerToken,
+        runnerAuth: {
+          type: runnerToken ? 'jwt' : 'shared_secret',
+          token: runnerToken ?? env.RUNNER_AUTH_SECRET,
+        },
+      }),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text().catch(() => 'unknown error');
+      throw new Error(`Daytona API error: ${response.status} ${errorText}`);
+    }
+
+    console.info('Daytona job triggered', {
+      runId,
+      accountId,
+      authType: runnerToken ? 'jwt' : 'shared_secret',
+      callbackUrl,
+    });
+  } catch (error) {
+    console.error('Failed to trigger Daytona job', { runId, error });
+    await markTriggerFailed(error);
+    throw error;
+  }
+}
+
+async function handleDesignRunCreate(
+  request: Request,
+  env: Env,
+  session: AuthenticatedSession,
+  accountId: string
+): Promise<Response> {
+  if (!env.DB) {
+    return jsonResponse({ error: 'Database not available' }, 503);
+  }
+
+  let body: any;
+  try {
+    body = await request.json();
+  } catch {
+    return jsonResponse({ error: 'Invalid JSON body' }, 400);
+  }
+
+  const runId = crypto.randomUUID();
+  const prompt = body.prompt || null;
+  const config = body.config ? JSON.stringify(body.config) : null;
+
+  try {
+    const now = new Date().toISOString();
+    await env.DB.prepare(
+      `INSERT INTO design_runs (id, account_id, user_id, status, prompt, config, created_at, updated_at, progress)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)`
+    ).bind(
+      runId,
+      accountId,
+      session.userId,
+      'pending',
+      prompt,
+      config,
+      now,
+      now,
+      0
+    ).run();
+
+    const run: DesignRun = {
+      id: runId,
+      accountId,
+      userId: session.userId,
+      status: 'pending',
+      prompt,
+      config,
+      createdAt: now,
+      updatedAt: now,
+      progress: 0,
+    };
+
+    // Trigger Daytona job asynchronously (don't await)
+    triggerDaytonaJob(env, runId, accountId, prompt, config).catch(error => {
+      console.error('Failed to trigger Daytona job', { runId, error });
+    });
+
+    return jsonResponse({ run }, 201);
+  } catch (error) {
+    console.error('Failed to create design run', error);
+    return jsonResponse({ error: 'Failed to create run' }, 500);
+  }
+}
+
+async function handleDesignRunList(
+  request: Request,
+  env: Env,
+  accountId: string
+): Promise<Response> {
+  if (!env.DB) {
+    return jsonResponse({ error: 'Database not available' }, 503);
+  }
+
+  try {
+    const rows = await queryAll(
+      env.DB,
+      `SELECT id, account_id, user_id, status, prompt, config, created_at, updated_at, started_at, completed_at, progress, error
+       FROM design_runs
+       WHERE account_id = ?1
+       ORDER BY created_at DESC
+       LIMIT 100`,
+      [accountId]
+    );
+
+    const runs: DesignRun[] = rows.map(row => ({
+      id: String(row.id),
+      accountId: String(row.account_id),
+      userId: String(row.user_id),
+      status: String(row.status) as DesignRun['status'],
+      prompt: row.prompt ? String(row.prompt) : null,
+      config: row.config ? String(row.config) : null,
+      createdAt: String(row.created_at),
+      updatedAt: row.updated_at ? String(row.updated_at) : null,
+      startedAt: row.started_at ? String(row.started_at) : null,
+      completedAt: row.completed_at ? String(row.completed_at) : null,
+      progress: row.progress !== null && row.progress !== undefined ? Number(row.progress) : null,
+      error: row.error ? String(row.error) : null,
+    }));
+
+    return jsonResponse({ runs });
+  } catch (error) {
+    console.error('Failed to list design runs', error);
+    return jsonResponse({ error: 'Failed to list runs' }, 500);
+  }
+}
+
+async function handleDesignRunDetail(
+  request: Request,
+  env: Env,
+  accountId: string,
+  runId: string
+): Promise<Response> {
+  if (!env.DB) {
+    return jsonResponse({ error: 'Database not available' }, 503);
+  }
+
+  try {
+    const row = await queryFirst(
+      env.DB,
+      `SELECT id, account_id, user_id, status, prompt, config, created_at, updated_at, started_at, completed_at, progress, error
+       FROM design_runs
+       WHERE id = ?1 AND account_id = ?2`,
+      [runId, accountId]
+    );
+
+    if (!row) {
+      return jsonResponse({ error: 'Run not found' }, 404);
+    }
+
+    const run: DesignRun = {
+      id: String(row.id),
+      accountId: String(row.account_id),
+      userId: String(row.user_id),
+      status: String(row.status) as DesignRun['status'],
+      prompt: row.prompt ? String(row.prompt) : null,
+      config: row.config ? String(row.config) : null,
+      createdAt: String(row.created_at),
+      updatedAt: row.updated_at ? String(row.updated_at) : null,
+      startedAt: row.started_at ? String(row.started_at) : null,
+      completedAt: row.completed_at ? String(row.completed_at) : null,
+      progress: row.progress !== null && row.progress !== undefined ? Number(row.progress) : null,
+      error: row.error ? String(row.error) : null,
+    };
+
+    const eventsRows = await queryAll(
+      env.DB,
+      `SELECT id, run_id, event_type, message, metadata, created_at
+       FROM design_run_events
+       WHERE run_id = ?1
+       ORDER BY created_at ASC`,
+      [runId]
+    );
+
+    const timeline = eventsRows.map(row => ({
+      timestamp: String(row.created_at),
+      event: String(row.event_type),
+      message: row.message ? String(row.message) : undefined,
+    }));
+
+    const artifactRows = await queryAll(
+      env.DB,
+      `SELECT id, run_id, artifact_type, storage_key, content_type, size_bytes, metadata, created_at
+       FROM design_run_artifacts
+       WHERE run_id = ?1
+       ORDER BY created_at ASC`,
+      [runId]
+    );
+
+    const outputs = artifactRows.map(row => {
+      const contentType = row.content_type ? String(row.content_type) : null;
+      const metadata = row.metadata ? safeJsonParse(row.metadata) : undefined;
+      const isImage = contentType?.startsWith('image/') ?? false;
+      const type = isImage
+        ? 'image'
+        : contentType?.includes('html')
+          ? 'html'
+          : 'json';
+      const url = `/api/design/runs/${runId}/artifacts/${String(row.id)}`;
+      return {
+        id: String(row.id),
+        type,
+        url,
+        thumbnail: isImage ? url : undefined,
+        metadata,
+      };
+    });
+
+    return jsonResponse({
+      run: {
+        ...run,
+        timeline,
+        outputs,
+      },
+    });
+  } catch (error) {
+    console.error('Failed to get design run detail', error);
+    return jsonResponse({ error: 'Failed to get run' }, 500);
+  }
+}
+
+async function handleDesignRunDelete(
+  request: Request,
+  env: Env,
+  accountId: string,
+  runId: string
+): Promise<Response> {
+  if (!env.DB) {
+    return jsonResponse({ error: 'Database not available' }, 503);
+  }
+
+  try {
+    const result = await env.DB.prepare(
+      `DELETE FROM design_runs WHERE id = ?1 AND account_id = ?2`
+    ).bind(runId, accountId).run();
+
+    if (!result.meta || result.meta.changes === 0) {
+      return jsonResponse({ error: 'Run not found' }, 404);
+    }
+
+    return jsonResponse({ ok: true });
+  } catch (error) {
+    console.error('Failed to delete design run', error);
+    return jsonResponse({ error: 'Failed to delete run' }, 500);
+  }
+}
+
+async function handleDesignRunEvents(
+  request: Request,
+  env: Env,
+  accountId: string,
+  runId: string
+): Promise<Response> {
+  if (!env.DB) {
+    return jsonResponse({ error: 'Database not available' }, 503);
+  }
+
+  try {
+    const runRow = await queryFirst(
+      env.DB,
+      `SELECT 1 FROM design_runs WHERE id = ?1 AND account_id = ?2`,
+      [runId, accountId]
+    );
+
+    if (!runRow) {
+      return jsonResponse({ error: 'Run not found' }, 404);
+    }
+
+    const rows = await queryAll(
+      env.DB,
+      `SELECT id, run_id, event_type, message, metadata, created_at
+       FROM design_run_events
+       WHERE run_id = ?1
+       ORDER BY created_at ASC`,
+      [runId]
+    );
+
+    const events: DesignRunEvent[] = rows.map(row => ({
+      id: String(row.id),
+      runId: String(row.run_id),
+      eventType: String(row.event_type),
+      message: row.message ? String(row.message) : null,
+      metadata: row.metadata ? String(row.metadata) : null,
+      createdAt: String(row.created_at),
+    }));
+
+    return jsonResponse({ events });
+  } catch (error) {
+    console.error('Failed to get design run events', error);
+    return jsonResponse({ error: 'Failed to get events' }, 500);
+  }
+}
+
+async function handleDesignRunArtifacts(
+  request: Request,
+  env: Env,
+  accountId: string,
+  runId: string
+): Promise<Response> {
+  if (!env.DB) {
+    return jsonResponse({ error: 'Database not available' }, 503);
+  }
+
+  try {
+    const runRow = await queryFirst(
+      env.DB,
+      `SELECT 1 FROM design_runs WHERE id = ?1 AND account_id = ?2`,
+      [runId, accountId]
+    );
+
+    if (!runRow) {
+      return jsonResponse({ error: 'Run not found' }, 404);
+    }
+
+    const rows = await queryAll(
+      env.DB,
+      `SELECT id, run_id, artifact_type, storage_key, content_type, size_bytes, metadata, created_at
+       FROM design_run_artifacts
+       WHERE run_id = ?1
+       ORDER BY created_at ASC`,
+      [runId]
+    );
+
+    const artifacts: DesignRunArtifact[] = rows.map(row => ({
+      id: String(row.id),
+      runId: String(row.run_id),
+      artifactType: String(row.artifact_type),
+      storageKey: String(row.storage_key),
+      contentType: row.content_type ? String(row.content_type) : null,
+      sizeBytes: row.size_bytes ? Number(row.size_bytes) : null,
+      metadata: row.metadata ? String(row.metadata) : null,
+      createdAt: String(row.created_at),
+    }));
+
+    return jsonResponse({ artifacts });
+  } catch (error) {
+    console.error('Failed to get design run artifacts', error);
+    return jsonResponse({ error: 'Failed to get artifacts' }, 500);
+  }
+}
+
+async function handleDesignRunArtifactDownload(
+  request: Request,
+  env: Env,
+  accountId: string,
+  runId: string,
+  artifactId: string
+): Promise<Response> {
+  if (!env.DB) {
+    return jsonResponse({ error: 'Database not available' }, 503);
+  }
+
+  if (!env.STORAGE) {
+    return jsonResponse({ error: 'Storage not available' }, 503);
+  }
+
+  try {
+    const row = await queryFirst(
+      env.DB,
+      `SELECT a.id, a.storage_key, a.content_type
+       FROM design_run_artifacts a
+       JOIN design_runs r ON a.run_id = r.id
+       WHERE a.id = ?1 AND r.id = ?2 AND r.account_id = ?3`,
+      [artifactId, runId, accountId]
+    );
+
+    if (!row) {
+      return jsonResponse({ error: 'Artifact not found' }, 404);
+    }
+
+    const storageKey = String(row.storage_key);
+    const object = await env.STORAGE.get(storageKey);
+    if (!object) {
+      return jsonResponse({ error: 'Artifact missing in storage' }, 404);
+    }
+
+    const headers = new Headers();
+    const contentType = row.content_type ? String(row.content_type) : object.httpMetadata?.contentType;
+    if (contentType) {
+      headers.set('Content-Type', contentType);
+    }
+
+    if (object.httpMetadata?.cacheControl) {
+      headers.set('Cache-Control', object.httpMetadata.cacheControl);
+    }
+
+    const url = new URL(request.url);
+    if (url.searchParams.get('download') === '1') {
+      headers.set('Content-Disposition', `attachment; filename="${storageKey.split('/').pop() || 'artifact'}"`);
+    }
+
+    return new Response(object.body, { headers });
+  } catch (error) {
+    console.error('Failed to download artifact', error);
+    return jsonResponse({ error: 'Failed to download artifact' }, 500);
+  }
+}
+
+// ============================================================================
+// Runner Authentication & Update Endpoints
+// ============================================================================
+type RunnerTokenClaims = {
+  runId: string;
+  accountId?: string;
+  iat?: number;
+  exp?: number;
+  ver?: number;
+};
+
+type RunnerAuthResult =
+  | { ok: true; tokenType: 'jwt' | 'secret'; claims?: RunnerTokenClaims }
+  | { ok: false; status: number; error: string };
+
+const RUNNER_JWT_TTL_SECONDS = 60 * 60 * 24; // 24 hours
+
+function base64UrlEncodeString(value: string): string {
+  return btoa(value).replace(/=+$/u, '').replace(/\+/gu, '-').replace(/\//gu, '_');
+}
+
+function base64UrlEncodeBuffer(value: ArrayBuffer | Uint8Array): string {
+  const bytes = value instanceof ArrayBuffer ? new Uint8Array(value) : value;
+  let binary = '';
+  for (const byte of bytes) {
+    binary += String.fromCharCode(byte);
+  }
+  return base64UrlEncodeString(binary);
+}
+
+function base64UrlDecodeToString(value: string): string {
+  const padded = value.replace(/-/gu, '+').replace(/_/gu, '/');
+  const padLength = padded.length % 4 === 0 ? 0 : 4 - (padded.length % 4);
+  const withPadding = padded + '='.repeat(padLength);
+  return atob(withPadding);
+}
+
+function timingSafeEqualStrings(a: string, b: string): boolean {
+  if (a.length !== b.length) return false;
+  let result = 0;
+  for (let i = 0; i < a.length; i++) {
+    result |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  }
+  return result === 0;
+}
+
+async function signRunnerPayload(secret: string, payload: string): Promise<string> {
+  const key = await crypto.subtle.importKey('raw', textEncoder.encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+  const signature = await crypto.subtle.sign('HMAC', key, textEncoder.encode(payload));
+  return base64UrlEncodeBuffer(signature);
+}
+
+async function createRunnerJwt(env: Env, runId: string, accountId: string): Promise<string> {
+  if (!env.RUNNER_AUTH_SECRET) {
+    throw new Error('RUNNER_AUTH_SECRET not configured');
+  }
+
+  const nowSeconds = Math.floor(Date.now() / 1000);
+  const header = base64UrlEncodeString(JSON.stringify({ alg: 'HS256', typ: 'JWT' }));
+  const payload = base64UrlEncodeString(
+    JSON.stringify({
+      runId,
+      accountId,
+      iat: nowSeconds,
+      exp: nowSeconds + RUNNER_JWT_TTL_SECONDS,
+      ver: 1,
+    })
+  );
+
+  const signingInput = `${header}.${payload}`;
+  const signature = await signRunnerPayload(env.RUNNER_AUTH_SECRET, signingInput);
+  return `${signingInput}.${signature}`;
+}
+
+async function verifyRunnerJwt(env: Env, token: string): Promise<RunnerTokenClaims | null> {
+  if (!env.RUNNER_AUTH_SECRET) {
+    return null;
+  }
+
+  const parts = token.split('.');
+  if (parts.length !== 3) {
+    return null;
+  }
+
+  const [header, payload, signature] = parts;
+  const signingInput = `${header}.${payload}`;
+  const expected = await signRunnerPayload(env.RUNNER_AUTH_SECRET, signingInput);
+  if (!timingSafeEqualStrings(signature, expected)) {
+    return null;
+  }
+
+  try {
+    const headerJson = JSON.parse(base64UrlDecodeToString(header)) as { alg?: string };
+    if (headerJson.alg !== 'HS256') {
+      return null;
+    }
+    const claims = JSON.parse(base64UrlDecodeToString(payload)) as RunnerTokenClaims;
+    if (!claims.runId) {
+      return null;
+    }
+    const nowSeconds = Math.floor(Date.now() / 1000);
+    if (typeof claims.exp === 'number' && claims.exp < nowSeconds) {
+      return null;
+    }
+    return claims;
+  } catch (error) {
+    console.error('Failed to verify runner token', error);
+    return null;
+  }
+}
+
+async function authenticateRunner(request: Request, env: Env, expectedRunId?: string): Promise<RunnerAuthResult> {
+  const authHeader = request.headers.get('Authorization') || request.headers.get('authorization');
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return { ok: false, status: 401, error: 'Missing bearer token' };
+  }
+
+  if (!env.RUNNER_AUTH_SECRET) {
+    return { ok: false, status: 503, error: 'Runner auth not configured' };
+  }
+
+  const token = authHeader.substring(7).trim();
+  if (!token) {
+    return { ok: false, status: 401, error: 'Missing bearer token' };
+  }
+
+  if (token === env.RUNNER_AUTH_SECRET) {
+    return { ok: true, tokenType: 'secret' };
+  }
+
+  const claims = await verifyRunnerJwt(env, token);
+  if (!claims) {
+    return { ok: false, status: 401, error: 'Invalid runner token' };
+  }
+
+  if (expectedRunId && claims.runId !== expectedRunId) {
+    return { ok: false, status: 403, error: 'Token does not match requested run' };
+  }
+
+  return { ok: true, tokenType: 'jwt', claims };
+}
+
+async function handleRunnerRoute(request: Request, env: Env, pathname: string): Promise<Response> {
+  const segments = pathname.split('/').filter(Boolean);
+  const runId = segments.length >= 4 && segments[0] === 'api' && segments[1] === 'runner' && segments[2] === 'runs'
+    ? segments[3]
+    : undefined;
+
+  const auth = await authenticateRunner(request, env, runId);
+  if (!auth.ok) {
+    return jsonResponse({ error: auth.error }, auth.status);
+  }
+
+  // /api/runner/runs/:runId/status
+  if (segments.length === 5 && segments[0] === 'api' && segments[1] === 'runner' && segments[2] === 'runs' && segments[4] === 'status') {
+    const runId = segments[3];
+    if (request.method === 'POST') {
+      return handleRunnerUpdateStatus(request, env, runId, auth.claims);
+    }
+    return jsonResponse({ error: 'Method not allowed' }, 405);
+  }
+
+  // /api/runner/runs/:runId/events
+  if (segments.length === 5 && segments[0] === 'api' && segments[1] === 'runner' && segments[2] === 'runs' && segments[4] === 'events') {
+    const runId = segments[3];
+    if (request.method === 'POST') {
+      return handleRunnerAddEvent(request, env, runId, auth.claims);
+    }
+    return jsonResponse({ error: 'Method not allowed' }, 405);
+  }
+
+  // /api/runner/runs/:runId/artifacts
+  if (segments.length === 5 && segments[0] === 'api' && segments[1] === 'runner' && segments[2] === 'runs' && segments[4] === 'artifacts') {
+    const runId = segments[3];
+    if (request.method === 'POST') {
+      return handleRunnerAddArtifact(request, env, runId, auth.claims);
+    }
+    return jsonResponse({ error: 'Method not allowed' }, 405);
+  }
+
+  // /api/runner/runs/:runId/storage?path=<relative-path>
+  if (segments.length === 5 && segments[0] === 'api' && segments[1] === 'runner' && segments[2] === 'runs' && segments[4] === 'storage') {
+    const runId = segments[3];
+    if (request.method === 'PUT') {
+      return handleRunnerPutStorage(request, env, runId, auth.claims);
+    }
+    return jsonResponse({ error: 'Method not allowed' }, 405);
+  }
+
+  return jsonResponse({ error: 'Not found' }, 404);
+}
+
+async function handleRunnerPutStorage(
+  request: Request,
+  env: Env,
+  runId: string,
+  claims?: RunnerTokenClaims
+): Promise<Response> {
+  if (!env.DB) {
+    return jsonResponse({ error: 'Database not available' }, 503);
+  }
+
+  if (!env.STORAGE) {
+    return jsonResponse({ error: 'Storage binding not configured' }, 503);
+  }
+
+  if (request.method !== 'PUT') {
+    return jsonResponse({ error: 'Method not allowed' }, 405);
+  }
+
+  const url = new URL(request.url);
+  const relPath = parseKey(url.searchParams.get('path'));
+  if (!relPath || relPath.endsWith('/')) {
+    return jsonResponse({ error: 'Missing or invalid path' }, 400);
+  }
+
+  const runRow = await queryFirst(
+    env.DB,
+    `SELECT account_id FROM design_runs WHERE id = ?1`,
+    [runId]
+  );
+
+  if (!runRow) {
+    return jsonResponse({ error: 'Run not found' }, 404);
+  }
+
+  const accountId = String(runRow.account_id);
+  if (claims?.accountId && claims.accountId !== accountId) {
+    return jsonResponse({ error: 'Forbidden' }, 403);
+  }
+
+  const storageKey = `design-runs/${accountId}/${runId}/${relPath}`;
+  const body = await request.arrayBuffer();
+  const contentType = request.headers.get('content-type') ?? undefined;
+
+  await env.STORAGE.put(storageKey, body, {
+    httpMetadata: contentType ? { contentType } : undefined,
+  });
+
+  return jsonResponse({
+    ok: true,
+    storageKey,
+    sizeBytes: body.byteLength,
+    contentType: contentType ?? null,
+  });
+}
+
+async function handleRunnerUpdateStatus(
+  request: Request,
+  env: Env,
+  runId: string,
+  claims?: RunnerTokenClaims
+): Promise<Response> {
+  if (!env.DB) {
+    return jsonResponse({ error: 'Database not available' }, 503);
+  }
+
+  let body: any;
+  try {
+    body = await request.json();
+  } catch {
+    return jsonResponse({ error: 'Invalid JSON body' }, 400);
+  }
+
+  const { status, error, progress } = body;
+  const hasStatus = typeof status === 'string';
+  const hasProgress = typeof progress === 'number';
+  const validStatuses = new Set(['pending', 'running', 'completed', 'failed', 'cancelled']);
+
+  if (!hasStatus && !hasProgress) {
+    return jsonResponse({ error: 'status or progress is required' }, 400);
+  }
+
+  if (hasStatus && !validStatuses.has(status)) {
+    return jsonResponse({ error: 'Invalid status' }, 400);
+  }
+
+  if (hasProgress && (Number.isNaN(progress) || progress < 0 || progress > 1)) {
+    return jsonResponse({ error: 'progress must be between 0 and 1' }, 400);
+  }
+
+  try {
+    const runRow = await queryFirst(
+      env.DB,
+      `SELECT account_id FROM design_runs WHERE id = ?1`,
+      [runId]
+    );
+
+    if (!runRow) {
+      return jsonResponse({ error: 'Run not found' }, 404);
+    }
+
+    const accountId = String(runRow.account_id);
+    if (claims?.accountId && claims.accountId !== accountId) {
+      return jsonResponse({ error: 'Forbidden' }, 403);
+    }
+
+    const now = new Date().toISOString();
+    const completionStatuses = new Set(['completed', 'failed', 'cancelled']);
+    const updates: string[] = ['updated_at = ?1'];
+    const params: any[] = [now];
+    let paramIndex = 2;
+
+    if (hasStatus) {
+      updates.push(`status = ?${paramIndex}`);
+      params.push(status);
+      paramIndex++;
+
+      if (status === 'running') {
+        updates.push(`started_at = COALESCE(started_at, ?${paramIndex})`);
+        params.push(now);
+        paramIndex++;
+      }
+
+      if (completionStatuses.has(status)) {
+        updates.push(`completed_at = COALESCE(completed_at, ?${paramIndex})`);
+        params.push(now);
+        paramIndex++;
+        if (!hasProgress) {
+          updates.push('progress = 1');
+        }
+      }
+    }
+
+    if (hasProgress) {
+      updates.push(`progress = ?${paramIndex}`);
+      params.push(Math.max(0, Math.min(1, progress)));
+      paramIndex++;
+    }
+
+    if (error) {
+      updates.push(`error = ?${paramIndex}`);
+      params.push(error);
+      paramIndex++;
+    }
+
+    params.push(runId);
+
+    const result = await env.DB.prepare(
+      `UPDATE design_runs SET ${updates.join(', ')} WHERE id = ?${paramIndex}`
+    ).bind(...params).run();
+
+    if (result.meta.changes === 0) {
+      return jsonResponse({ error: 'Run not found' }, 404);
+    }
+
+    return jsonResponse({ ok: true });
+  } catch (error) {
+    console.error('Failed to update run status', error);
+    return jsonResponse({ error: 'Failed to update status' }, 500);
+  }
+}
+
+async function handleRunnerAddEvent(
+  request: Request,
+  env: Env,
+  runId: string,
+  claims?: RunnerTokenClaims
+): Promise<Response> {
+  if (!env.DB) {
+    return jsonResponse({ error: 'Database not available' }, 503);
+  }
+
+  let body: any;
+  try {
+    body = await request.json();
+  } catch {
+    return jsonResponse({ error: 'Invalid JSON body' }, 400);
+  }
+
+  const events = Array.isArray(body?.events) ? body.events : [body];
+  const validEvents = events.filter((event) => event && typeof event.eventType === 'string');
+
+  if (validEvents.length === 0) {
+    return jsonResponse({ error: 'eventType is required' }, 400);
+  }
+
+  try {
+    const runRow = await queryFirst(
+      env.DB,
+      `SELECT account_id FROM design_runs WHERE id = ?1`,
+      [runId]
+    );
+
+    if (!runRow) {
+      return jsonResponse({ error: 'Run not found' }, 404);
+    }
+
+    const accountId = String(runRow.account_id);
+    if (claims?.accountId && claims.accountId !== accountId) {
+      return jsonResponse({ error: 'Forbidden' }, 403);
+    }
+
+    const now = new Date().toISOString();
+    const eventIds: string[] = [];
+
+    for (const event of validEvents) {
+      const eventId = crypto.randomUUID();
+      eventIds.push(eventId);
+      const metadataStr = event.metadata ? JSON.stringify(event.metadata) : null;
+      await env.DB.prepare(
+        `INSERT INTO design_run_events (id, run_id, event_type, message, metadata, created_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6)`
+      ).bind(
+        eventId,
+        runId,
+        event.eventType,
+        event.message || null,
+        metadataStr,
+        now
+      ).run();
+    }
+
+    await env.DB.prepare(
+      `UPDATE design_runs SET updated_at = ?1 WHERE id = ?2`
+    ).bind(now, runId).run();
+
+    return jsonResponse({ ok: true, eventIds });
+  } catch (error) {
+    console.error('Failed to add event', error);
+    return jsonResponse({ error: 'Failed to add event' }, 500);
+  }
+}
+
+async function handleRunnerAddArtifact(
+  request: Request,
+  env: Env,
+  runId: string,
+  claims?: RunnerTokenClaims
+): Promise<Response> {
+  if (!env.DB) {
+    return jsonResponse({ error: 'Database not available' }, 503);
+  }
+
+  const contentTypeHeader = request.headers.get('content-type') ?? '';
+
+  try {
+    const runRow = await queryFirst(
+      env.DB,
+      `SELECT account_id FROM design_runs WHERE id = ?1`,
+      [runId]
+    );
+
+    if (!runRow) {
+      return jsonResponse({ error: 'Run not found' }, 404);
+    }
+
+    const accountId = String(runRow.account_id);
+    if (claims?.accountId && claims.accountId !== accountId) {
+      return jsonResponse({ error: 'Forbidden' }, 403);
+    }
+
+    const now = new Date().toISOString();
+
+    if (contentTypeHeader.includes('multipart/form-data')) {
+      if (!env.STORAGE) {
+        return jsonResponse({ error: 'Storage not available' }, 503);
+      }
+
+      const formData = await request.formData();
+      const file = formData.get('file');
+      const artifactType = String(formData.get('artifactType') || '').trim();
+      const metadataRaw = formData.get('metadata');
+      const providedKey = formData.get('storageKey');
+
+      if (!file || typeof file === 'string') {
+        return jsonResponse({ error: 'file is required' }, 400);
+      }
+      if (!artifactType) {
+        return jsonResponse({ error: 'artifactType is required' }, 400);
+      }
+
+      const filename = (file as File).name || 'artifact';
+      const metadata = metadataRaw && typeof metadataRaw === 'string' ? safeJsonParse(metadataRaw) : undefined;
+      const storageKey = typeof providedKey === 'string' && providedKey.trim()
+        ? providedKey.trim()
+        : `design/${runId}/${artifactType}/${filename}`;
+      const sizeBytes = (file as File).size;
+      const contentType = (file as File).type || formData.get('contentType')?.toString() || null;
+
+      await env.STORAGE.put(storageKey, file as File, {
+        httpMetadata: {
+          contentType: contentType || undefined,
+        },
+      });
+
+      const artifactId = crypto.randomUUID();
+      const metadataStr = metadata ? JSON.stringify(metadata) : null;
+
+      await env.DB.prepare(
+        `INSERT INTO design_run_artifacts (id, run_id, artifact_type, storage_key, content_type, size_bytes, metadata, created_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)`
+      ).bind(
+        artifactId,
+        runId,
+        artifactType,
+        storageKey,
+        contentType || null,
+        sizeBytes || null,
+        metadataStr,
+        now
+      ).run();
+
+      await env.DB.prepare(
+        `UPDATE design_runs SET updated_at = ?1 WHERE id = ?2`
+      ).bind(now, runId).run();
+
+      return jsonResponse({
+        ok: true,
+        artifactId,
+        storageKey,
+        url: `/api/design/runs/${runId}/artifacts/${artifactId}`,
+      });
+    }
+
+    const body = await request.json();
+    const { artifactType, storageKey, contentType, sizeBytes, metadata } = body || {};
+
+    if (!artifactType || !storageKey) {
+      return jsonResponse({ error: 'artifactType and storageKey are required' }, 400);
+    }
+
+    const artifactId = crypto.randomUUID();
+    const metadataStr = metadata ? JSON.stringify(metadata) : null;
+
+    await env.DB.prepare(
+      `INSERT INTO design_run_artifacts (id, run_id, artifact_type, storage_key, content_type, size_bytes, metadata, created_at)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)`
+    ).bind(
+      artifactId,
+      runId,
+      artifactType,
+      storageKey,
+      contentType || null,
+      sizeBytes || null,
+      metadataStr,
+      now
+    ).run();
+
+    await env.DB.prepare(
+      `UPDATE design_runs SET updated_at = ?1 WHERE id = ?2`
+    ).bind(now, runId).run();
+
+    return jsonResponse({ ok: true, artifactId });
+  } catch (error) {
+    console.error('Failed to add artifact', error);
+    return jsonResponse({ error: 'Failed to add artifact' }, 500);
+  }
 }

@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect } from 'react';
 import { ActivityIndicator, Pressable, Text, View } from 'react-native';
-import { faChartSimple, faCreditCard, faFolderTree, faGear, faHouse, faUsers } from '@fortawesome/pro-solid-svg-icons';
+import { faChartSimple, faCreditCard, faFolderTree, faGear, faHouse, faPalette, faUsers } from '@fortawesome/pro-solid-svg-icons';
 
 import { useAuth } from '../auth/AuthProvider';
 import AppShell, { type AppNavItem } from '../app/AppShell';
@@ -10,7 +10,12 @@ import {
   useCompaniesQuery,
   useCompanyById,
   useCreateCheckoutMutation,
+  useCreateDesignRunMutation,
   useCreatePortalMutation,
+  useDeleteDesignRunMutation,
+  useDeleteInviteMutation,
+  useDesignRunDetailQuery,
+  useDesignRunsQuery,
   useInvitesQuery,
   useInvoicesQuery,
   useMembersQuery,
@@ -18,21 +23,24 @@ import {
   useRemoveMemberMutation,
   useResendInviteMutation,
   useSubscriptionQuery,
-  useUpdateMemberRoleMutation,
   useUpdateMemberNameMutation,
+  useUpdateMemberRoleMutation,
   useUsageQuery,
-  useDeleteInviteMutation,
 } from '../app/hooks';
-import type { Company, Member } from '../app/types';
+import type { Company, DesignRunCreateInput, Member } from '../app/types';
 import OverviewScreen from '../app/screens/OverviewScreen';
 import BillingReturnScreen from '../app/screens/BillingReturnScreen';
 import UsageScreen from '../app/screens/UsageScreen';
 import AssetsScreen from '../app/screens/AssetsScreen';
+import DesignCreateScreen from '../app/screens/DesignCreateScreen';
+import DesignListScreen from '../app/screens/DesignListScreen';
+import DesignDetailScreen from '../app/screens/DesignDetailScreen';
 import { useJustEveryProfilePopup } from '../profile/useJustEveryProfilePopup';
 import { useRouterContext } from '../router/RouterProvider';
 
 const NAV_ITEMS: AppNavItem[] = [
   { key: 'overview', label: 'Overview', description: 'Pulse, stats, quick actions', icon: faHouse },
+  { key: 'design', label: 'Design', description: 'AI-generated designs', icon: faPalette },
   { key: 'team', label: 'Team', description: 'Members, roles, invites', icon: faUsers },
   { key: 'billing', label: 'Billing', description: 'Plan & Stripe status', icon: faCreditCard },
   { key: 'usage', label: 'Usage', description: 'Requests & storage', icon: faChartSimple },
@@ -117,12 +125,67 @@ const Dashboard = () => {
   const usageQuery = useUsageQuery(activeCompanyForQueries?.id, activeCompanyForQueries?.slug);
   const subscriptionQuery = useSubscriptionQuery(activeCompanyForQueries?.id, activeCompanyForQueries?.slug);
 
+  // Design runs state and queries
+  const [designView, setDesignView] = React.useState<'list' | 'create' | 'detail'>('list');
+  const [selectedRunId, setSelectedRunId] = React.useState<string | null>(null);
+  const designRunsQuery = useDesignRunsQuery(activeCompanyForQueries?.id, activeCompanyForQueries?.slug);
+  const designRunDetailQuery = useDesignRunDetailQuery(
+    activeCompanyForQueries?.id,
+    activeCompanyForQueries?.slug,
+    selectedRunId ?? undefined
+  );
+  const createDesignRunMutation = useCreateDesignRunMutation(
+    activeCompanyForQueries?.id,
+    activeCompanyForQueries?.slug
+  );
+  const deleteDesignRunMutation = useDeleteDesignRunMutation(
+    activeCompanyForQueries?.id,
+    activeCompanyForQueries?.slug
+  );
+  const [deletingRunId, setDeletingRunId] = React.useState<string | null>(null);
+
   const handleNavigate = useCallback(
     (segment: string) => {
       navigate(toPath(segment));
+      if (segment === 'design') {
+        setDesignView('list');
+        setSelectedRunId(null);
+      }
     },
     [navigate]
   );
+
+  const handleCreateDesignRun = useCallback(async (input: DesignRunCreateInput) => {
+    try {
+      const result = await createDesignRunMutation.mutateAsync(input);
+      setDesignView('detail');
+      setSelectedRunId(result.run.id);
+    } catch (error) {
+      console.error('Failed to create design run:', error);
+      throw error;
+    }
+  }, [createDesignRunMutation]);
+
+  const handleViewDesignRun = useCallback((runId: string) => {
+    setSelectedRunId(runId);
+    setDesignView('detail');
+  }, []);
+
+  const handleDeleteDesignRun = useCallback(async (runId: string) => {
+    setDeletingRunId(runId);
+    try {
+      await deleteDesignRunMutation.mutateAsync(runId);
+    } catch (error) {
+      console.error('Failed to delete design run:', error);
+    } finally {
+      setDeletingRunId(null);
+    }
+  }, [deleteDesignRunMutation]);
+
+  const handleBackToDesignList = useCallback(() => {
+    setDesignView('list');
+    setSelectedRunId(null);
+  }, []);
 
   const redirectSection = React.useMemo(() => {
     if (section === 'team') return 'organizations';
@@ -270,6 +333,36 @@ const Dashboard = () => {
     }
 
     switch (section) {
+      case 'design':
+        if (designView === 'create') {
+          return (
+            <DesignCreateScreen
+              onSubmit={handleCreateDesignRun}
+              isSubmitting={createDesignRunMutation.isPending}
+              error={createDesignRunMutation.error instanceof Error ? createDesignRunMutation.error.message : null}
+            />
+          );
+        }
+        if (designView === 'detail') {
+          return (
+            <DesignDetailScreen
+              run={designRunDetailQuery.data}
+              isLoading={designRunDetailQuery.isLoading}
+              error={designRunDetailQuery.error instanceof Error ? designRunDetailQuery.error.message : null}
+              onBack={handleBackToDesignList}
+            />
+          );
+        }
+        return (
+          <DesignListScreen
+            runs={designRunsQuery.data ?? []}
+            isLoading={designRunsQuery.isLoading}
+            onCreateNew={() => setDesignView('create')}
+            onViewRun={handleViewDesignRun}
+            onDeleteRun={handleDeleteDesignRun}
+            isDeletingRun={deletingRunId}
+          />
+        );
       case 'usage':
         return <UsageScreen points={usageQuery.data ?? []} />;
       case 'assets':

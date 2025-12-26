@@ -96,12 +96,46 @@ const requiredChecks = [
   },
 ];
 
+const optionalChecks = [
+  {
+    name: 'RUNNER_AUTH_SECRET',
+    validate: (value) => value.length >= 24 && !PLACEHOLDER_REGEX.test(value),
+    help: 'Shared secret used to sign/verify runner callbacks (24+ chars)',
+  },
+  {
+    name: 'DAYTONA_API_URL',
+    validate: (value) => value.startsWith('https://') && !PLACEHOLDER_REGEX.test(value),
+    help: 'Daytona API base URL (https://...)',
+  },
+  {
+    name: 'DAYTONA_API_KEY',
+    validate: (value) => value.length >= 12 && !PLACEHOLDER_REGEX.test(value),
+    help: 'Daytona API key for job triggers',
+  },
+];
+
 const issues = [];
+const requireDesignRunner = ['1', 'true', 'yes'].includes(
+  String(env.DESIGN_RUNNER_REQUIRED || '').toLowerCase()
+);
 
 for (const check of requiredChecks) {
   const value = env[check.name];
   if (!value) {
     issues.push(`${check.name} is missing (${check.help})`);
+    continue;
+  }
+  if (!check.validate(String(value))) {
+    issues.push(`${check.name} is invalid (${check.help})`);
+  }
+}
+
+for (const check of optionalChecks) {
+  const value = env[check.name];
+  if (!value) {
+    if (requireDesignRunner) {
+      issues.push(`${check.name} is missing (${check.help})`);
+    }
     continue;
   }
   if (!check.validate(String(value))) {

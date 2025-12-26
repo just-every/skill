@@ -22,6 +22,7 @@
     "bootstrap:apply": "pnpm --filter @justevery/bootstrap-cli apply",
     "bootstrap:deploy": "pnpm --filter @justevery/bootstrap-cli run deploy",
     "bootstrap:deploy:dry-run": "pnpm --filter @justevery/bootstrap-cli run deploy --dry-run",
+    "runner:dev": "node packages/design-runner/server.mjs",
     "publish:env-blob": "bash scripts/publish-env-blob.sh",
     "bootstrap:deploy:new": "pnpm bootstrap:deploy && pnpm publish:env-blob",
     "bootstrap:smoke": "pnpm --filter @justevery/bootstrap-cli run smoke",

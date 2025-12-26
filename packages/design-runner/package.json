@@ -1,0 +1,14 @@
+{
+  "name": "@justevery/design-runner",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Daytona runner service for design runs",
+  "scripts": {
+    "start": "node server.mjs",
+    "job": "node run-job.mjs"
+  },
+  "dependencies": {
+    "@just-every/code-design": "workspace:*"
+  }
+}
