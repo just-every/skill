@@ -93,6 +93,9 @@ const requiredChecks = [
     validate: (value) => value.startsWith('https://'),
     help: 'Expo client must know the deployed worker origin',
   },
+];
+
+const optionalChecks = [
   {
     name: 'RUNNER_AUTH_SECRET',
     validate: (value) => value.length >= 24 && !PLACEHOLDER_REGEX.test(value),
@@ -111,11 +114,27 @@ const requiredChecks = [
 ];
 
 const issues = [];
+const requireDesignRunner = ['1', 'true', 'yes'].includes(
+  String(env.DESIGN_RUNNER_REQUIRED || '').toLowerCase()
+);
 
 for (const check of requiredChecks) {
   const value = env[check.name];
   if (!value) {
     issues.push(`${check.name} is missing (${check.help})`);
+    continue;
+  }
+  if (!check.validate(String(value))) {
+    issues.push(`${check.name} is invalid (${check.help})`);
+  }
+}
+
+for (const check of optionalChecks) {
+  const value = env[check.name];
+  if (!value) {
+    if (requireDesignRunner) {
+      issues.push(`${check.name} is missing (${check.help})`);
+    }
     continue;
   }
   if (!check.validate(String(value))) {
