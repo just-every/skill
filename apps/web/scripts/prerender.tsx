@@ -33,6 +33,10 @@ const expoLinkingShimPath = path.resolve(
   __dirname,
   'shims/expo-linking.ts',
 );
+const fontAwesomeShimPath = path.resolve(
+  __dirname,
+  'shims/fontawesome-icon.ts',
+);
 const reactNativeInternalsShimPath = path.resolve(
   __dirname,
   'shims/react-native-internals.ts',
@@ -45,6 +49,7 @@ moduleAlias.addAliases({
   'expo-clipboard': expoClipboardShimPath,
   'expo-file-system': expoFileSystemShimPath,
   'expo-linking': expoLinkingShimPath,
+  '@fortawesome/react-native-fontawesome': fontAwesomeShimPath,
 });
 moduleAlias.addAlias('react-native', reactNativeShimPath);
 moduleAlias.addAlias(/^react-native\/.+$/, reactNativeInternalsShimPath);
