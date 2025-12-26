@@ -1,3 +1,4 @@
+import type { MessageBatch } from '@cloudflare/workers-types';
 import {
   authenticateRequest,
   requireAuthenticatedSession,
@@ -1422,6 +1423,15 @@ function injectRuntimeEnv(html: string, payload: RuntimeEnvPayload): string {
 }
 
 const Worker: ExportedHandler<Env> = {
+  async queue(batch: MessageBatch, _env: Env): Promise<void> {
+    if (batch.messages.length === 0) {
+      return;
+    }
+    console.warn('[queue] received messages but no consumer is configured', {
+      size: batch.messages.length,
+    });
+    batch.ackAll();
+  },
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
     const pathname = normalisePath(url.pathname);
