@@ -11,6 +11,7 @@ const repoRoot = path.join(__dirname, '..');
 const envFiles = [
   path.join(repoRoot, '.env'),
   path.join(repoRoot, '.env.ci'),
+  path.join(repoRoot, '.env.repo'),
   path.join(repoRoot, '.env.generated'),
   path.join(os.homedir(), '.env'),
 ].filter(Boolean);

@@ -25,6 +25,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       ENV_BLOB: ${{ secrets.ENV_BLOB || '' }}
+      ENV_BLOB_OVERRIDE: ${{ secrets.ENV_BLOB_OVERRIDE || '' }}
     steps:
       - uses: actions/checkout@v4
 
@@ -56,6 +57,10 @@ jobs:
         if: env.MODE == 'deploy'
         run: |
           echo "$ENV_BLOB" | base64 --decode > .env.ci
+          if [ -n "$ENV_BLOB_OVERRIDE" ]; then
+            echo "$ENV_BLOB_OVERRIDE" | base64 --decode > .env.repo.ci
+            cat .env.repo.ci >> .env.ci
+          fi
           grep -v '^#' .env.ci | grep -E '^[A-Z0-9_]+=' | sed 's/=.*//' > required.env.keys
 
       - name: Export env vars

@@ -62,14 +62,21 @@ load_env_for_build() {
 
   if [[ -z "$env_file" ]]; then
     log "No .env.ci or .env.generated found; Expo build may miss EXPO_PUBLIC_* variables"
-    return 0
+  else
+    log "Loading env from $env_file"
+    set -a
+    # shellcheck disable=SC1090
+    source "$env_file"
+    set +a
   fi
 
-  log "Loading env from $env_file"
-  set -a
-  # shellcheck disable=SC1090
-  source "$env_file"
-  set +a
+  if [[ -f ".env.repo" ]]; then
+    log "Loading repo overrides from .env.repo"
+    set -a
+    # shellcheck disable=SC1090
+    source ".env.repo"
+    set +a
+  fi
 }
 
 is_placeholder_token() {
