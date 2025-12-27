@@ -19,7 +19,7 @@ This repository is the canonical justevery starter stack; future products should
 - `npm run test:e2e` – Playwright against `E2E_BASE_URL` or `PROJECT_DOMAIN`.
 - `scripts/deploy.sh --mode deploy|dry-run` – **Single source of truth for every deploy path**. This script runs the Expo build, client smoke tests, env audit, bootstrap plan, migrations, worker deploy, and HTTP smoke probes. Update this file (and nowhere else) when changing deploy behaviour.
 - `pnpm bootstrap:deploy` / `pnpm bootstrap:deploy:dry-run` – Still available under the hood, but the unified script orchestrates their usage. Call these directly only for debugging.
-- Pushing to `main` automatically triggers the GitHub deploy workflow to `design.justevery.com`; monitor that run with `gh run watch --branch main` when shipping user-visible changes.
+- Pushing to `main` automatically triggers the GitHub deploy workflow to `starter.justevery.com`; monitor that run with `gh run watch --branch main` when shipping user-visible changes.
 
 ## Deployment Flow
 - Always run `scripts/deploy.sh --mode deploy` for production pushes and `scripts/deploy.sh --mode dry-run` for validation. CI uses the exact same script, so any change to the deploy sequence must land in this file to avoid drift.
