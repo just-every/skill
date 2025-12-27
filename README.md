@@ -80,6 +80,10 @@ The repo now uses a single secret (`ENV_BLOB`) that contains your entire `.env`.
 Need a one-off blob for testing? Run `./scripts/generate-env-blob.sh .env`
 and paste the output into `gh secret set ENV_BLOB`.
 
+Repo-specific overrides (like `PROJECT_ID`/`PROJECT_DOMAIN`) belong in the
+`ENV_BLOB_OVERRIDE` secret (base64-encoded `KEY=VALUE` lines). Local overrides
+live in `.env.repo` and are ignored by git.
+
 **Initial bootstrap shortcut:** `pnpm bootstrap:deploy:new` runs the full bootstrap
 pipeline and immediately publishes a refreshed `ENV_BLOB` secret to the
 `production` environment (requires `gh auth login` or a `GH_TOKEN`). After that,

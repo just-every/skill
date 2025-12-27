@@ -25,6 +25,7 @@ This repository is the canonical justevery starter stack; future products should
 - Always run `scripts/deploy.sh --mode deploy` for production pushes and `scripts/deploy.sh --mode dry-run` for validation. CI uses the exact same script, so any change to the deploy sequence must land in this file to avoid drift.
 - The deploy script executes `pnpm audit:deploy-env`, which reads `.env.ci` / `.env.generated` to ensure Cloudflare, Stripe, Better Auth, and billing credentials are present and non-placeholder before proceeding. Fix failing audits before re-running.
 - Post-deploy verification curls `/api/status` and `/api/stripe/products` using `PROJECT_DOMAIN`. Keep this updated if domains change.
+- Repo-specific deploy overrides are passed via the `ENV_BLOB_OVERRIDE` secret (base64 env lines) in CI; local overrides live in `.env.repo` (ignored by git).
 
 ## Coding Style & Naming Conventions
 - TypeScript is strict via `tsconfig.base.json`; add explicit return types on exported helpers and update `Env` when bindings change.
