@@ -18,6 +18,10 @@ STRIPE_WEBHOOK_SECRET=
 # Example: STRIPE_PRODUCTS='[{"productId":"prod_ABC123","priceId":"price_XYZ789"}]'
 STRIPE_PRODUCTS=
 
+# Internal runner auth
+# Used by the Daytona design runner to authenticate server-to-server updates.
+DESIGN_RUNNER_JWT_SECRET=
+
 # Uncomment to override Expo defaults while pairing with the worker locally
 #EXPO_PUBLIC_WORKER_ORIGIN=http://127.0.0.1:8787
 
