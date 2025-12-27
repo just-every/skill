@@ -58,8 +58,8 @@ hit the DNS origin directly and time out.
    pnpm bootstrap:deploy:dry-run
    pnpm bootstrap:deploy
    pnpm bootstrap:env -- --check           # confirm generated files are current
-   curl -I https://starter.justevery.com/
-   curl -s https://starter.justevery.com/api/session
+   curl -I https://design.justevery.com/
+   curl -s https://design.justevery.com/api/session
    ```
 
 More detail: `docs/QUICKSTART.md`. Prefer the `pnpm bootstrap:*` commands—the legacy shell scripts have been archived for reference only. For marketing SSR + bot validation notes, see `docs/SSR_MARKETING.md`.
