@@ -58,8 +58,8 @@ hit the DNS origin directly and time out.
    pnpm bootstrap:deploy:dry-run
    pnpm bootstrap:deploy
    pnpm bootstrap:env -- --check           # confirm generated files are current
-   curl -I https://starter.justevery.com/
-   curl -s https://starter.justevery.com/api/session
+   curl -I https://design.justevery.com/
+   curl -s https://design.justevery.com/api/session
    ```
 
 More detail: `docs/QUICKSTART.md`. Prefer the `pnpm bootstrap:*` commands—the legacy shell scripts have been archived for reference only. For marketing SSR + bot validation notes, see `docs/SSR_MARKETING.md`.
@@ -79,6 +79,10 @@ The repo now uses a single secret (`ENV_BLOB`) that contains your entire `.env`.
 
 Need a one-off blob for testing? Run `./scripts/generate-env-blob.sh .env`
 and paste the output into `gh secret set ENV_BLOB`.
+
+Repo-specific overrides (like `PROJECT_ID`/`PROJECT_DOMAIN`) belong in the
+`ENV_BLOB_OVERRIDE` secret (base64-encoded `KEY=VALUE` lines). Local overrides
+live in `.env.repo` and are ignored by git.
 
 **Initial bootstrap shortcut:** `pnpm bootstrap:deploy:new` runs the full bootstrap
 pipeline and immediately publishes a refreshed `ENV_BLOB` secret to the
