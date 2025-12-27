@@ -26,6 +26,7 @@ This repository is the canonical justevery starter stack; future products should
 - The deploy script executes `pnpm audit:deploy-env`, which reads `.env.ci` / `.env.generated` to ensure Cloudflare, Stripe, Better Auth, and billing credentials are present and non-placeholder before proceeding. Fix failing audits before re-running.
 - Post-deploy verification curls `/api/status` and `/api/stripe/products` using `PROJECT_DOMAIN`. Keep this updated if domains change.
 - Repo-specific deploy overrides are passed via the `ENV_BLOB_OVERRIDE` secret (base64 env lines) in CI; local overrides live in `.env.repo` (ignored by git).
+- This repo is isolated: `PROJECT_ID=starter`, `PROJECT_DOMAIN=https://starter.justevery.com`, `D1_DATABASE_NAME=starter-d1`, `CLOUDFLARE_R2_BUCKET=starter-assets` (set via `ENV_BLOB_OVERRIDE`).
 
 ## Coding Style & Naming Conventions
 - TypeScript is strict via `tsconfig.base.json`; add explicit return types on exported helpers and update `Env` when bindings change.

@@ -84,6 +84,10 @@ Repo-specific overrides (like `PROJECT_ID`/`PROJECT_DOMAIN`) belong in the
 `ENV_BLOB_OVERRIDE` secret (base64-encoded `KEY=VALUE` lines). Local overrides
 live in `.env.repo` and are ignored by git.
 
+This repo targets `starter.justevery.com` and keeps isolated infra via overrides:
+`PROJECT_ID=starter`, `PROJECT_DOMAIN=https://starter.justevery.com`,
+`D1_DATABASE_NAME=starter-d1`, and `CLOUDFLARE_R2_BUCKET=starter-assets`.
+
 **Initial bootstrap shortcut:** `pnpm bootstrap:deploy:new` runs the full bootstrap
 pipeline and immediately publishes a refreshed `ENV_BLOB` secret to the
 `production` environment (requires `gh auth login` or a `GH_TOKEN`). After that,

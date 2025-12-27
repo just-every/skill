@@ -58,6 +58,7 @@ jobs:
         run: |
           echo "$ENV_BLOB" | base64 --decode > .env.ci
           if [ -n "$ENV_BLOB_OVERRIDE" ]; then
+            printf '\n' >> .env.ci
             echo "$ENV_BLOB_OVERRIDE" | base64 --decode > .env.repo.ci
             cat .env.repo.ci >> .env.ci
           fi
