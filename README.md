@@ -88,6 +88,29 @@ This repo targets `starter.justevery.com` and keeps isolated infra via overrides
 `PROJECT_ID=starter`, `PROJECT_DOMAIN=https://starter.justevery.com`,
 `D1_DATABASE_NAME=starter-d1`, and `CLOUDFLARE_R2_BUCKET=starter-assets`.
 
+## iOS simulator testing (Appetize)
+
+Use Appetize for remote iOS simulator sessions when you do not have a local Mac.
+
+- Ensure `APPETIZE_API_KEY` (or `APPETTIZE_API_KEY`) is present in `~/.env`.
+- Build a simulator binary using the `simulator` profile in `apps/web/eas.json`.
+- Upload to Appetize; if the helper scripts are installed, run:
+  `~/.code/skills/ios-appetize-automation/scripts/appetize_build_upload.sh --repo . --name "Starter"`
+- The command prints an Appetize URL you can share.
+
+If you need to bypass login inside the simulator, use the approval-link flow in
+`../login/docs/cli-tokens.md` to mint a 12-hour token and deep-link a session.
+
+## Login approval link (12h debug token)
+
+The login worker can mint short-lived tokens via an approval URL so you do not
+have to share credentials.
+
+- Create a request: `node ../login/scripts/request-approval-token.mjs --wait`
+- Approver opens the printed `/m2m/approve?request=...` URL and clicks Approve.
+- The script prints a token + user id (valid for 12 hours). Use it to mint a
+  session for simulator or device testing (see `../login/docs/cli-tokens.md`).
+
 **Initial bootstrap shortcut:** `pnpm bootstrap:deploy:new` runs the full bootstrap
 pipeline and immediately publishes a refreshed `ENV_BLOB` secret to the
 `production` environment (requires `gh auth login` or a `GH_TOKEN`). After that,
