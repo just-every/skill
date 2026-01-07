@@ -46,6 +46,8 @@ export type AuthResult = AuthSuccess | AuthFailure;
 const requestSessionCache = new WeakMap<Request, AuthResult>();
 
 const LOCAL_HOST_HINTS = ['127.0.0.1', 'localhost'];
+const SESSION_COOKIE_NAME = 'better-auth.session_token';
+const SESSION_COOKIE_NAME_SECURE = '__Secure-better-auth.session_token';
 
 const mask = (value?: string | null) => {
   if (!value) return value ?? '';
@@ -92,6 +94,92 @@ const trace = (request: Request, env: Env, label: string, data: Record<string, u
   console.info('[session-trace]', label, { requestId, ...data });
 };
 
+const resolveOrigin = (value?: string | null): string | null => {
+  if (!value) return null;
+  try {
+    return new URL(value).origin;
+  } catch {
+    return null;
+  }
+};
+
+const isLocalOriginHost = (host?: string | null): boolean => {
+  if (!host) return false;
+  const lower = host.toLowerCase();
+  return (
+    lower === 'localhost' ||
+    lower === '127.0.0.1' ||
+    lower === '::1' ||
+    lower.endsWith('.localhost')
+  );
+};
+
+const buildAllowedOrigins = (request: Request, env: Env): Set<string> => {
+  const origins = new Set<string>();
+  const add = (candidate?: string | null) => {
+    const origin = resolveOrigin(candidate);
+    if (origin) origins.add(origin);
+  };
+  add(request.url);
+  add(env.APP_URL ?? null);
+  add(env.PROJECT_DOMAIN ?? null);
+  add(env.LOGIN_ORIGIN ?? null);
+  add(env.BETTER_AUTH_URL ?? null);
+  add(env.EXPO_PUBLIC_WORKER_ORIGIN ?? null);
+  return origins;
+};
+
+const isOriginAllowed = (request: Request, env: Env): boolean => {
+  const originHeader = request.headers.get('origin');
+  // Allow requests without Origin header (native apps, same-origin, direct navigation).
+  // Browsers always send Origin for cross-origin requests.
+  if (!originHeader) return true;
+  const origin = resolveOrigin(originHeader);
+  if (!origin) return false;
+  try {
+    const host = new URL(origin).hostname;
+    if (isLocalOriginHost(host)) return true;
+  } catch {
+    // ignore
+  }
+  const allowed = buildAllowedOrigins(request, env);
+  return allowed.has(origin);
+};
+
+const readSessionTokenFromHeaders = (request: Request): string | null => {
+  const headerValue = request.headers.get('x-session-token');
+  if (!headerValue) return null;
+  const trimmed = headerValue.trim();
+  return trimmed.length > 0 ? trimmed : null;
+};
+
+const stripSessionCookies = (cookieHeader: string): string => {
+  const parts = cookieHeader
+    .split(';')
+    .map((part) => part.trim())
+    .filter(Boolean);
+  const filtered = parts.filter((part) => {
+    const eqIndex = part.indexOf('=');
+    const key = (eqIndex >= 0 ? part.slice(0, eqIndex) : part).trim();
+    return key !== SESSION_COOKIE_NAME && key !== SESSION_COOKIE_NAME_SECURE;
+  });
+  return filtered.join('; ');
+};
+
+const buildRequestWithSessionToken = (request: Request, token: string): Request => {
+  const headers = new Headers(request.headers);
+  const encoded = encodeURIComponent(token.trim());
+  const sessionCookie = `${SESSION_COOKIE_NAME_SECURE}=${encoded}; ${SESSION_COOKIE_NAME}=${encoded}`;
+  const existing = headers.get('cookie');
+  if (existing && existing.trim()) {
+    const stripped = stripSessionCookies(existing);
+    headers.set('cookie', stripped ? `${stripped}; ${sessionCookie}` : sessionCookie);
+  } else {
+    headers.set('cookie', sessionCookie);
+  }
+  return new Request(request, { headers });
+};
+
 /**
  * Authenticate a request using Better Auth session verification
  */
@@ -123,8 +211,22 @@ export async function authenticateRequest(request: Request, env: Env): Promise<A
     fetchImpl: resolveLoginFetcher(env),
   });
 
+  let authRequest = request;
+  const headerToken = readSessionTokenFromHeaders(request);
+  if (headerToken) {
+    if (isOriginAllowed(request, env)) {
+      authRequest = buildRequestWithSessionToken(request, headerToken);
+      trace(request, env, 'authenticate.header-fallback', { source: 'x-session-token' });
+    } else {
+      trace(request, env, 'authenticate.header-fallback.blocked', {
+        reason: 'origin_not_allowed',
+        origin: request.headers.get('origin') ?? 'unknown',
+      });
+    }
+  }
+
   // Verify session
-  const result = await verifySession(request);
+  const result = await verifySession(authRequest);
 
   trace(request, env, 'authenticate.verify', {
     ok: result.ok,

@@ -6,7 +6,7 @@ import React, {
   useMemo,
   useState,
 } from 'react';
-import { Linking } from 'react-native';
+import { Linking, Platform } from 'react-native';
 import * as ExpoLinking from 'expo-linking';
 
 type RouterContextValue = {
@@ -17,6 +17,14 @@ type RouterContextValue = {
 const RouterContext = createContext<RouterContextValue | undefined>(undefined);
 
 const initialPath = () => {
+  if (Platform.OS !== 'web') {
+    const candidate = process.env.EXPO_PUBLIC_START_PATH;
+    if (typeof candidate === 'string' && candidate.trim()) {
+      const trimmed = candidate.trim();
+      return trimmed.startsWith('/') ? trimmed : `/${trimmed}`;
+    }
+    return '/app/overview';
+  }
   if (typeof window === 'undefined' || !window.location) {
     return '/';
   }
@@ -74,6 +82,9 @@ export const RouterProvider = ({ children }: RouterProviderProps) => {
 
   useEffect(() => {
     // Native deep links: mirror Linking events into the router state so we can react to auth callbacks.
+    if (Platform.OS === 'web') {
+      return undefined;
+    }
     const updateFromUrl = (url?: string | null) => {
       if (!url) return;
       const parsed = ExpoLinking.parse(url);

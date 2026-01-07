@@ -15,7 +15,7 @@ import { usePublicEnv } from './src/runtimeEnv';
 const RoutedView = () => {
   const { path } = useRouterContext();
 
-  if (path === '/callback') {
+  if (path.startsWith('/callback')) {
     return <Callback />;
   }
 

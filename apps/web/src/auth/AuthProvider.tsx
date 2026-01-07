@@ -9,6 +9,7 @@ import {
 } from '@justevery/config/auth';
 import WebView from 'react-native-webview';
 import { logError } from '../debug/errorLogging';
+import { isReturnToAppUrl } from './returnToApp';
 
 const DEBUG_AUTOTAP_LOGIN = process.env.EXPO_PUBLIC_AUTOTAP_LOGIN === '1';
 
@@ -95,17 +96,24 @@ type AuthContextValue = {
   status: AuthStatus;
   isAuthenticated: boolean;
   session: SessionPayload | null;
+  sessionToken: string | null;
   authError?: string;
   loginOrigin: string;
   betterAuthBaseUrl: string;
   sessionEndpoint: string;
   workerBase: string;
   refresh: () => Promise<void>;
+  bootstrapToken: (token: string) => Promise<boolean>;
   signOut: (options?: { returnUrl?: string }) => Promise<void>;
   openHostedLogin: (options?: { returnPath?: string; showProfilePopup?: boolean; popupSection?: string }) => void;
 };
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
+
+const buildSessionCookieHeader = (token: string): string => {
+  const encoded = encodeURIComponent(token);
+  return `__Secure-better-auth.session_token=${encoded}; better-auth.session_token=${encoded}`;
+};
 
 export const AuthProvider = ({
   children,
@@ -132,6 +140,33 @@ export const AuthProvider = ({
     session: SessionPayload | null;
     error?: string | null;
   }>(() => ({ status: 'checking', session: null, error: null }));
+
+  const [sessionToken, setSessionToken] = useState<string | null>(null);
+  const sessionTokenRef = useRef<string | null>(null);
+
+  const setSessionTokenIfNeeded = useCallback((token?: string | null) => {
+    if (!token) {
+      return;
+    }
+    const trimmed = token.trim();
+    if (!trimmed || sessionTokenRef.current === trimmed) {
+      return;
+    }
+    // On native, we only keep signed cookie tokens (contain a dot).
+    if (Platform.OS !== 'web' && !trimmed.includes('.')) {
+      return;
+    }
+    sessionTokenRef.current = trimmed;
+    setSessionToken(trimmed);
+  }, []);
+
+  const clearSessionToken = useCallback(() => {
+    if (sessionTokenRef.current === null) {
+      return;
+    }
+    sessionTokenRef.current = null;
+    setSessionToken(null);
+  }, []);
 
   const lastGoodSessionRef = useRef<SessionPayload | null>(null);
 
@@ -188,12 +223,19 @@ export const AuthProvider = ({
 
   const fetchWorkerSession = useCallback(async (): Promise<SessionPayload | null> => {
     try {
+      const headers: Record<string, string> = { accept: 'application/json' };
+      if (sessionTokenRef.current) {
+        headers['x-session-token'] = sessionTokenRef.current;
+        if (Platform.OS !== 'web') {
+          headers.cookie = buildSessionCookieHeader(sessionTokenRef.current);
+        }
+      }
       const response = await fetchWithTimeout(
         `${workerBase}/api/me`,
         {
           method: 'GET',
           credentials: 'include',
-          headers: { accept: 'application/json' },
+          headers,
         },
         1500,
         'worker /api/me'
@@ -257,8 +299,9 @@ export const AuthProvider = ({
 
     if (session) {
       lastGoodSessionRef.current = session;
-      if (session.session?.token) {
-        void syncWorkerSession(session.session.token, session);
+      const token = session.session?.token;
+      if (token && token.includes('.')) {
+        void syncWorkerSession(token, session);
       }
       return session;
     }
@@ -278,12 +321,14 @@ export const AuthProvider = ({
     }
   }, [resolveSession]);
 
-  const bootstrapFromToken = useCallback(async (token: string) => {
+  const bootstrapFromToken = useCallback(async (token: string): Promise<boolean> => {
     const trimmed = token.trim();
     if (!trimmed || processedTokensRef.current.has(trimmed)) {
-      return;
+      return false;
     }
-    processedTokensRef.current.add(trimmed);
+
+    setSessionTokenIfNeeded(trimmed);
+    let bootstrapError: string | null = null;
 
     try {
       const response = await fetch(`${workerBase}/api/session/bootstrap`, {
@@ -295,24 +340,51 @@ export const AuthProvider = ({
 
       if (!response.ok) {
         const payload = await safeJson(response);
-        const message = payload?.error ?? `Session bootstrap failed (${response.status})`;
+        bootstrapError =
+          (typeof payload?.error_description === 'string' && payload.error_description.trim())
+            ? payload.error_description.trim()
+            : (typeof payload?.error === 'string' && payload.error.trim())
+              ? payload.error.trim()
+              : `Session bootstrap failed (${response.status})`;
         console.warn('[auth] bootstrap failed', response.status, payload);
-        setState({ status: 'error', session: null, error: message });
-        return;
       }
-
-      console.info('[auth] Bootstrapped session from callback token');
-      await refresh();
     } catch (error) {
       logError(error, 'bootstrapFromToken');
-      const message = error instanceof Error ? error.message : 'Session bootstrap failed';
-      setState({ status: 'error', session: null, error: message });
+      bootstrapError = error instanceof Error ? error.message : 'Session bootstrap failed';
     }
-  }, [refresh, workerBase]);
+
+    const session = await resolveSession();
+    if (session) {
+      setState({ status: 'authenticated', session, error: null });
+      lastGoodSessionRef.current = session;
+      processedTokensRef.current.add(trimmed);
+      void writeNativeTestSessionToken(trimmed);
+      return true;
+    }
+
+    if (bootstrapError) {
+      setState({ status: 'error', session: null, error: bootstrapError });
+      return false;
+    }
+
+    setState({ status: 'unauthenticated', session: null, error: null });
+    return false;
+  }, [resolveSession, setSessionTokenIfNeeded, workerBase]);
 
   useEffect(() => {
     let cancelled = false;
     const bootstrap = async () => {
+      if (Platform.OS !== 'web') {
+        const envToken = readNativeEnvTestSessionToken();
+        if (envToken) {
+          await bootstrapFromToken(envToken);
+        } else {
+          const nativeToken = await readNativeTestSessionToken();
+          if (nativeToken) {
+            await bootstrapFromToken(nativeToken);
+          }
+        }
+      }
       const cookieToken = readCookieSessionToken();
       if (Platform.OS === 'web' && cookieToken && !lastGoodSessionRef.current) {
         const optimisticSession: SessionPayload = {
@@ -348,7 +420,7 @@ export const AuthProvider = ({
     return () => {
       cancelled = true;
     };
-  }, [resolveSession]);
+  }, [bootstrapFromToken, resolveSession, syncWorkerSession]);
 
   useEffect(() => {
     const handleUrl = (url?: string | null) => {
@@ -386,8 +458,11 @@ export const AuthProvider = ({
       setState({ status: 'unauthenticated', session: null });
       lastSyncedTokenRef.current = null;
       lastGoodSessionRef.current = null;
+      processedTokensRef.current = new Set();
+      clearSessionToken();
+      void writeNativeTestSessionToken(null);
     },
-    [workerBase]
+    [clearSessionToken, workerBase]
   );
 
   const openHostedLogin = useCallback(
@@ -431,16 +506,19 @@ export const AuthProvider = ({
       status: state.status,
       isAuthenticated: state.status === 'authenticated',
       session: state.session,
+      sessionToken,
       authError: state.error ?? undefined,
       loginOrigin: sanitizedLoginOrigin,
       betterAuthBaseUrl: resolvedApiBase,
       sessionEndpoint: resolvedSessionEndpoint,
       workerBase,
       refresh,
+      bootstrapToken: bootstrapFromToken,
       signOut,
       openHostedLogin,
     }),
     [
+      bootstrapFromToken,
       openHostedLogin,
       refresh,
       resolvedApiBase,
@@ -450,6 +528,7 @@ export const AuthProvider = ({
       signOut,
       state.session,
       state.status,
+      sessionToken,
     ]
   );
 
@@ -595,6 +674,82 @@ function readCookieSessionToken(): string | null {
   }
 }
 
+function readNativeEnvTestSessionToken(): string | null {
+  if (Platform.OS === 'web') {
+    return null;
+  }
+  const devFlag = typeof __DEV__ !== 'undefined' ? __DEV__ : false;
+  if (!devFlag) {
+    return null;
+  }
+  const candidate = process.env.EXPO_PUBLIC_TEST_SESSION_TOKEN;
+  if (typeof candidate === 'string' && candidate.trim()) {
+    return candidate.trim();
+  }
+  return null;
+}
+
+type AsyncStorageLike = {
+  getItem: (key: string) => Promise<string | null>;
+  setItem: (key: string, value: string) => Promise<void>;
+  removeItem: (key: string) => Promise<void>;
+};
+
+const NATIVE_TEST_SESSION_TOKEN_KEY = 'justevery:test-session-token';
+let asyncStoragePromise: Promise<AsyncStorageLike | null> | null = null;
+
+const isNativeTestTokenEnabled = (): boolean => {
+  if (Platform.OS === 'web') {
+    return false;
+  }
+  const devFlag = typeof __DEV__ !== 'undefined' ? __DEV__ : false;
+  return devFlag || process.env.EXPO_PUBLIC_NATIVE_BOOTSTRAP === '1';
+};
+
+const loadAsyncStorage = async (): Promise<AsyncStorageLike | null> => {
+  if (!isNativeTestTokenEnabled()) {
+    return null;
+  }
+  if (!asyncStoragePromise) {
+    asyncStoragePromise = import('@react-native-async-storage/async-storage')
+      .then((mod) => (mod.default ?? mod) as AsyncStorageLike)
+      .catch((error) => {
+        console.warn('Failed to load async storage', error);
+        return null;
+      });
+  }
+  return asyncStoragePromise;
+};
+
+async function readNativeTestSessionToken(): Promise<string | null> {
+  const storage = await loadAsyncStorage();
+  if (!storage) {
+    return null;
+  }
+  try {
+    const value = await storage.getItem(NATIVE_TEST_SESSION_TOKEN_KEY);
+    return value && value.trim() ? value.trim() : null;
+  } catch {
+    return null;
+  }
+}
+
+async function writeNativeTestSessionToken(token: string | null): Promise<void> {
+  const storage = await loadAsyncStorage();
+  if (!storage) {
+    return;
+  }
+  try {
+    if (!token) {
+      await storage.removeItem(NATIVE_TEST_SESSION_TOKEN_KEY);
+      return;
+    }
+    await storage.setItem(NATIVE_TEST_SESSION_TOKEN_KEY, token);
+  } catch (error) {
+    console.warn('Failed to persist native test session token', error);
+  }
+}
+
 async function safeJson(response: Response): Promise<Record<string, unknown> | null> {
   try {
     return (await response.json()) as Record<string, unknown>;
@@ -619,11 +774,28 @@ const LoginOverlay = ({
       const nextUrl = event?.url as string | undefined;
       if (!nextUrl) return true;
 
-      if (isReturnToApp(nextUrl)) {
+      const appOrigin = Platform.OS === 'web' ? undefined : getAppOrigin();
+      if (isReturnToAppUrl(nextUrl, { appOrigin })) {
         console.info('[auth][login] return to app detected', nextUrl);
         onClose();
         onAuthenticated(nextUrl);
         return false;
+      }
+
+      // Avoid iOS system confirmation prompts triggered by non-HTTP(S) navigation.
+      try {
+        const parsed = new URL(nextUrl);
+        const scheme = parsed.protocol.replace(':', '').toLowerCase();
+        const isWebScheme = scheme === 'http' || scheme === 'https' || scheme === 'about' || scheme === 'data' || scheme === 'blob';
+        if (!isWebScheme) {
+          const allowExternal = scheme === 'mailto' || scheme === 'tel' || scheme === 'sms';
+          if (allowExternal) {
+            Linking.openURL(nextUrl).catch((error) => logError(error, 'login-external-scheme'));
+          }
+          return false;
+        }
+      } catch {
+        // ignore
       }
       return true;
     },
@@ -651,11 +823,7 @@ const LoginOverlay = ({
                   ok: parsed.ok,
                   hasToken: Boolean(token),
                   tokenPreview: typeof token === 'string' ? `${token.slice(0, 6)}…${token.slice(-4)}` : null,
-                  token,
                 });
-                if (token) {
-                  console.info('[auth][login][webview] session token raw', token);
-                }
                 onSessionMessage?.(token ?? null, parsed.body);
                 return;
               }
@@ -674,24 +842,6 @@ const LoginOverlay = ({
       </SafeAreaView>
     </Modal>
   );
-};
-
-const isReturnToApp = (value: string): boolean => {
-  try {
-    const url = new URL(value);
-    const scheme = url.protocol.replace(':', '').toLowerCase();
-    if (scheme === 'exp' || scheme === 'bareexpo' || scheme === 'justevery') return true;
-
-    if (Platform.OS !== 'web') {
-      const appOrigin = getAppOrigin();
-      if (appOrigin && value.startsWith(appOrigin)) {
-        return true;
-      }
-    }
-    return false;
-  } catch {
-    return false;
-  }
 };
 
 function resolveReturnUrl(path: string): string {

@@ -61,3 +61,6 @@ This repository is the canonical justevery starter stack; future products should
   `ALLOW_PLACEHOLDER_DATA` unset in prod and treat any Cloudflare D1 issues as
   blockers that require migrations or DB fixes rather than falling back to
   seeded data.
+
+## Troubleshooting
+- Local iOS dev-client auth + screenshot parity notes: `docs/archive/LOCAL_IOS_DEVCLIENT_AUTH_AND_SCREENSHOTS.md`.
