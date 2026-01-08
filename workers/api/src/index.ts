@@ -647,6 +647,14 @@ async function ensureAccountProvisionedForSession(env: Env, session: Authenticat
 
     const role = mapLoginOrgRoleToCompanyRole(org.role);
 
+    const existingMemberRoleRow = await queryFirst(
+      env.DB,
+      `SELECT role FROM company_members WHERE company_id = ?1 AND LOWER(email) = LOWER(?2) LIMIT 1`,
+      [companyId, normalizedEmail],
+    );
+    const existingMemberRole = existingMemberRoleRow?.role ? String(existingMemberRoleRow.role).toLowerCase() : '';
+    const roleToWrite = role === 'viewer' && existingMemberRole === 'billing' ? 'billing' : role;
+
     try {
       await env.DB.prepare(
         `INSERT INTO company_members (id, company_id, user_id, email, display_name, role, status)
@@ -658,7 +666,7 @@ async function ensureAccountProvisionedForSession(env: Env, session: Authenticat
            status = 'active',
            updated_at = CURRENT_TIMESTAMP`
       )
-        .bind(`mbr-${generateSessionId()}`, companyId, persistedUserId, normalizedEmail, displayName, role)
+        .bind(`mbr-${generateSessionId()}`, companyId, persistedUserId, normalizedEmail, displayName, roleToWrite)
         .run();
     } catch (error) {
       try {
@@ -667,7 +675,7 @@ async function ensureAccountProvisionedForSession(env: Env, session: Authenticat
            SET email = ?1, display_name = ?2, role = ?3, status = 'active', updated_at = CURRENT_TIMESTAMP
            WHERE company_id = ?4 AND user_id = ?5`
         )
-          .bind(normalizedEmail, displayName, role, companyId, persistedUserId)
+          .bind(normalizedEmail, displayName, roleToWrite, companyId, persistedUserId)
           .run();
       } catch {
         logDbError('ensureAccountProvisionedForSession.member.upsert', error);
