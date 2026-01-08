@@ -574,6 +574,8 @@ async function ensureAccountProvisionedForSession(env: Env, session: Authenticat
   const persistedUserId = await upsertUserRecord(env, userId, normalizedEmail);
   const displayName = deriveDisplayName(session.session?.user?.name, normalizedEmail);
 
+  const canonicalCompanyIds = new Set<string>();
+
   for (const org of loginOrgs) {
     if (org.status !== 'active') continue;
     const slug = org.slug?.trim();
@@ -582,6 +584,7 @@ async function ensureAccountProvisionedForSession(env: Env, session: Authenticat
     const existingCompany = await queryFirst(env.DB, `SELECT id FROM companies WHERE slug = ? LIMIT 1`, [slug]);
     const companyId = existingCompany?.id ? String(existingCompany.id) : `acct-${org.id}`;
     const isNewCompany = !existingCompany;
+    canonicalCompanyIds.add(companyId);
 
     if (isNewCompany) {
       const timestamp = new Date().toISOString();
@@ -646,6 +649,37 @@ async function ensureAccountProvisionedForSession(env: Env, session: Authenticat
         .bind(`mbr-${generateSessionId()}`, companyId, persistedUserId, normalizedEmail, displayName, role)
         .run();
     }
+  }
+
+  await deactivateNonCanonicalMemberships(env, normalizedEmail, canonicalCompanyIds);
+}
+
+async function deactivateNonCanonicalMemberships(
+  env: Env,
+  email: string,
+  canonicalCompanyIds: Set<string>,
+): Promise<void> {
+  if (!env.DB) {
+    return;
+  }
+  if (canonicalCompanyIds.size === 0) {
+    return;
+  }
+
+  const rows = await queryAll(
+    env.DB,
+    `SELECT company_id FROM company_members WHERE LOWER(email) = LOWER(?1) AND status = 'active'`,
+    [email],
+  );
+  for (const row of rows) {
+    const companyId = row?.company_id ? String(row.company_id) : '';
+    if (!companyId) continue;
+    if (canonicalCompanyIds.has(companyId)) continue;
+    await env.DB.prepare(
+      `UPDATE company_members SET status = 'inactive', updated_at = CURRENT_TIMESTAMP WHERE company_id = ?1 AND LOWER(email) = LOWER(?2)`
+    )
+      .bind(companyId, email)
+      .run();
   }
 }
 
