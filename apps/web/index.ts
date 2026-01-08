@@ -2,6 +2,8 @@ import React from 'react';
 import { AppRegistry } from 'react-native';
 import { createRoot } from 'react-dom/client';
 
+import './global.css';
+
 import App from './App';
 
 const appName = 'main';

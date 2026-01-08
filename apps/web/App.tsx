@@ -3,8 +3,6 @@ import React, { Component, PropsWithChildren, ReactNode, useEffect, useMemo, use
 import { ActivityIndicator, DevSettings, Pressable, Text, View } from 'react-native';
 import Constants from 'expo-constants';
 
-import './global.css';
-
 import { AuthProvider, useAuth } from './src/auth/AuthProvider';
 import Layout from './src/components/Layout';
 import { clearErrorLog, copyErrorLogToClipboard, getLogPath, logError, useGlobalErrorLogging } from './src/debug/errorLogging';
