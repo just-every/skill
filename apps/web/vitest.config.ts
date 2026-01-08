@@ -3,6 +3,7 @@ import path from 'node:path';
 
 const reactNativeVirtualId = '\0vitest-react-native-stub';
 const reactNativeSvgVirtualId = '\0vitest-react-native-svg-stub';
+const reactNativeWebViewVirtualId = '\0vitest-react-native-webview-stub';
 const fontAwesomeVirtualId = '\0vitest-fontawesome-stub';
 const expoModulesVirtualId = '\0vitest-expo-modules-core-stub';
 const expoConstantsVirtualId = '\0vitest-expo-constants-stub';
@@ -30,6 +31,9 @@ export default defineConfig({
         }
         if (source === 'react-native-svg' || source.startsWith('react-native-svg/')) {
           return reactNativeSvgVirtualId;
+        }
+        if (source === 'react-native-webview' || source.startsWith('react-native-webview/')) {
+          return reactNativeWebViewVirtualId;
         }
         if (source === '@fortawesome/react-native-fontawesome') {
           return fontAwesomeVirtualId;
@@ -103,6 +107,15 @@ export default {
   StyleSheet: { create: (styles) => styles },
   Platform,
 };`;
+        }
+        if (id === reactNativeWebViewVirtualId) {
+          return `import React from 'react';
+
+export const WebView = React.forwardRef(({ children, testID, ...props }, ref) =>
+  React.createElement('iframe', { ref, 'data-testid': testID, ...props }, children)
+);
+
+export default WebView;`;
         }
         if (id === expoModulesVirtualId) {
           return `class CodedError extends Error {
