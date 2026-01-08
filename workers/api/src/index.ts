@@ -505,18 +505,28 @@ async function fetchLoginOrganizationsForSession(
 
   const url = new URL('/api/auth/orgs', origin).toString();
   const fetcher = resolveLoginFetcher(env);
-  const res = await fetcher(url, {
-    method: 'GET',
-    headers: {
-      cookie: `__Secure-better-auth.session_token=${encodeURIComponent(token)}; better-auth.session_token=${encodeURIComponent(token)}`,
-    },
-  });
+  let res: Response;
+  try {
+    res = await fetcher(url, {
+      method: 'GET',
+      headers: {
+        cookie: `__Secure-better-auth.session_token=${encodeURIComponent(token)}; better-auth.session_token=${encodeURIComponent(token)}`,
+      },
+    });
+  } catch {
+    return null;
+  }
 
   if (!res.ok) {
     return null;
   }
 
-  const payload = (await res.json()) as { data?: unknown };
+  let payload: { data?: unknown };
+  try {
+    payload = (await res.json()) as { data?: unknown };
+  } catch {
+    return null;
+  }
   const data = Array.isArray((payload as any)?.data) ? ((payload as any).data as unknown[]) : [];
   const orgs: LoginOrganizationSummary[] = [];
   for (const entry of data) {
