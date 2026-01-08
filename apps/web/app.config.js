@@ -31,13 +31,16 @@ const readDotenvKey = (filePath, key) => {
 };
 
 const resolveProjectId = () => {
-  const fromEnv = process.env.PROJECT_ID || process.env.EXPO_PUBLIC_PROJECT_ID;
-  if (fromEnv) return fromEnv;
-
   const repoRoot = path.resolve(__dirname, '..', '..');
+
+  // Prefer repo-local env files so sibling repos don't accidentally inherit the
+  // caller's shell PROJECT_ID.
   return (
+    readDotenvKey(path.join(repoRoot, '.env.local'), 'PROJECT_ID') ||
     readDotenvKey(path.join(repoRoot, '.env'), 'PROJECT_ID') ||
-    readDotenvKey(path.join(repoRoot, '.env.generated'), 'PROJECT_ID')
+    readDotenvKey(path.join(repoRoot, '.env.generated'), 'PROJECT_ID') ||
+    process.env.PROJECT_ID ||
+    process.env.EXPO_PUBLIC_PROJECT_ID
   );
 };
 
