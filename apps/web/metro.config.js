@@ -23,4 +23,6 @@ config.resolver.conditionNames = Array.from(
   new Set([...preferredConditionNames, ...existingConditionNames])
 );
 
-module.exports = withNativewind(config);
+module.exports = withNativewind(config, {
+  input: './global.css',
+});

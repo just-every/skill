@@ -2,8 +2,6 @@ import React from 'react';
 import { AppRegistry } from 'react-native';
 import { createRoot } from 'react-dom/client';
 
-import './global.css';
-
 import App from './App';
 
 const appName = 'main';
@@ -13,6 +11,8 @@ AppRegistry.registerComponent(appName, () => App);
 
 // Keep the existing web entrypoint so Expo Web continues to work.
 if (typeof document !== 'undefined') {
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  require('./global.css');
   const rootElement = document.getElementById('root');
 
   if (rootElement) {
