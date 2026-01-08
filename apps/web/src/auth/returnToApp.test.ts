@@ -9,7 +9,7 @@ describe('isReturnToAppUrl', () => {
   });
 
   it('accepts exp+* schemes used by Expo builds', () => {
-    expect(isReturnToAppUrl('exp+justevery-web://callback?return=%2Fapp%2Foverview')).toBe(true);
+    expect(isReturnToAppUrl('exp+demo://callback?return=%2Fapp%2Foverview')).toBe(true);
   });
 
   it('treats same-origin HTTP(S) as return-to-app when appOrigin is provided', () => {
@@ -26,4 +26,3 @@ describe('isReturnToAppUrl', () => {
     expect(isReturnToAppUrl('not a url')).toBe(false);
   });
 });
-

@@ -1,6 +1,7 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import React, { Component, PropsWithChildren, ReactNode, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, DevSettings, Pressable, Text, View } from 'react-native';
+import Constants from 'expo-constants';
 
 import './global.css';
 
@@ -95,6 +96,15 @@ const App = (): ReactNode => {
   useCodeBridge();
 
   const env = usePublicEnv();
+
+  useEffect(() => {
+    if (typeof document === 'undefined') return;
+    const nextTitle = Constants.expoConfig?.name;
+    if (nextTitle && document.title !== nextTitle) {
+      document.title = nextTitle;
+    }
+  }, []);
+
   const queryClientRef = useRef<QueryClient>();
 
   if (!queryClientRef.current) {
