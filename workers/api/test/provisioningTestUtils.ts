@@ -244,8 +244,12 @@ export class ProvisioningDbMock implements D1Database {
         string,
         string | null,
       ];
-      if (this.companies.some((company) => company.slug === slug)) {
-        throw new Error('UNIQUE constraint failed: companies.slug');
+      const existing = this.companies.find((company) => company.slug === slug);
+      if (existing) {
+        existing.name = name;
+        existing.plan = plan;
+        existing.billing_email = billingEmail ?? null;
+        return this.buildResult([], { rows_written: 1, changes: 1, changed_db: true });
       }
       this.companies.push({ id, slug, name, plan, billing_email: billingEmail ?? null });
       return this.buildResult([], {
@@ -276,6 +280,24 @@ export class ProvisioningDbMock implements D1Database {
         string,
       ];
       const role = bindings.length >= 6 ? (bindings as any)[5] : 'owner';
+      const byEmail = this.companyMembers.find(
+        (member) => member.company_id === companyId && member.email.toLowerCase() === email.toLowerCase(),
+      );
+      if (byEmail) {
+        byEmail.user_id = userId;
+        byEmail.display_name = displayName;
+        byEmail.role = String(role);
+        return this.buildResult([], { rows_written: 1, changes: 1, changed_db: true });
+      }
+      const byUserId = userId
+        ? this.companyMembers.find((member) => member.company_id === companyId && member.user_id === userId)
+        : undefined;
+      if (byUserId) {
+        byUserId.email = email;
+        byUserId.display_name = displayName;
+        byUserId.role = String(role);
+        return this.buildResult([], { rows_written: 1, changes: 1, changed_db: true });
+      }
       this.companyMembers.push({
         id,
         company_id: companyId,
@@ -288,6 +310,28 @@ export class ProvisioningDbMock implements D1Database {
     }
 
     if (normalized.startsWith('UPDATE COMPANY_MEMBERS')) {
+      if (normalized.includes("SET STATUS = 'SUSPENDED'")) {
+        return this.buildResult([], { rows_written: 1, changes: 1, changed_db: true });
+      }
+      if (normalized.includes('WHERE COMPANY_ID') && normalized.includes('AND USER_ID')) {
+        const [email, displayName, role, companyId, userId] = bindings as [
+          string,
+          string,
+          string,
+          string,
+          string,
+        ];
+        const existing = this.companyMembers.find(
+          (member) => member.company_id === companyId && member.user_id === userId,
+        );
+        if (existing) {
+          existing.email = email;
+          existing.display_name = displayName;
+          existing.role = role;
+          return this.buildResult([], { rows_written: 1, changes: 1, changed_db: true });
+        }
+        return this.buildResult();
+      }
       const [userId, displayName, role, companyId, email] = bindings as [
         string,
         string,

@@ -591,73 +591,87 @@ async function ensureAccountProvisionedForSession(env: Env, session: Authenticat
     const slug = org.slug?.trim();
     if (!slug) continue;
 
-    const existingCompany = await queryFirst(env.DB, `SELECT id FROM companies WHERE slug = ? LIMIT 1`, [slug]);
-    const companyId = existingCompany?.id ? String(existingCompany.id) : `acct-${org.id}`;
-    const isNewCompany = !existingCompany;
+    const timestamp = new Date().toISOString();
+    const trialPeriodEnd = calculateTrialPeriodEnd(env.TRIAL_PERIOD_DAYS);
+    const subscriptionId = `sub-${generateSessionId()}`;
+    const plan = 'Launch';
+
+    try {
+      await env.DB.prepare(
+        `INSERT INTO companies (id, slug, name, plan, billing_email)
+         VALUES (?1, ?2, ?3, ?4, ?5)
+         ON CONFLICT(slug) DO UPDATE SET
+           name = excluded.name,
+           billing_email = excluded.billing_email,
+           updated_at = CURRENT_TIMESTAMP`
+      )
+        .bind(`acct-${org.id}`, slug, org.name, plan, normalizedEmail)
+        .run();
+    } catch (error) {
+      logDbError('ensureAccountProvisionedForSession.company.upsert', error);
+      continue;
+    }
+
+    const companyRow = await queryFirst(env.DB, `SELECT id FROM companies WHERE slug = ? LIMIT 1`, [slug]);
+    const companyId = companyRow?.id ? String(companyRow.id) : '';
+    if (!companyId) {
+      continue;
+    }
     canonicalCompanyIds.add(companyId);
 
-    if (isNewCompany) {
-      const timestamp = new Date().toISOString();
-      const trialPeriodEnd = calculateTrialPeriodEnd(env.TRIAL_PERIOD_DAYS);
-      const subscriptionId = `sub-${generateSessionId()}`;
-      const plan = 'Launch';
+    try {
+      await env.DB.prepare(
+        `INSERT INTO company_branding_settings (company_id, updated_at)
+         VALUES (?1, ?2)
+         ON CONFLICT(company_id) DO UPDATE SET updated_at = excluded.updated_at`
+      )
+        .bind(companyId, timestamp)
+        .run();
+    } catch {
+      // ignore
+    }
 
-      try {
-        await env.DB.prepare(
-          `INSERT INTO companies (id, slug, name, plan, billing_email)
-           VALUES (?1, ?2, ?3, ?4, ?5)`
-        )
-          .bind(companyId, slug, org.name, plan, normalizedEmail)
-          .run();
-
-        await env.DB.prepare(
-          `INSERT INTO company_branding_settings (company_id, updated_at)
-           VALUES (?1, ?2)
-           ON CONFLICT(company_id) DO UPDATE SET updated_at = excluded.updated_at`
-        )
-          .bind(companyId, timestamp)
-          .run();
-
+    try {
+      const existingSub = await queryFirst(env.DB, `SELECT id FROM company_subscriptions WHERE company_id = ? LIMIT 1`, [companyId]);
+      if (!existingSub) {
         await env.DB.prepare(
           `INSERT INTO company_subscriptions (id, company_id, plan_name, status, seats, mrr_cents, current_period_start, current_period_end)
            VALUES (?1, ?2, ?3, 'trialing', 5, 0, ?4, ?5)`
         )
           .bind(subscriptionId, companyId, plan, timestamp, trialPeriodEnd)
           .run();
-      } catch (error) {
-        logDbError('ensureAccountProvisionedForSession.company.insert', error);
-        continue;
       }
-    } else {
-      await env.DB.prepare(
-        `UPDATE companies SET name = ?1, billing_email = ?2, updated_at = CURRENT_TIMESTAMP WHERE slug = ?3`
-      )
-        .bind(org.name, normalizedEmail, slug)
-        .run();
+    } catch {
+      // ignore
     }
 
     const role = mapLoginOrgRoleToCompanyRole(org.role);
 
-    await env.DB.prepare(
-      `UPDATE company_members
-       SET user_id = ?1, display_name = ?2, role = ?3, status = 'active', updated_at = CURRENT_TIMESTAMP
-       WHERE company_id = ?4 AND LOWER(email) = LOWER(?5)`
-    )
-      .bind(persistedUserId, displayName, role, companyId, normalizedEmail)
-      .run();
-
-    const existingMember = await queryFirst(
-      env.DB,
-      `SELECT id FROM company_members WHERE company_id = ?1 AND user_id = ?2 LIMIT 1`,
-      [companyId, persistedUserId],
-    );
-    if (!existingMember) {
+    try {
       await env.DB.prepare(
         `INSERT INTO company_members (id, company_id, user_id, email, display_name, role, status)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'active')`
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'active')
+         ON CONFLICT(company_id, email) DO UPDATE SET
+           user_id = excluded.user_id,
+           display_name = excluded.display_name,
+           role = excluded.role,
+           status = 'active',
+           updated_at = CURRENT_TIMESTAMP`
       )
         .bind(`mbr-${generateSessionId()}`, companyId, persistedUserId, normalizedEmail, displayName, role)
         .run();
+    } catch (error) {
+      try {
+        await env.DB.prepare(
+          `UPDATE company_members
+           SET email = ?1, display_name = ?2, role = ?3, status = 'active', updated_at = CURRENT_TIMESTAMP
+           WHERE company_id = ?4 AND user_id = ?5`
+        )
+          .bind(normalizedEmail, displayName, role, companyId, persistedUserId)
+          .run();
+      } catch {
+        logDbError('ensureAccountProvisionedForSession.member.upsert', error);
+      }
     }
   }
 
@@ -686,7 +700,7 @@ async function deactivateNonCanonicalMemberships(
     if (!companyId) continue;
     if (canonicalCompanyIds.has(companyId)) continue;
     await env.DB.prepare(
-      `UPDATE company_members SET status = 'inactive', updated_at = CURRENT_TIMESTAMP WHERE company_id = ?1 AND LOWER(email) = LOWER(?2)`
+      `UPDATE company_members SET status = 'suspended', updated_at = CURRENT_TIMESTAMP WHERE company_id = ?1 AND LOWER(email) = LOWER(?2)`
     )
       .bind(companyId, email)
       .run();
