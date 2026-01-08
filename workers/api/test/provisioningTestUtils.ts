@@ -122,6 +122,20 @@ export class ProvisioningDbMock implements D1Database {
       record = match ? { id: match.id } : null;
     }
 
+    if (normalized.startsWith('SELECT ID FROM COMPANIES WHERE SLUG')) {
+      const [slug] = bindings as [string];
+      const match = this.companies.find((company) => company.slug === slug);
+      record = match ? { id: match.id } : null;
+    }
+
+    if (normalized.startsWith('SELECT ID FROM COMPANY_MEMBERS WHERE COMPANY_ID')) {
+      const [companyId, userId] = bindings as [string, string];
+      const match = this.companyMembers.find(
+        (member) => member.company_id === companyId && member.user_id === userId,
+      );
+      record = match ? { id: match.id } : null;
+    }
+
     if (!record) {
       return null;
     }
@@ -242,6 +256,17 @@ export class ProvisioningDbMock implements D1Database {
       });
     }
 
+    if (normalized.startsWith('UPDATE COMPANIES SET NAME')) {
+      const [name, billingEmail, slug] = bindings as [string, string | null, string];
+      const existing = this.companies.find((company) => company.slug === slug);
+      if (existing) {
+        existing.name = name;
+        existing.billing_email = billingEmail ?? null;
+        return this.buildResult([], { rows_written: 1, changes: 1, changed_db: true });
+      }
+      return this.buildResult();
+    }
+
     if (normalized.startsWith('INSERT INTO COMPANY_MEMBERS')) {
       const [id, companyId, userId, email, displayName] = bindings as [
         string,
@@ -250,15 +275,36 @@ export class ProvisioningDbMock implements D1Database {
         string,
         string,
       ];
+      const role = bindings.length >= 6 ? (bindings as any)[5] : 'owner';
       this.companyMembers.push({
         id,
         company_id: companyId,
         user_id: userId,
         email,
         display_name: displayName,
-        role: 'owner',
+        role: String(role),
       });
       return this.buildResult([], { rows_written: 1, changes: 1, changed_db: true });
+    }
+
+    if (normalized.startsWith('UPDATE COMPANY_MEMBERS')) {
+      const [userId, displayName, role, companyId, email] = bindings as [
+        string,
+        string,
+        string,
+        string,
+        string,
+      ];
+      const existing = this.companyMembers.find(
+        (member) => member.company_id === companyId && member.email.toLowerCase() === email.toLowerCase(),
+      );
+      if (existing) {
+        existing.user_id = userId;
+        existing.display_name = displayName;
+        existing.role = role;
+        return this.buildResult([], { rows_written: 1, changes: 1, changed_db: true });
+      }
+      return this.buildResult();
     }
 
     if (normalized.startsWith('INSERT INTO COMPANY_BRANDING_SETTINGS')) {
@@ -299,6 +345,23 @@ export function createProvisioningEnv(): { env: Env; db: ProvisioningDbMock } {
   const db = new ProvisioningDbMock();
   const env = {
     LOGIN_ORIGIN: 'https://login.local',
+    LOGIN_SERVICE: {
+      fetch: async () =>
+        new Response(
+          JSON.stringify({
+            data: [
+              {
+                id: 'org-test',
+                name: 'Test',
+                slug: 'test',
+                status: 'active',
+                role: 'owner',
+              },
+            ],
+          }),
+          { headers: { 'content-type': 'application/json' } },
+        ),
+    },
     APP_BASE_URL: '/app',
     PROJECT_DOMAIN: 'https://app.local',
     STRIPE_PRODUCTS: '[]',

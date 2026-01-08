@@ -467,6 +467,7 @@ async function fetchCompaniesForViewer(
   const viewerScopedSql = `${COMPANY_SELECT} WHERE EXISTS (
     SELECT 1 FROM company_members m
     WHERE m.company_id = c.id
+      AND m.status = 'active'
       AND ((?1 != '' AND m.user_id = ?1) OR (?2 != '' AND LOWER(m.email) = LOWER(?2)))
   )
   ORDER BY c.created_at ASC;`;
@@ -478,6 +479,63 @@ async function fetchCompaniesForViewer(
     logDbError('fetchCompaniesForViewer', error);
     return null;
   }
+}
+
+type LoginOrganizationSummary = {
+  id: string;
+  name: string;
+  slug: string | null;
+  status: string;
+  role?: string;
+};
+
+async function fetchLoginOrganizationsForSession(
+  env: Env,
+  session: AuthenticatedSession,
+): Promise<LoginOrganizationSummary[] | null> {
+  const origin = env.LOGIN_ORIGIN?.trim();
+  if (!origin) {
+    return null;
+  }
+
+  const token = session.session?.session?.token;
+  if (!token) {
+    return null;
+  }
+
+  const url = new URL('/api/auth/orgs', origin).toString();
+  const fetcher = resolveLoginFetcher(env);
+  const res = await fetcher(url, {
+    method: 'GET',
+    headers: {
+      cookie: `__Secure-better-auth.session_token=${encodeURIComponent(token)}; better-auth.session_token=${encodeURIComponent(token)}`,
+    },
+  });
+
+  if (!res.ok) {
+    return null;
+  }
+
+  const payload = (await res.json()) as { data?: unknown };
+  const data = Array.isArray((payload as any)?.data) ? ((payload as any).data as unknown[]) : [];
+  const orgs: LoginOrganizationSummary[] = [];
+  for (const entry of data) {
+    if (!entry || typeof entry !== 'object') continue;
+    const id = typeof (entry as any).id === 'string' ? (entry as any).id : '';
+    const name = typeof (entry as any).name === 'string' ? (entry as any).name : '';
+    const slug = typeof (entry as any).slug === 'string' ? (entry as any).slug : null;
+    const status = typeof (entry as any).status === 'string' ? (entry as any).status : 'active';
+    const role = typeof (entry as any).role === 'string' ? (entry as any).role : undefined;
+    if (!id || !name) continue;
+    orgs.push({ id, name, slug, status, role });
+  }
+  return orgs;
+}
+
+function mapLoginOrgRoleToCompanyRole(role?: string): string {
+  if (role === 'owner') return 'owner';
+  if (role === 'admin') return 'admin';
+  return 'viewer';
 }
 
 async function fetchCompanyBySlugFromDb(env: Env, slug: string): Promise<AccountRecord | null> {
@@ -507,47 +565,87 @@ async function ensureAccountProvisionedForSession(env: Env, session: Authenticat
     return;
   }
 
-  const userId = session.userId?.trim() ?? null;
-  const alreadyMember = await hasMembershipForUser(env, userId, normalizedEmail);
-  if (alreadyMember) {
+  const loginOrgs = await fetchLoginOrganizationsForSession(env, session);
+  if (!loginOrgs || loginOrgs.length === 0) {
     return;
   }
 
+  const userId = session.userId?.trim() ?? null;
   const persistedUserId = await upsertUserRecord(env, userId, normalizedEmail);
   const displayName = deriveDisplayName(session.session?.user?.name, normalizedEmail);
-  const companyName = deriveCompanyName(displayName);
-  const companySlug = await generateUniqueCompanySlug(env.DB, displayName);
-  const companyId = `acct-${generateSessionId()}`;
-  const memberId = `mbr-${generateSessionId()}`;
-  const subscriptionId = `sub-${generateSessionId()}`;
-  const plan = 'Launch';
-  const timestamp = new Date().toISOString();
-  const trialPeriodEnd = calculateTrialPeriodEnd(env.TRIAL_PERIOD_DAYS);
 
-  const statements = [
-    env.DB.prepare(
-      `INSERT INTO companies (id, slug, name, plan, billing_email)
-       VALUES (?1, ?2, ?3, ?4, ?5)`
-    ).bind(companyId, companySlug, companyName, plan, normalizedEmail),
-    env.DB.prepare(
-      `INSERT INTO company_members (id, company_id, user_id, email, display_name, role, status)
-       VALUES (?1, ?2, ?3, ?4, ?5, 'owner', 'active')`
-    ).bind(memberId, companyId, persistedUserId, normalizedEmail, displayName),
-    env.DB.prepare(
-      `INSERT INTO company_branding_settings (company_id, updated_at)
-       VALUES (?1, ?2)
-       ON CONFLICT(company_id) DO UPDATE SET updated_at = excluded.updated_at`
-    ).bind(companyId, timestamp),
-    env.DB.prepare(
-      `INSERT INTO company_subscriptions (id, company_id, plan_name, status, seats, mrr_cents, current_period_start, current_period_end)
-       VALUES (?1, ?2, ?3, 'trialing', 5, 0, ?4, ?5)`
-    ).bind(subscriptionId, companyId, plan, timestamp, trialPeriodEnd),
-  ];
+  for (const org of loginOrgs) {
+    if (org.status !== 'active') continue;
+    const slug = org.slug?.trim();
+    if (!slug) continue;
 
-  try {
-    await env.DB.batch(statements);
-  } catch (error) {
-    logDbError('ensureAccountProvisionedForSession', error);
+    const existingCompany = await queryFirst(env.DB, `SELECT id FROM companies WHERE slug = ? LIMIT 1`, [slug]);
+    const companyId = existingCompany?.id ? String(existingCompany.id) : `acct-${org.id}`;
+    const isNewCompany = !existingCompany;
+
+    if (isNewCompany) {
+      const timestamp = new Date().toISOString();
+      const trialPeriodEnd = calculateTrialPeriodEnd(env.TRIAL_PERIOD_DAYS);
+      const subscriptionId = `sub-${generateSessionId()}`;
+      const plan = 'Launch';
+
+      try {
+        await env.DB.prepare(
+          `INSERT INTO companies (id, slug, name, plan, billing_email)
+           VALUES (?1, ?2, ?3, ?4, ?5)`
+        )
+          .bind(companyId, slug, org.name, plan, normalizedEmail)
+          .run();
+
+        await env.DB.prepare(
+          `INSERT INTO company_branding_settings (company_id, updated_at)
+           VALUES (?1, ?2)
+           ON CONFLICT(company_id) DO UPDATE SET updated_at = excluded.updated_at`
+        )
+          .bind(companyId, timestamp)
+          .run();
+
+        await env.DB.prepare(
+          `INSERT INTO company_subscriptions (id, company_id, plan_name, status, seats, mrr_cents, current_period_start, current_period_end)
+           VALUES (?1, ?2, ?3, 'trialing', 5, 0, ?4, ?5)`
+        )
+          .bind(subscriptionId, companyId, plan, timestamp, trialPeriodEnd)
+          .run();
+      } catch (error) {
+        logDbError('ensureAccountProvisionedForSession.company.insert', error);
+        continue;
+      }
+    } else {
+      await env.DB.prepare(
+        `UPDATE companies SET name = ?1, billing_email = ?2, updated_at = CURRENT_TIMESTAMP WHERE slug = ?3`
+      )
+        .bind(org.name, normalizedEmail, slug)
+        .run();
+    }
+
+    const role = mapLoginOrgRoleToCompanyRole(org.role);
+
+    await env.DB.prepare(
+      `UPDATE company_members
+       SET user_id = ?1, display_name = ?2, role = ?3, status = 'active', updated_at = CURRENT_TIMESTAMP
+       WHERE company_id = ?4 AND LOWER(email) = LOWER(?5)`
+    )
+      .bind(persistedUserId, displayName, role, companyId, normalizedEmail)
+      .run();
+
+    const existingMember = await queryFirst(
+      env.DB,
+      `SELECT id FROM company_members WHERE company_id = ?1 AND user_id = ?2 LIMIT 1`,
+      [companyId, persistedUserId],
+    );
+    if (!existingMember) {
+      await env.DB.prepare(
+        `INSERT INTO company_members (id, company_id, user_id, email, display_name, role, status)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'active')`
+      )
+        .bind(`mbr-${generateSessionId()}`, companyId, persistedUserId, normalizedEmail, displayName, role)
+        .run();
+    }
   }
 }
 
@@ -555,26 +653,6 @@ function calculateTrialPeriodEnd(envValue?: string): string {
   const parsed = envValue ? Number.parseInt(envValue, 10) : DEFAULT_TRIAL_PERIOD_DAYS;
   const durationDays = Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_TRIAL_PERIOD_DAYS;
   return new Date(Date.now() + durationDays * MS_IN_DAY).toISOString();
-}
-
-async function hasMembershipForUser(env: Env, userId: string | null, email: string): Promise<boolean> {
-  if (!env.DB) {
-    return false;
-  }
-
-  if (userId) {
-    const member = await queryFirst(env.DB, `SELECT company_id FROM company_members WHERE user_id = ? LIMIT 1`, [userId]);
-    if (member?.company_id) {
-      return true;
-    }
-  }
-
-  const byEmail = await queryFirst(
-    env.DB,
-    `SELECT company_id FROM company_members WHERE LOWER(email) = LOWER(?) LIMIT 1`,
-    [email]
-  );
-  return Boolean(byEmail?.company_id);
 }
 
 async function upsertUserRecord(env: Env, userId: string | null, email: string): Promise<string> {
@@ -607,20 +685,6 @@ async function upsertUserRecord(env: Env, userId: string | null, email: string):
   }
 }
 
-async function generateUniqueCompanySlug(db: D1Database, seed: string): Promise<string> {
-  const base = slugifySegment(seed);
-  let candidate = base;
-  let suffix = 1;
-
-  while (true) {
-    const row = await queryFirst(db, `SELECT slug FROM companies WHERE slug = ? LIMIT 1`, [candidate]);
-    if (!row) {
-      return candidate;
-    }
-    candidate = `${base}-${suffix++}`;
-  }
-}
-
 function deriveDisplayName(rawName: string | undefined | null, email: string): string {
   const trimmed = rawName?.trim();
   if (trimmed) {
@@ -628,19 +692,6 @@ function deriveDisplayName(rawName: string | undefined | null, email: string): s
   }
   const local = extractLocalPart(email);
   return local ? capitalise(local) : 'Owner';
-}
-
-function deriveCompanyName(displayName: string): string {
-  const first = displayName.split(/\s+/).filter(Boolean)[0] ?? 'New';
-  return `${first}'s Workspace`;
-}
-
-function slugifySegment(value: string): string {
-  const slug = value
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '');
-  return slug || 'workspace';
 }
 
 function extractLocalPart(email: string): string {

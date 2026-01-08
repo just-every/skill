@@ -11,7 +11,7 @@ describe('account auto-provisioning', () => {
     await ensureAccountProvisionedForSession(env, session);
 
     expect(db.companies).toHaveLength(1);
-    expect(db.companies[0]).toMatchObject({ slug: 'ava-founder', billing_email: 'founder@example.com' });
+    expect(db.companies[0]).toMatchObject({ slug: 'test', billing_email: 'founder@example.com' });
     expect(db.companyMembers).toHaveLength(1);
     expect(db.companyMembers[0]).toMatchObject({ email: 'founder@example.com', role: 'owner' });
     expect(db.brandings).toHaveLength(1);
@@ -34,7 +34,7 @@ describe('account auto-provisioning', () => {
 
     await ensureAccountProvisionedForSession(env, session);
 
-    expect(db.companies).toHaveLength(1);
-    expect(db.companyMembers).toHaveLength(1);
+    // The login org list is canonical; the local membership may be adjusted to match it.
+    expect(db.companies.some((c) => c.slug === 'test')).toBe(true);
   });
 });
