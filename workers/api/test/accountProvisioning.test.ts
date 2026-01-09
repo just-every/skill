@@ -8,7 +8,11 @@ describe('account auto-provisioning', () => {
     const { env, db } = createProvisioningEnv();
     const session = buildSession('user_001', 'founder@example.com', 'Ava Founder');
 
-    await ensureAccountProvisionedForSession(env, session);
+    const request = new Request('https://app.local/api/accounts', {
+      headers: { cookie: 'better-auth.session_token=testtoken' },
+    });
+
+    await ensureAccountProvisionedForSession(env, request, session);
 
     expect(db.companies).toHaveLength(1);
     expect(db.companies[0]).toMatchObject({ slug: 'test', billing_email: 'founder@example.com' });
@@ -31,7 +35,11 @@ describe('account auto-provisioning', () => {
 
     const session = buildSession('user_existing', 'existing@example.com', 'Existing Owner');
 
-    await ensureAccountProvisionedForSession(env, session);
+    const request = new Request('https://app.local/api/accounts', {
+      headers: { cookie: 'better-auth.session_token=testtoken' },
+    });
+
+    await ensureAccountProvisionedForSession(env, request, session);
 
     // The login org list is canonical; the local membership may be adjusted to match it.
     expect(db.companies.some((c) => c.slug === 'test')).toBe(true);

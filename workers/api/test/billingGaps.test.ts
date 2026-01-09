@@ -290,7 +290,11 @@ describe('billing regression coverage', () => {
     const { env, db } = createProvisioningEnv();
     const session = buildSession('user_future', 'future@example.com', 'Future Founder');
 
-    await ensureAccountProvisionedForSession(env, session);
+    const request = new Request('https://app.local/api/accounts', {
+      headers: { cookie: 'better-auth.session_token=testtoken' },
+    });
+
+    await ensureAccountProvisionedForSession(env, request, session);
 
     expect(db.subscriptions).toHaveLength(1);
     const seeded = db.subscriptions[0];
