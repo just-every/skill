@@ -1,11 +1,18 @@
 import React from 'react';
-import { ActivityIndicator, Pressable, ScrollView, Text, View } from 'react-native';
+import { ActivityIndicator, Platform, Pressable, ScrollView, Text, View } from 'react-native';
 import { FontAwesomeIcon } from '@fortawesome/react-native-fontawesome';
 import { faPlus, faTrash } from '@fortawesome/pro-solid-svg-icons';
 
 import type { DesignRun } from '../types';
 import { Badge, Button, Card, CardContent, CardDescription, CardHeader, CardTitle } from '../../components/ui';
 import { cn } from '../../lib/cn';
+
+const shouldHandleAnchorClick = (event: React.MouseEvent<HTMLAnchorElement>): boolean => {
+  if (event.defaultPrevented) return false;
+  if (event.button !== 0) return false;
+  if (event.metaKey || event.altKey || event.ctrlKey || event.shiftKey) return false;
+  return true;
+};
 
 type DesignListScreenProps = {
   readonly runs: DesignRun[];
@@ -115,6 +122,7 @@ const DesignListScreen = ({
         <View className="gap-4">
           {runs.map((run) => {
             const isDeleting = isDeletingRun === run.id;
+            const href = `/app/design/runs/${encodeURIComponent(run.id)}`;
             return (
               <Card key={run.id}>
                 <Pressable
@@ -132,6 +140,20 @@ const DesignListScreen = ({
                         <CardDescription>
                           {run.config?.prompt ? run.config.prompt.slice(0, 120) + (run.config.prompt.length > 120 ? '...' : '') : 'No prompt provided'}
                         </CardDescription>
+                        {Platform.OS === 'web' ? (
+                          <a
+                            href={href}
+                            className="mt-2 inline-flex text-xs font-semibold text-brand-700 underline decoration-brand-300 underline-offset-4 hover:text-brand-800"
+                            onClick={(event) => {
+                              if (shouldHandleAnchorClick(event)) {
+                                event.preventDefault();
+                                onViewRun(run.id);
+                              }
+                            }}
+                          >
+                            Open link
+                          </a>
+                        ) : null}
                       </View>
                       <Badge variant={statusVariant(run.status)}>{statusLabel(run.status)}</Badge>
                     </View>
