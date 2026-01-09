@@ -145,6 +145,7 @@ const DesignListScreen = ({
                             href={href}
                             className="mt-2 inline-flex text-xs font-semibold text-brand-700 underline decoration-brand-300 underline-offset-4 hover:text-brand-800"
                             onClick={(event) => {
+                              event.stopPropagation();
                               if (shouldHandleAnchorClick(event)) {
                                 event.preventDefault();
                                 onViewRun(run.id);
