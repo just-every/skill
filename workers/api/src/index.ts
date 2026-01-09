@@ -572,6 +572,11 @@ async function ensureAccountProvisionedForSession(env: Env, session: Authenticat
 
   for (const org of loginOrgs) {
     if (org.status !== 'active') continue;
+
+    // Even if slug provisioning fails (or slug is missing), treat the login org id as canonical
+    // so we don't keep showing stale local workspaces.
+    canonicalCompanyIds.add(`acct-${org.id}`);
+
     const slug = org.slug?.trim();
     if (!slug) continue;
 
@@ -1789,7 +1794,9 @@ function resolveLoginFetcher(env: Env): FetchFunction {
 }
 
 function resolveLoginOrigin(env: Env): string | null {
-  const candidates = [env.LOGIN_ORIGIN, env.BETTER_AUTH_URL]
+  // Prefer BETTER_AUTH_URL because some deployments set LOGIN_ORIGIN to the app host,
+  // but Better Auth endpoints live on the login origin.
+  const candidates = [env.BETTER_AUTH_URL, env.LOGIN_ORIGIN]
     .map((value) => value?.trim() ?? '')
     .filter(Boolean);
 
