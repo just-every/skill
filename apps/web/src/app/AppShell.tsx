@@ -31,10 +31,25 @@ type AppShellProps = {
   readonly navItems: AppNavItem[];
   readonly activeItem: string;
   readonly onNavigate: (key: string) => void;
+  readonly getHrefForNavItem?: (key: string) => string;
   readonly companies: Company[];
   readonly isLoadingCompanies: boolean;
   readonly onRefreshCompanies: () => void;
   readonly children?: ReactNode;
+};
+
+const shouldHandleAnchorClick = (event: React.MouseEvent<HTMLAnchorElement>): boolean => {
+  if (event.defaultPrevented) return false;
+  if (event.button !== 0) return false;
+  if (event.metaKey || event.altKey || event.ctrlKey || event.shiftKey) return false;
+  return true;
+};
+
+const defaultNavHref = (key: string) => {
+  if (key === 'overview') {
+    return '/app/overview';
+  }
+  return `/app/${key}`;
 };
 
 const STARFIELD_MICRO_EVENT_FREQ = 0.003;
@@ -43,6 +58,7 @@ const AppShell = ({
   navItems,
   activeItem,
   onNavigate,
+  getHrefForNavItem,
   companies,
   isLoadingCompanies,
   onRefreshCompanies,
@@ -459,6 +475,7 @@ const AppShell = ({
           navItems={navItems}
           activeItem={activeItem}
           handleNavPress={handleNavPress}
+          getHrefForNavItem={getHrefForNavItem}
           renderAccountMenu={renderAccountMenu}
           microEventFrequency={STARFIELD_MICRO_EVENT_FREQ}
         />
@@ -510,6 +527,7 @@ const AppShell = ({
                   navItems={navItems}
                   activeItem={activeItem}
                   handleNavPress={handleNavPress}
+                  getHrefForNavItem={getHrefForNavItem}
                   renderAccountMenu={renderAccountMenu}
                   microEventFrequency={STARFIELD_MICRO_EVENT_FREQ}
                 />
@@ -532,6 +550,7 @@ type SidebarProps = {
   navItems: AppNavItem[];
   activeItem: string;
   handleNavPress: (key: string) => void;
+  getHrefForNavItem?: (key: string) => string;
   renderAccountMenu: () => React.ReactNode;
   microEventFrequency: number;
 };
@@ -545,6 +564,7 @@ function Sidebar({
   navItems,
   activeItem,
   handleNavPress,
+  getHrefForNavItem,
   renderAccountMenu,
   microEventFrequency,
 }: SidebarProps) {
@@ -575,19 +595,15 @@ function Sidebar({
           <View className="mt-8 flex flex-1 flex-col gap-2">
             {navItems.map((item) => {
               const isActive = item.key === activeItem;
-              return (
-                <Pressable
-                  key={item.key}
-                  testID={`nav-${item.key}`}
-                  accessibilityRole="button"
-                  accessibilityState={{ selected: isActive }}
-                  aria-current={isActive ? 'page' : undefined}
-                  onPress={() => handleNavPress(item.key)}
-                  className={cn(
-                    'flex flex-row items-start gap-3 rounded-2xl px-4 py-3 transition-colors',
-                    isActive ? 'bg-white/10 text-white' : 'text-slate-300 hover:bg-white/5'
-                  )}
-                >
+              const href = (getHrefForNavItem ?? defaultNavHref)(item.key);
+
+              const linkClasses = cn(
+                'flex flex-row items-start gap-3 rounded-2xl px-4 py-3 transition-colors',
+                isActive ? 'bg-white/10 text-white' : 'text-slate-300 hover:bg-white/5'
+              );
+
+              const linkContent = (
+                <>
                   <View className="pt-1">
                     <FontAwesomeIcon icon={item.icon} size={16} color={isActive ? '#ffffff' : '#b8c2d8'} />
                   </View>
@@ -597,6 +613,41 @@ function Sidebar({
                     </Text>
                     <Text className="text-[11px] text-slate-400">{item.description}</Text>
                   </View>
+                </>
+              );
+
+              if (Platform.OS === 'web') {
+                return (
+                  <a
+                    key={item.key}
+                    href={href}
+                    data-testid={`nav-${item.key}`}
+                    aria-current={isActive ? 'page' : undefined}
+                    className={linkClasses}
+                    onClick={(event) => {
+                      if (!shouldHandleAnchorClick(event)) {
+                        return;
+                      }
+                      event.preventDefault();
+                      handleNavPress(item.key);
+                    }}
+                  >
+                    {linkContent}
+                  </a>
+                );
+              }
+
+              return (
+                <Pressable
+                  key={item.key}
+                  testID={`nav-${item.key}`}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: isActive }}
+                  aria-current={isActive ? 'page' : undefined}
+                  onPress={() => handleNavPress(item.key)}
+                  className={linkClasses}
+                >
+                  {linkContent}
                 </Pressable>
               );
             })}
