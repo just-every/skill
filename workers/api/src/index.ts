@@ -130,10 +130,6 @@ type AccountBranding = {
   updatedAt: string;
 };
 
-type BrandingOverride = Partial<Omit<AccountBranding, 'updatedAt'>> & {
-  updatedAt: string;
-};
-
 type AccountRecord = {
   id: string;
   slug: string;
@@ -167,7 +163,7 @@ type InviteStatus = 'pending' | 'accepted' | 'expired';
 
 type AccountInviteRecord = {
   id: string;
-  companyId: string;
+  accountId: string;
   email: string;
   role: InviteRole;
   status: InviteStatus;
@@ -323,7 +319,7 @@ for (const account of ACCOUNT_DATA) {
       const expiresAt = new Date(new Date(createdAt).getTime() + FALLBACK_INVITE_EXPIRY_MS).toISOString();
       return {
         id: `seed-${member.id}`,
-        companyId: account.id,
+        accountId: account.id,
         email: member.email,
         role: member.role,
         status: 'pending',
@@ -337,48 +333,39 @@ for (const account of ACCOUNT_DATA) {
   }
 }
 
-const ACCOUNT_BRANDING_OVERRIDES = new Map<string, BrandingOverride>();
-
 type DbRow = Record<string, unknown>;
 
-const COMPANY_SELECT = `
+const ORGANIZATION_SELECT = `
   SELECT
-    c.id,
-    c.slug,
-    c.name,
-    c.plan,
-    c.industry,
-    c.billing_email,
-    c.created_at,
-    b.primary_color,
-    b.secondary_color,
-    b.accent_color,
-    b.logo_url,
-    b.tagline,
-    b.updated_at AS branding_updated_at,
+    o.id,
+    o.slug,
+    o.name,
+    o.plan,
+    o.industry,
+    o.billing_email,
+    o.created_at,
     stats.active_members,
     stats.pending_invites,
     subs.seats,
     subs.mrr_cents
-  FROM companies c
-  LEFT JOIN company_branding_settings b ON b.company_id = c.id
+  FROM organizations o
   LEFT JOIN (
     SELECT company_id,
       SUM(CASE WHEN status = 'active' THEN 1 ELSE 0 END) AS active_members,
       SUM(CASE WHEN status = 'invited' THEN 1 ELSE 0 END) AS pending_invites
-    FROM company_members
+    FROM organization_members
     GROUP BY company_id
-  ) AS stats ON stats.company_id = c.id
+  ) AS stats ON stats.company_id = o.id
   LEFT JOIN (
     SELECT company_id,
       COALESCE(MAX(seats), 0) AS seats,
       COALESCE(MAX(mrr_cents), 0) AS mrr_cents
-    FROM company_subscriptions
+    FROM organization_subscriptions
     GROUP BY company_id
-  ) AS subs ON subs.company_id = c.id
+  ) AS subs ON subs.company_id = o.id
 `;
 
-const COMPANY_SUMMARY_SQL = `${COMPANY_SELECT} ORDER BY c.created_at ASC;`;
+const ORGANIZATION_SUMMARY_SQL = `${ORGANIZATION_SELECT} ORDER BY o.created_at ASC;`;
 
 async function queryAll(db: D1Database, sql: string, bindings: unknown[] = []): Promise<DbRow[]> {
   const statement = db.prepare(sql).bind(...bindings);
@@ -418,7 +405,7 @@ function stringFrom(value: unknown, fallback = ''): string {
   return typeof value === 'string' && value.length > 0 ? value : fallback;
 }
 
-function mapDbCompany(row: DbRow): AccountRecord {
+function mapDbOrganization(row: DbRow): AccountRecord {
   const stats = {
     activeMembers: numberFrom(row.active_members),
     pendingInvites: numberFrom(row.pending_invites),
@@ -427,12 +414,9 @@ function mapDbCompany(row: DbRow): AccountRecord {
   } satisfies AccountRecord['stats'];
 
   const brand: AccountBranding = {
-    primaryColor: stringFrom(row.primary_color, '#0f172a'),
-    secondaryColor: stringFrom(row.secondary_color, '#38bdf8'),
-    accentColor: row.accent_color ? String(row.accent_color) : undefined,
-    logoUrl: row.logo_url ? String(row.logo_url) : undefined,
-    tagline: row.tagline ? String(row.tagline) : undefined,
-    updatedAt: stringFrom(row.branding_updated_at, new Date().toISOString())
+    primaryColor: '#0f172a',
+    secondaryColor: '#38bdf8',
+    updatedAt: new Date().toISOString(),
   };
 
   return {
@@ -448,12 +432,12 @@ function mapDbCompany(row: DbRow): AccountRecord {
   } satisfies AccountRecord;
 }
 
-async function fetchCompaniesForViewer(
+async function fetchOrganizationsForViewer(
   env: Env,
   session: AuthenticatedSession
 ): Promise<AccountRecord[] | null> {
   if (!env.DB) {
-    logDbError('fetchCompaniesForViewer', 'D1 binding is not configured');
+    logDbError('fetchOrganizationsForViewer', 'D1 binding is not configured');
     return null;
   }
 
@@ -464,19 +448,19 @@ async function fetchCompaniesForViewer(
     return [];
   }
 
-  const viewerScopedSql = `${COMPANY_SELECT} WHERE EXISTS (
-    SELECT 1 FROM company_members m
-    WHERE m.company_id = c.id
+  const viewerScopedSql = `${ORGANIZATION_SELECT} WHERE EXISTS (
+    SELECT 1 FROM organization_members m
+    WHERE m.company_id = o.id
       AND m.status = 'active'
       AND ((?1 != '' AND m.user_id = ?1) OR (?2 != '' AND LOWER(m.email) = LOWER(?2)))
   )
-  ORDER BY c.created_at ASC;`;
+  ORDER BY o.created_at ASC;`;
 
   try {
     const rows = await queryAll(env.DB, viewerScopedSql, [userId, email]);
-    return rows.map((row) => mapDbCompany(row));
+    return rows.map((row) => mapDbOrganization(row));
   } catch (error) {
-    logDbError('fetchCompaniesForViewer', error);
+    logDbError('fetchOrganizationsForViewer', error);
     return null;
   }
 }
@@ -542,25 +526,25 @@ async function fetchLoginOrganizationsForSession(
   return orgs;
 }
 
-function mapLoginOrgRoleToCompanyRole(role?: string): string {
+function mapLoginOrgRoleToMemberRole(role?: string): string {
   if (role === 'owner') return 'owner';
   if (role === 'admin') return 'admin';
   return 'viewer';
 }
 
-async function fetchCompanyBySlugFromDb(env: Env, slug: string): Promise<AccountRecord | null> {
+async function fetchOrganizationBySlugFromDb(env: Env, slug: string): Promise<AccountRecord | null> {
   if (!env.DB) {
-    logDbError('fetchCompanyBySlugFromDb', 'D1 binding is not configured');
+    logDbError('fetchOrganizationBySlugFromDb', 'D1 binding is not configured');
     return null;
   }
   try {
-    const rows = await queryAll(env.DB, `${COMPANY_SELECT} WHERE c.slug = ? LIMIT 1`, [slug]);
+    const rows = await queryAll(env.DB, `${ORGANIZATION_SELECT} WHERE o.slug = ? LIMIT 1`, [slug]);
     if (rows.length === 0) {
       return null;
     }
-    return mapDbCompany(rows[0]);
+    return mapDbOrganization(rows[0]);
   } catch (error) {
-    logDbError('fetchCompanyBySlugFromDb', error);
+    logDbError('fetchOrganizationBySlugFromDb', error);
     return null;
   }
 }
@@ -598,7 +582,7 @@ async function ensureAccountProvisionedForSession(env: Env, session: Authenticat
 
     try {
       await env.DB.prepare(
-        `INSERT INTO companies (id, slug, name, plan, billing_email)
+        `INSERT INTO organizations (id, slug, name, plan, billing_email)
          VALUES (?1, ?2, ?3, ?4, ?5)
          ON CONFLICT(slug) DO UPDATE SET
            name = excluded.name,
@@ -612,7 +596,7 @@ async function ensureAccountProvisionedForSession(env: Env, session: Authenticat
       continue;
     }
 
-    const companyRow = await queryFirst(env.DB, `SELECT id FROM companies WHERE slug = ? LIMIT 1`, [slug]);
+    const companyRow = await queryFirst(env.DB, `SELECT id FROM organizations WHERE slug = ? LIMIT 1`, [slug]);
     const companyId = companyRow?.id ? String(companyRow.id) : '';
     if (!companyId) {
       continue;
@@ -620,22 +604,10 @@ async function ensureAccountProvisionedForSession(env: Env, session: Authenticat
     canonicalCompanyIds.add(companyId);
 
     try {
-      await env.DB.prepare(
-        `INSERT INTO company_branding_settings (company_id, updated_at)
-         VALUES (?1, ?2)
-         ON CONFLICT(company_id) DO UPDATE SET updated_at = excluded.updated_at`
-      )
-        .bind(companyId, timestamp)
-        .run();
-    } catch {
-      // ignore
-    }
-
-    try {
-      const existingSub = await queryFirst(env.DB, `SELECT id FROM company_subscriptions WHERE company_id = ? LIMIT 1`, [companyId]);
+      const existingSub = await queryFirst(env.DB, `SELECT id FROM organization_subscriptions WHERE company_id = ? LIMIT 1`, [companyId]);
       if (!existingSub) {
         await env.DB.prepare(
-          `INSERT INTO company_subscriptions (id, company_id, plan_name, status, seats, mrr_cents, current_period_start, current_period_end)
+          `INSERT INTO organization_subscriptions (id, company_id, plan_name, status, seats, mrr_cents, current_period_start, current_period_end)
            VALUES (?1, ?2, ?3, 'trialing', 5, 0, ?4, ?5)`
         )
           .bind(subscriptionId, companyId, plan, timestamp, trialPeriodEnd)
@@ -645,11 +617,11 @@ async function ensureAccountProvisionedForSession(env: Env, session: Authenticat
       // ignore
     }
 
-    const role = mapLoginOrgRoleToCompanyRole(org.role);
+    const role = mapLoginOrgRoleToMemberRole(org.role);
 
     const existingMemberRoleRow = await queryFirst(
       env.DB,
-      `SELECT role FROM company_members WHERE company_id = ?1 AND LOWER(email) = LOWER(?2) LIMIT 1`,
+      `SELECT role FROM organization_members WHERE company_id = ?1 AND LOWER(email) = LOWER(?2) LIMIT 1`,
       [companyId, normalizedEmail],
     );
     const existingMemberRole = existingMemberRoleRow?.role ? String(existingMemberRoleRow.role).toLowerCase() : '';
@@ -657,7 +629,7 @@ async function ensureAccountProvisionedForSession(env: Env, session: Authenticat
 
     try {
       await env.DB.prepare(
-        `INSERT INTO company_members (id, company_id, user_id, email, display_name, role, status)
+        `INSERT INTO organization_members (id, company_id, user_id, email, display_name, role, status)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'active')
          ON CONFLICT(company_id, email) DO UPDATE SET
            user_id = excluded.user_id,
@@ -671,7 +643,7 @@ async function ensureAccountProvisionedForSession(env: Env, session: Authenticat
     } catch (error) {
       try {
         await env.DB.prepare(
-          `UPDATE company_members
+          `UPDATE organization_members
            SET email = ?1, display_name = ?2, role = ?3, status = 'active', updated_at = CURRENT_TIMESTAMP
            WHERE company_id = ?4 AND user_id = ?5`
         )
@@ -700,7 +672,7 @@ async function deactivateNonCanonicalMemberships(
 
   const rows = await queryAll(
     env.DB,
-    `SELECT company_id FROM company_members WHERE LOWER(email) = LOWER(?1) AND status = 'active'`,
+    `SELECT company_id FROM organization_members WHERE LOWER(email) = LOWER(?1) AND status = 'active'`,
     [email],
   );
   for (const row of rows) {
@@ -708,7 +680,7 @@ async function deactivateNonCanonicalMemberships(
     if (!companyId) continue;
     if (canonicalCompanyIds.has(companyId)) continue;
     await env.DB.prepare(
-      `UPDATE company_members SET status = 'suspended', updated_at = CURRENT_TIMESTAMP WHERE company_id = ?1 AND LOWER(email) = LOWER(?2)`
+      `UPDATE organization_members SET status = 'suspended', updated_at = CURRENT_TIMESTAMP WHERE company_id = ?1 AND LOWER(email) = LOWER(?2)`
     )
       .bind(companyId, email)
       .run();
@@ -781,7 +753,7 @@ async function fetchMembersFromDb(env: Env, companyId: string): Promise<AccountM
     const rows = await queryAll(
       env.DB,
       `SELECT id, company_id, display_name, email, role, status, invited_at, accepted_at, last_active_at
-       FROM company_members
+       FROM organization_members
        WHERE company_id = ?
        ORDER BY created_at ASC`,
       [companyId]
@@ -812,7 +784,7 @@ async function fetchMemberById(env: Env, companyId: string, memberId: string): P
     const row = await queryFirst(
       env.DB,
       `SELECT id, company_id, display_name, email, role, status, invited_at, accepted_at, last_active_at
-       FROM company_members
+       FROM organization_members
        WHERE company_id = ? AND id = ?
        LIMIT 1`,
       [companyId, memberId]
@@ -837,35 +809,6 @@ async function fetchMemberById(env: Env, companyId: string, memberId: string): P
   }
 }
 
-async function fetchBrandingFromDb(env: Env, companyId: string): Promise<AccountBranding | null> {
-  if (!env.DB) {
-    logDbError('fetchBrandingFromDb', 'D1 binding is not configured');
-    return null;
-  }
-  try {
-    const row = await queryFirst(
-      env.DB,
-      `SELECT primary_color, secondary_color, accent_color, logo_url, tagline, updated_at
-       FROM company_branding_settings WHERE company_id = ?`,
-      [companyId]
-    );
-    if (!row) {
-      return null;
-    }
-    return {
-      primaryColor: stringFrom(row.primary_color, '#0f172a'),
-      secondaryColor: stringFrom(row.secondary_color, '#38bdf8'),
-      accentColor: row.accent_color ? String(row.accent_color) : undefined,
-      logoUrl: row.logo_url ? String(row.logo_url) : undefined,
-      tagline: row.tagline ? String(row.tagline) : undefined,
-      updatedAt: stringFrom(row.updated_at, new Date().toISOString())
-    };
-  } catch (error) {
-    logDbError('fetchBrandingFromDb', error);
-    return null;
-  }
-}
-
 async function fetchUsagePointsFromDb(env: Env, companyId: string, days = 7): Promise<Array<{ bucket: string; requests: number; storageGb: number }> | null> {
   if (!env.DB) {
     logDbError('fetchUsagePointsFromDb', 'D1 binding is not configured');
@@ -875,7 +818,7 @@ async function fetchUsagePointsFromDb(env: Env, companyId: string, days = 7): Pr
   try {
     rows = await queryAll(
       env.DB,
-      `SELECT usage_date, metric, value FROM company_usage_daily
+      `SELECT usage_date, metric, value FROM organization_usage_daily
        WHERE company_id = ?
        ORDER BY usage_date DESC
        LIMIT ?`,
@@ -912,7 +855,7 @@ async function fetchSubscriptionSummaryFromDb(env: Env, companyId: string): Prom
     const row = await queryFirst(
       env.DB,
       `SELECT plan_name, status, seats, current_period_end, mrr_cents
-       FROM company_subscriptions
+       FROM organization_subscriptions
        WHERE company_id = ?
        ORDER BY updated_at DESC
        LIMIT 1`,
@@ -944,7 +887,7 @@ async function fetchAssetsFromDb(env: Env, companyId: string): Promise<AssetObje
     const rows = await queryAll(
       env.DB,
       `SELECT storage_key, size_bytes, uploaded_at
-       FROM company_assets
+       FROM organization_assets
        WHERE company_id = ?
        ORDER BY uploaded_at DESC
        LIMIT 100`,
@@ -970,12 +913,12 @@ async function fetchInvitesFromDb(env: Env, companyId: string): Promise<AccountI
     const rows = await queryAll(
       env.DB,
       `SELECT id, email, role, status, expires_at, created_at
-       FROM member_invites WHERE company_id = ? ORDER BY created_at DESC`,
+       FROM organization_member_invites WHERE company_id = ? ORDER BY created_at DESC`,
       [companyId]
     );
     return rows.map((row) => ({
       id: stringFrom(row.id),
-      companyId,
+      accountId: companyId,
       email: stringFrom(row.email),
       role: normaliseInviteRole(row.role as string | undefined) ?? 'Viewer',
       status: normaliseInviteStatus(row.status),
@@ -997,7 +940,7 @@ async function createInviteInDb(env: Env, companyId: string, email: string, role
   const token = `${generateSessionId()}-${generateSessionId()}`;
   try {
     await env.DB.prepare(
-      `INSERT INTO member_invites (id, company_id, email, role, token, expires_at)
+      `INSERT INTO organization_member_invites (id, company_id, email, role, token, expires_at)
        VALUES (?1, ?2, ?3, ?4, ?5, datetime('now', '+7 days'))`
     )
       .bind(id, companyId, email, role.toLowerCase(), token)
@@ -1008,12 +951,12 @@ async function createInviteInDb(env: Env, companyId: string, email: string, role
   }
 }
 
-async function linkAuditLogWithCompany(env: Env, auditId: string, companyId: string | null): Promise<void> {
+async function linkAuditLogWithOrganization(env: Env, auditId: string, companyId: string | null): Promise<void> {
   if (!env.DB || !companyId) {
     return;
   }
   await env.DB.prepare(
-    `INSERT INTO audit_log_company_links (audit_log_id, company_id)
+    `INSERT INTO audit_log_organization_links (audit_log_id, company_id)
      VALUES (?1, ?2)
      ON CONFLICT(audit_log_id) DO UPDATE SET company_id=excluded.company_id`
   )
@@ -1021,7 +964,7 @@ async function linkAuditLogWithCompany(env: Env, auditId: string, companyId: str
     .run();
 }
 
-function fallbackCompanies(): AccountRecord[] {
+function fallbackOrganizations(): AccountRecord[] {
   return ACCOUNT_DATA.map((account) => ({
     ...account,
     stats: { ...account.stats },
@@ -1103,7 +1046,7 @@ function createFallbackInviteRecord(
   const expiresAt = new Date(createdAt.getTime() + FALLBACK_INVITE_EXPIRY_MS);
   return {
     id: `inv-${generateSessionId()}`,
-    companyId: accountId,
+    accountId,
     email,
     role,
     status: 'pending',
@@ -1140,7 +1083,7 @@ async function resolveViewerRoleForAccount(
     try {
       const row = await queryFirst(
         env.DB,
-        `SELECT role FROM company_members WHERE company_id = ? AND LOWER(email) = LOWER(?) LIMIT 1`,
+        `SELECT role FROM organization_members WHERE company_id = ? AND LOWER(email) = LOWER(?) LIMIT 1`,
         [accountId, email]
       );
       const role = normaliseInviteRole(typeof row?.role === 'string' ? row.role : null);
@@ -1668,7 +1611,7 @@ async function buildAccountSummaries(
   session: AuthenticatedSession,
   allowFallback: boolean
 ): Promise<AccountRecord[] | null> {
-  const fromDb = await fetchCompaniesForViewer(env, session);
+  const fromDb = await fetchOrganizationsForViewer(env, session);
   if (fromDb !== null) {
     if (fromDb.length > 0) {
       return fromDb;
@@ -1680,21 +1623,21 @@ async function buildAccountSummaries(
 
   const shouldFallback = allowFallback || !env.DB;
   if (shouldFallback) {
-    return fallbackCompanies();
+    return fallbackOrganizations();
   }
 
   return null;
 }
 
 async function resolveAccountBySlug(env: Env, slug: string, allowFallback: boolean): Promise<AccountRecord | undefined> {
-  const fromDb = await fetchCompanyBySlugFromDb(env, slug);
+  const fromDb = await fetchOrganizationBySlugFromDb(env, slug);
   if (fromDb) {
     return fromDb;
   }
 
   const shouldFallback = allowFallback || !env.DB;
   if (shouldFallback) {
-    return fallbackCompanies().find((account) => account.slug === slug);
+    return fallbackOrganizations().find((account) => account.slug === slug);
   }
 
   return undefined;
@@ -1718,18 +1661,7 @@ function mapAccountResponse(account: AccountRecord): Record<string, unknown> {
 }
 
 function resolveBranding(account: AccountRecord): AccountBranding {
-  const override = ACCOUNT_BRANDING_OVERRIDES.get(account.id);
-  if (!override) {
-    return account.brand;
-  }
-  return {
-    primaryColor: override.primaryColor ?? account.brand.primaryColor,
-    secondaryColor: override.secondaryColor ?? account.brand.secondaryColor,
-    accentColor: override.accentColor ?? account.brand.accentColor,
-    logoUrl: override.logoUrl ?? account.brand.logoUrl,
-    tagline: override.tagline ?? account.brand.tagline,
-    updatedAt: override.updatedAt
-  };
+  return account.brand;
 }
 
 function resolvePendingInvitesCount(account: AccountRecord): number {
@@ -2464,7 +2396,7 @@ async function handleAccountMember(
       const updateRole = async () => {
         if (!shouldFallback && env.DB) {
           await env.DB.prepare(
-            `UPDATE company_members
+            `UPDATE organization_members
              SET role = ?, updated_at = CURRENT_TIMESTAMP
              WHERE company_id = ? AND id = ?`
           )
@@ -2484,7 +2416,7 @@ async function handleAccountMember(
       const updateName = async () => {
         if (!shouldFallback && env.DB) {
           await env.DB.prepare(
-            `UPDATE company_members
+            `UPDATE organization_members
              SET display_name = ?, updated_at = CURRENT_TIMESTAMP
              WHERE company_id = ? AND id = ?`
           )
@@ -2516,7 +2448,7 @@ async function handleAccountMember(
   if (request.method === 'DELETE') {
     if (!shouldFallback && env.DB) {
       try {
-        await env.DB.prepare(`DELETE FROM company_members WHERE company_id = ? AND id = ?`)
+        await env.DB.prepare(`DELETE FROM organization_members WHERE company_id = ? AND id = ?`)
           .bind(account.id, memberId)
           .run();
       } catch (error) {
@@ -2574,7 +2506,7 @@ async function handleAccountUpdate(
 
   if (env.DB) {
     try {
-      await env.DB.prepare(`UPDATE companies SET billing_email = ? WHERE id = ?`).bind(
+      await env.DB.prepare(`UPDATE organizations SET billing_email = ? WHERE id = ?`).bind(
         normalizedEmail,
         account.id
       ).run();
@@ -2586,7 +2518,7 @@ async function handleAccountUpdate(
 
   updateFallbackBillingEmail(account.slug, normalizedEmail);
 
-  const refreshed = (env.DB ? await fetchCompanyBySlugFromDb(env, account.slug) : null) ?? {
+  const refreshed = (env.DB ? await fetchOrganizationBySlugFromDb(env, account.slug) : null) ?? {
     ...account,
     billingEmail: normalizedEmail ?? undefined
   };
@@ -2599,99 +2531,23 @@ async function handleAccountBranding(
   account: AccountRecord,
   env: Env
 ): Promise<Response> {
-  if (request.method !== 'PATCH' && request.method !== 'PUT') {
-    return jsonResponse({ error: 'Method Not Allowed' }, 405);
+  void env;
+
+  if (request.method === 'GET') {
+    return jsonResponse({ ok: true, branding: resolveBranding(account) });
   }
 
-  let payload: Record<string, unknown>;
-  try {
-    payload = await request.json();
-  } catch {
-    return jsonResponse({ error: 'Invalid JSON' }, 400);
+  if (request.method === 'PATCH' || request.method === 'PUT') {
+    return jsonResponse(
+      {
+        error: 'branding_managed_in_login',
+        hint: 'Branding is managed in the login service. This downstream worker no longer persists branding settings.',
+      },
+      501,
+    );
   }
 
-  const updates: BrandingOverride = {
-    updatedAt: new Date().toISOString()
-  };
-
-  if (typeof payload.primaryColor === 'string') {
-    const normalised = normaliseHexColor(payload.primaryColor);
-    if (!normalised) {
-      return jsonResponse({ error: 'primaryColor must be a valid hex color' }, 400);
-    }
-    updates.primaryColor = normalised;
-  }
-
-  if (typeof payload.secondaryColor === 'string') {
-    const normalised = normaliseHexColor(payload.secondaryColor);
-    if (!normalised) {
-      return jsonResponse({ error: 'secondaryColor must be a valid hex color' }, 400);
-    }
-    updates.secondaryColor = normalised;
-  }
-
-  if (typeof payload.accentColor === 'string') {
-    const normalised = normaliseHexColor(payload.accentColor);
-    if (!normalised) {
-      return jsonResponse({ error: 'accentColor must be a valid hex color' }, 400);
-    }
-    updates.accentColor = normalised;
-  }
-
-  if (typeof payload.logoUrl === 'string') {
-    const normalised = normalisePublicUrl(payload.logoUrl);
-    if (!normalised) {
-      return jsonResponse({ error: 'logoUrl must be an absolute http(s) URL' }, 400);
-    }
-    updates.logoUrl = normalised;
-  }
-
-  if (typeof payload.tagline === 'string') {
-    updates.tagline = payload.tagline.trim().slice(0, 120);
-  }
-
-  if (env.DB) {
-    try {
-      await env.DB.prepare(
-        `UPDATE company_branding_settings
-         SET primary_color = COALESCE(?1, primary_color),
-             secondary_color = COALESCE(?2, secondary_color),
-             accent_color = COALESCE(?3, accent_color),
-             logo_url = COALESCE(?4, logo_url),
-             tagline = COALESCE(?5, tagline),
-             updated_at = CURRENT_TIMESTAMP
-         WHERE company_id = ?6`
-      )
-        .bind(
-          updates.primaryColor ?? null,
-          updates.secondaryColor ?? null,
-          updates.accentColor ?? null,
-          updates.logoUrl ?? null,
-          updates.tagline ?? null,
-          account.id
-        )
-        .run();
-
-      const refreshedBranding = await fetchBrandingFromDb(env, account.id);
-      if (refreshedBranding) {
-        ACCOUNT_BRANDING_OVERRIDES.delete(account.id);
-        return jsonResponse({ ok: true, branding: refreshedBranding });
-      }
-    } catch (error) {
-      logDbError('handleAccountBranding', error);
-    }
-  }
-
-  const existing = ACCOUNT_BRANDING_OVERRIDES.get(account.id) ?? {};
-  ACCOUNT_BRANDING_OVERRIDES.set(account.id, {
-    ...existing,
-    ...updates
-  });
-
-  return jsonResponse({
-    ok: true,
-    branding: resolveBranding(account)
-  });
+  return jsonResponse({ error: 'Method Not Allowed' }, 405);
 }
 
 async function handleAssetsList(request: Request, env: Env): Promise<Response> {
@@ -2836,7 +2692,7 @@ async function handleAssetsPut(request: Request, env: Env): Promise<Response> {
   const companyId = url.searchParams.get('companyId');
   if (companyId && env.DB) {
     await env.DB.prepare(
-      `INSERT INTO company_assets (id, company_id, storage_key, scope, content_type, size_bytes)
+      `INSERT INTO organization_assets (id, company_id, storage_key, scope, content_type, size_bytes)
        VALUES (?1, ?2, ?3, ?4, ?5, ?6)
        ON CONFLICT(id) DO UPDATE SET storage_key = excluded.storage_key, size_bytes = excluded.size_bytes, updated_at = CURRENT_TIMESTAMP`
     )
@@ -3375,11 +3231,11 @@ async function handleStripeWebhook(request: Request, env: Env): Promise<Response
     let linkedCompanyId: string | null = null;
     const stripeCustomerId = typeof event?.data?.object?.customer === 'string' ? event.data.object.customer : null;
     if (stripeCustomerId && env.DB) {
-      const customerRow = await queryFirst(env.DB, `SELECT company_id FROM stripe_customers WHERE stripe_customer_id = ? LIMIT 1`, [stripeCustomerId]);
+      const customerRow = await queryFirst(env.DB, `SELECT company_id FROM organization_stripe_customers WHERE stripe_customer_id = ? LIMIT 1`, [stripeCustomerId]);
       linkedCompanyId = customerRow?.company_id ? String(customerRow.company_id) : null;
     }
     if (linkedCompanyId) {
-      await linkAuditLogWithCompany(env, auditId, linkedCompanyId);
+      await linkAuditLogWithOrganization(env, auditId, linkedCompanyId);
     }
 
     // Handle subscription events
@@ -3459,7 +3315,7 @@ async function handleSubscriptionWebhookEvent(
 
     // Upsert subscription
     await env.DB.prepare(
-      `INSERT INTO company_subscriptions (
+      `INSERT INTO organization_subscriptions (
         id,
         company_id,
         stripe_subscription_id,
@@ -3504,7 +3360,7 @@ async function handleSubscriptionWebhookEvent(
 
     if (planName) {
       try {
-        await env.DB.prepare(`UPDATE companies SET plan = ? WHERE id = ?`).bind(planName, companyId).run();
+        await env.DB.prepare(`UPDATE organizations SET plan = ? WHERE id = ?`).bind(planName, companyId).run();
       } catch (planError) {
         logDbError('handleSubscriptionWebhookEvent.planSync', planError);
       }
@@ -4180,7 +4036,7 @@ async function ensureStripeCustomer(
 
   const existingRow = await queryFirst(
     env.DB,
-    `SELECT stripe_customer_id FROM stripe_customers WHERE company_id = ? LIMIT 1`,
+    `SELECT stripe_customer_id FROM organization_stripe_customers WHERE company_id = ? LIMIT 1`,
     [companyId]
   );
   if (existingRow?.stripe_customer_id) {
@@ -4189,7 +4045,7 @@ async function ensureStripeCustomer(
 
   const companyRow = await queryFirst(
     env.DB,
-    `SELECT stripe_customer_id, billing_email FROM companies WHERE id = ? LIMIT 1`,
+    `SELECT stripe_customer_id, billing_email FROM organizations WHERE id = ? LIMIT 1`,
     [companyId]
   );
 
@@ -4197,7 +4053,7 @@ async function ensureStripeCustomer(
   if (existingCustomerId) {
     try {
       await env.DB.prepare(
-        `INSERT INTO stripe_customers (id, company_id, stripe_customer_id, billing_email)
+        `INSERT INTO organization_stripe_customers (id, company_id, stripe_customer_id, billing_email)
          VALUES (?1, ?2, ?3, ?4)
          ON CONFLICT(company_id) DO UPDATE SET stripe_customer_id = excluded.stripe_customer_id`
       )
@@ -4241,7 +4097,7 @@ async function ensureStripeCustomer(
     const stripeCustomerId = customer.id;
 
     await env.DB.prepare(
-      `INSERT INTO stripe_customers (id, company_id, stripe_customer_id, billing_email)
+      `INSERT INTO organization_stripe_customers (id, company_id, stripe_customer_id, billing_email)
        VALUES (?1, ?2, ?3, ?4)`
     )
       .bind(
@@ -4253,7 +4109,7 @@ async function ensureStripeCustomer(
       .run();
 
     await env.DB.prepare(
-      `UPDATE companies SET stripe_customer_id = ? WHERE id = ?`
+      `UPDATE organizations SET stripe_customer_id = ? WHERE id = ?`
     )
       .bind(stripeCustomerId, companyId)
       .run();
@@ -4332,7 +4188,7 @@ async function fetchOwnerEmail(env: Env, companyId: string): Promise<string | nu
   if (!env.DB) {
     return null;
   }
-  const ownerRow = await queryFirst(env.DB, `SELECT email FROM company_members WHERE company_id = ? AND role = 'owner' ORDER BY created_at ASC LIMIT 1`, [companyId]);
+  const ownerRow = await queryFirst(env.DB, `SELECT email FROM organization_members WHERE company_id = ? AND role = 'owner' ORDER BY created_at ASC LIMIT 1`, [companyId]);
   if (!ownerRow) {
     return null;
   }
@@ -4526,7 +4382,7 @@ async function checkUserAccountAccess(env: Env, userId: string, accountId: strin
   try {
     const result = await queryFirst(
       env.DB,
-      `SELECT 1 FROM company_members
+      `SELECT 1 FROM organization_members
        WHERE company_id = ?1 AND user_id = ?2 AND status = 'active'
        LIMIT 1`,
       [accountId, userId]

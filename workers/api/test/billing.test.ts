@@ -55,10 +55,10 @@ function createDbMock(): D1Database {
         return this;
       },
       async first() {
-        if (sql.includes('FROM stripe_customers')) {
+        if (sql.includes('FROM organization_stripe_customers')) {
           return { stripe_customer_id: 'cus_test_123' };
         }
-        if (sql.includes('FROM companies')) {
+        if (sql.includes('FROM organizations')) {
           const now = Date.now();
           return {
             id: 'acct-justevery',
@@ -267,9 +267,9 @@ describe('Account billing endpoints', () => {
 
     const response = await runFetch(request, env);
     expect(response.status).toBe(200);
-    expect(prepareSpy).toHaveBeenCalledWith(expect.stringContaining('UPDATE companies SET billing_email = ? WHERE id = ?'));
+    expect(prepareSpy).toHaveBeenCalledWith(expect.stringContaining('UPDATE organizations SET billing_email = ? WHERE id = ?'));
     const updateResult = prepareSpy.mock.results.find((result) =>
-      (result.value as { sql: string }).sql.includes('UPDATE companies SET billing_email = ? WHERE id = ?')
+      (result.value as { sql: string }).sql.includes('UPDATE organizations SET billing_email = ? WHERE id = ?')
     );
     expect(updateResult).toBeDefined();
     const statement = (updateResult!.value as { bindings: unknown[] });

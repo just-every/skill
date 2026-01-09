@@ -96,13 +96,13 @@ export class ProvisioningDbMock implements D1Database {
     const normalized = sql.trim().toUpperCase();
     let record: Record<string, unknown> | null = null;
 
-    if (normalized.startsWith('SELECT COMPANY_ID FROM COMPANY_MEMBERS WHERE USER_ID')) {
+    if (normalized.startsWith('SELECT COMPANY_ID FROM ORGANIZATION_MEMBERS WHERE USER_ID')) {
       const [userId] = bindings as [string];
       const match = this.companyMembers.find((member) => member.user_id === userId);
       record = match ? { company_id: match.company_id } : null;
     }
 
-    if (normalized.startsWith('SELECT COMPANY_ID FROM COMPANY_MEMBERS WHERE LOWER(EMAIL)')) {
+    if (normalized.startsWith('SELECT COMPANY_ID FROM ORGANIZATION_MEMBERS WHERE LOWER(EMAIL)')) {
       const [email] = bindings as [string];
       const match = this.companyMembers.find(
         (member) => member.email.toLowerCase() === email.toLowerCase(),
@@ -110,7 +110,7 @@ export class ProvisioningDbMock implements D1Database {
       record = match ? { company_id: match.company_id } : null;
     }
 
-    if (normalized.startsWith('SELECT SLUG FROM COMPANIES WHERE SLUG')) {
+    if (normalized.startsWith('SELECT SLUG FROM ORGANIZATIONS WHERE SLUG')) {
       const [slug] = bindings as [string];
       const match = this.companies.find((company) => company.slug === slug);
       record = match ? { slug: match.slug } : null;
@@ -122,13 +122,13 @@ export class ProvisioningDbMock implements D1Database {
       record = match ? { id: match.id } : null;
     }
 
-    if (normalized.startsWith('SELECT ID FROM COMPANIES WHERE SLUG')) {
+    if (normalized.startsWith('SELECT ID FROM ORGANIZATIONS WHERE SLUG')) {
       const [slug] = bindings as [string];
       const match = this.companies.find((company) => company.slug === slug);
       record = match ? { id: match.id } : null;
     }
 
-    if (normalized.startsWith('SELECT ID FROM COMPANY_MEMBERS WHERE COMPANY_ID')) {
+    if (normalized.startsWith('SELECT ID FROM ORGANIZATION_MEMBERS WHERE COMPANY_ID')) {
       const [companyId, userId] = bindings as [string, string];
       const match = this.companyMembers.find(
         (member) => member.company_id === companyId && member.user_id === userId,
@@ -236,7 +236,7 @@ export class ProvisioningDbMock implements D1Database {
       });
     }
 
-    if (normalized.startsWith('INSERT INTO COMPANIES')) {
+    if (normalized.startsWith('INSERT INTO ORGANIZATIONS')) {
       const [id, slug, name, plan, billingEmail] = bindings as [
         string,
         string,
@@ -260,7 +260,7 @@ export class ProvisioningDbMock implements D1Database {
       });
     }
 
-    if (normalized.startsWith('UPDATE COMPANIES SET NAME')) {
+    if (normalized.startsWith('UPDATE ORGANIZATIONS SET NAME')) {
       const [name, billingEmail, slug] = bindings as [string, string | null, string];
       const existing = this.companies.find((company) => company.slug === slug);
       if (existing) {
@@ -271,7 +271,7 @@ export class ProvisioningDbMock implements D1Database {
       return this.buildResult();
     }
 
-    if (normalized.startsWith('INSERT INTO COMPANY_MEMBERS')) {
+    if (normalized.startsWith('INSERT INTO ORGANIZATION_MEMBERS')) {
       const [id, companyId, userId, email, displayName] = bindings as [
         string,
         string,
@@ -309,7 +309,7 @@ export class ProvisioningDbMock implements D1Database {
       return this.buildResult([], { rows_written: 1, changes: 1, changed_db: true });
     }
 
-    if (normalized.startsWith('UPDATE COMPANY_MEMBERS')) {
+    if (normalized.startsWith('UPDATE ORGANIZATION_MEMBERS')) {
       if (normalized.includes("SET STATUS = 'SUSPENDED'")) {
         return this.buildResult([], { rows_written: 1, changes: 1, changed_db: true });
       }
@@ -362,7 +362,7 @@ export class ProvisioningDbMock implements D1Database {
       return this.buildResult([], { rows_written: 1, changes: 1, changed_db: true });
     }
 
-    if (normalized.startsWith('INSERT INTO COMPANY_SUBSCRIPTIONS')) {
+    if (normalized.startsWith('INSERT INTO ORGANIZATION_SUBSCRIPTIONS')) {
       const [id, companyId, planName, currentPeriodStart, currentPeriodEnd] = bindings as [
         string,
         string,

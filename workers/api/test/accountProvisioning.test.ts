@@ -14,7 +14,6 @@ describe('account auto-provisioning', () => {
     expect(db.companies[0]).toMatchObject({ slug: 'test', billing_email: 'founder@example.com' });
     expect(db.companyMembers).toHaveLength(1);
     expect(db.companyMembers[0]).toMatchObject({ email: 'founder@example.com', role: 'owner' });
-    expect(db.brandings).toHaveLength(1);
     expect(db.subscriptions).toHaveLength(1);
   });
 
