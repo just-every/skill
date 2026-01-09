@@ -224,7 +224,7 @@ const DesignListScreen = ({
                 <a
                   href={href}
                   aria-label={`Open design run ${run.name}`}
-                  className="absolute inset-0 z-10 rounded-3xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-offset-2 focus-visible:ring-offset-white"
+                  className="absolute inset-x-0 top-0 bottom-16 z-10 rounded-3xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-offset-2 focus-visible:ring-offset-white"
                   onClick={(event) => {
                     if (!shouldHandleAnchorClick(event)) {
                       return;
