@@ -577,8 +577,8 @@ async function ensureAccountProvisionedForSession(env: Env, session: Authenticat
     // so we don't keep showing stale local workspaces.
     canonicalCompanyIds.add(`acct-${org.id}`);
 
-    const slug = org.slug?.trim();
-    if (!slug) continue;
+    const slugFromLogin = org.slug?.trim() ?? '';
+    const slug = slugFromLogin || (await generateUniqueCompanySlug(env.DB, org.name || org.id));
 
     const timestamp = new Date().toISOString();
     const trialPeriodEnd = calculateTrialPeriodEnd(env.TRIAL_PERIOD_DAYS);
