@@ -475,6 +475,7 @@ type LoginOrganizationSummary = {
 
 async function fetchLoginOrganizationsForSession(
   env: Env,
+  request: Request,
   session: AuthenticatedSession,
 ): Promise<LoginOrganizationSummary[] | null> {
   const origin = resolveLoginOrigin(env);
@@ -482,7 +483,12 @@ async function fetchLoginOrganizationsForSession(
     return null;
   }
 
-  const token = session.session?.session?.token;
+  const token =
+    readCookieValue(request, '__Secure-better-auth.session_token') ||
+    readCookieValue(request, 'better-auth.session_token') ||
+    session.session?.session?.token ||
+    '';
+
   if (!token) {
     return null;
   }
@@ -549,7 +555,11 @@ async function fetchOrganizationBySlugFromDb(env: Env, slug: string): Promise<Ac
   }
 }
 
-async function ensureAccountProvisionedForSession(env: Env, session: AuthenticatedSession): Promise<void> {
+async function ensureAccountProvisionedForSession(
+  env: Env,
+  request: Request,
+  session: AuthenticatedSession
+): Promise<void> {
   if (!env.DB) {
     return;
   }
@@ -559,7 +569,7 @@ async function ensureAccountProvisionedForSession(env: Env, session: Authenticat
     return;
   }
 
-  const loginOrgs = await fetchLoginOrganizationsForSession(env, session);
+  const loginOrgs = await fetchLoginOrganizationsForSession(env, request, session);
   if (!loginOrgs || loginOrgs.length === 0) {
     return;
   }
@@ -2260,7 +2270,7 @@ async function handleAccountsRoute(request: Request, env: Env, pathname: string)
   const allowFallback = shouldAllowPlaceholderData(request, env);
 
   if (pathname === "/api/accounts") {
-    await ensureAccountProvisionedForSession(env, auth.session);
+    await ensureAccountProvisionedForSession(env, request, auth.session);
     const accounts = await buildAccountSummaries(env, auth.session, allowFallback);
     if (!accounts) {
       return dataUnavailableResponse(env);
@@ -3234,7 +3244,7 @@ async function handleSubscription(request: Request, env: Env): Promise<Response>
   if (slug) {
     account = await resolveAccountBySlug(env, slug, allowFallback);
   } else {
-    await ensureAccountProvisionedForSession(env, auth.session);
+    await ensureAccountProvisionedForSession(env, request, auth.session);
     const accounts = await buildAccountSummaries(env, auth.session, allowFallback);
     account = accounts?.[0];
   }
