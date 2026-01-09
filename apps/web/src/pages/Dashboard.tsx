@@ -274,7 +274,7 @@ const Dashboard = () => {
     const message = companiesQuery.error instanceof Error ? companiesQuery.error.message : 'Unknown error';
     return (
       <View className={centerClassName}>
-        <Text className="text-2xl font-bold text-ink">Unable to load company data</Text>
+        <Text className="text-2xl font-bold text-ink">Unable to load organization data</Text>
         <Text className="mx-auto mt-3 max-w-[420px] text-center text-sm text-slate-500">
           {message}. Please retry once your session is valid and the Worker can reach Cloudflare D1.
         </Text>
@@ -292,7 +292,7 @@ const Dashboard = () => {
     return (
       <View className={centerClassName}>
         <ActivityIndicator size="large" color="#0f172a" />
-        <Text className="mt-3 text-base text-slate-500">Loading company data…</Text>
+        <Text className="mt-3 text-base text-slate-500">Loading organization data…</Text>
       </View>
     );
   }

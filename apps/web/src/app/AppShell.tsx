@@ -174,7 +174,7 @@ const AppShell = ({
         setShowSwitcher(false);
         setSwitcherHover(false);
       } catch (error) {
-        const message = error instanceof Error ? error.message : 'Failed to switch company';
+        const message = error instanceof Error ? error.message : 'Failed to switch organization';
         setSwitchError(message);
       } finally {
         setPendingCompanyId(null);
@@ -185,7 +185,7 @@ const AppShell = ({
 
   const handleInviteSubmit = async (draft: InviteDraft) => {
     if (!activeCompany?.slug) {
-      throw new Error('Select a company before inviting teammates.');
+      throw new Error('Select an organization before inviting teammates.');
     }
     await api.post(`/api/accounts/${activeCompany.slug}/invites`, {
       email: draft.email,
@@ -317,7 +317,7 @@ const AppShell = ({
               </Text>
             </View>
             <View className="mt-4 space-y-2">
-              <Text className="text-[10px] uppercase tracking-[0.3em] text-slate-400">Current company</Text>
+              <Text className="text-[10px] uppercase tracking-[0.3em] text-slate-400">Current organization</Text>
               <div
                 className="relative"
                 ref={switcherRef}
@@ -334,19 +334,19 @@ const AppShell = ({
                   }}
                   className="rounded-2xl border border-slate-800 bg-slate-950/70 px-3 py-3 text-left text-sm font-semibold text-white"
                   accessibilityRole="button"
-                  accessibilityLabel="Select company"
+                  accessibilityLabel="Select organization"
                   aria-expanded={showSwitcher || switcherHover}
                   aria-haspopup="menu"
                 >
                   <Text className="text-base font-semibold text-white">
-                    {activeCompany?.name ?? 'Select company'}
+                    {activeCompany?.name ?? 'Select organization'}
                   </Text>
                   <Text className="text-xs text-slate-400">{activeCompany?.plan ?? '—'}</Text>
                 </Pressable>
                 {(showSwitcher || switcherHover) && (
                   <View
                     accessibilityRole="menu"
-                    aria-label="Company switcher"
+                    aria-label="Organization switcher"
                     testID="company-switcher-menu"
                     className="absolute left-0 top-full mt-2 w-full overflow-hidden rounded-2xl border border-slate-800 bg-slate-950/95 p-1 shadow-sm"
                   >

@@ -42,7 +42,7 @@ const FOOTER_LINKS = [
     ],
   },
   {
-    title: 'Company',
+    title: 'About',
     links: [
       { label: 'Support', href: '/contact' },
       { label: 'Login', href: '/app' },

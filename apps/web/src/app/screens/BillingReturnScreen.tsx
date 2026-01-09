@@ -62,7 +62,7 @@ const BillingReturnScreen = ({
       <CardContent className="space-y-4">
         {companyName ? (
           <View className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
-            <Text className="text-xs uppercase tracking-[0.2em] text-slate-400">Company</Text>
+            <Text className="text-xs uppercase tracking-[0.2em] text-slate-400">Organization</Text>
             <Text className="mt-1 text-base font-semibold text-ink">{companyName}</Text>
           </View>
         ) : null}

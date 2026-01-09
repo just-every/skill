@@ -265,7 +265,7 @@ const BillingScreen = ({ company, subscription, products = [], invoices = [], vi
                 value={draftEmail}
                 onChangeText={(value) => setDraftEmail(value)}
                 errorText={emailError ?? undefined}
-                placeholder="billing@your-company.com"
+                placeholder="billing@your-org.com"
                 keyboardType="email-address"
                 autoCapitalize="none"
               />
@@ -274,7 +274,7 @@ const BillingScreen = ({ company, subscription, products = [], invoices = [], vi
                 testID="billing-contact-value"
                 className="rounded-2xl border border-slate-200 bg-slate-50 px-3 py-3"
               >
-                <Text className="text-base text-ink">{company?.billingEmail ?? 'billing@your-company.com'}</Text>
+                <Text className="text-base text-ink">{company?.billingEmail ?? 'billing@your-org.com'}</Text>
               </View>
             )}
             <View className="flex flex-row flex-wrap gap-2">

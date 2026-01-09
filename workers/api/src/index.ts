@@ -477,7 +477,7 @@ async function fetchLoginOrganizationsForSession(
   env: Env,
   session: AuthenticatedSession,
 ): Promise<LoginOrganizationSummary[] | null> {
-  const origin = env.LOGIN_ORIGIN?.trim();
+  const origin = resolveLoginOrigin(env);
   if (!origin) {
     return null;
   }
@@ -655,12 +655,13 @@ async function ensureAccountProvisionedForSession(env: Env, session: Authenticat
     }
   }
 
-  await deactivateNonCanonicalMemberships(env, normalizedEmail, canonicalCompanyIds);
+  await deactivateNonCanonicalMemberships(env, normalizedEmail, persistedUserId, canonicalCompanyIds);
 }
 
 async function deactivateNonCanonicalMemberships(
   env: Env,
   email: string,
+  userId: string | null,
   canonicalCompanyIds: Set<string>,
 ): Promise<void> {
   if (!env.DB) {
@@ -670,20 +671,45 @@ async function deactivateNonCanonicalMemberships(
     return;
   }
 
+  const safeUserId = userId?.trim() ?? '';
   const rows = await queryAll(
     env.DB,
-    `SELECT company_id FROM organization_members WHERE LOWER(email) = LOWER(?1) AND status = 'active'`,
-    [email],
+    `SELECT company_id FROM organization_members
+     WHERE status = 'active'
+       AND ((?1 != '' AND user_id = ?1) OR LOWER(email) = LOWER(?2))`,
+    [safeUserId, email],
   );
   for (const row of rows) {
     const companyId = row?.company_id ? String(row.company_id) : '';
     if (!companyId) continue;
     if (canonicalCompanyIds.has(companyId)) continue;
-    await env.DB.prepare(
-      `UPDATE organization_members SET status = 'suspended', updated_at = CURRENT_TIMESTAMP WHERE company_id = ?1 AND LOWER(email) = LOWER(?2)`
-    )
-      .bind(companyId, email)
+
+    await env.DB
+      .prepare(
+        `UPDATE organization_members
+         SET status = 'suspended', updated_at = CURRENT_TIMESTAMP
+         WHERE company_id = ?1
+           AND status = 'active'
+           AND ((?2 != '' AND user_id = ?2) OR LOWER(email) = LOWER(?3))`
+      )
+      .bind(companyId, safeUserId, email)
       .run();
+
+    try {
+      const remainingActive = await queryFirst(
+        env.DB,
+        `SELECT 1 FROM organization_members WHERE company_id = ?1 AND status = 'active' LIMIT 1`,
+        [companyId]
+      );
+      if (!remainingActive) {
+        await env.DB
+          .prepare(`UPDATE organizations SET status = 'archived', updated_at = CURRENT_TIMESTAMP WHERE id = ?1`)
+          .bind(companyId)
+          .run();
+      }
+    } catch {
+      // ignore
+    }
   }
 }
 
@@ -1760,6 +1786,26 @@ function resolveLoginFetcher(env: Env): FetchFunction {
     };
   }
   return (input, init) => fetch(input as RequestInfo, init);
+}
+
+function resolveLoginOrigin(env: Env): string | null {
+  const candidates = [env.LOGIN_ORIGIN, env.BETTER_AUTH_URL]
+    .map((value) => value?.trim() ?? '')
+    .filter(Boolean);
+
+  for (const candidate of candidates) {
+    try {
+      return new URL(candidate).origin;
+    } catch {
+      // ignore
+    }
+  }
+
+  if (env.LOGIN_SERVICE) {
+    return 'https://login.internal';
+  }
+
+  return null;
 }
 
 function replaceCheckoutPlaceholder(urlString: string, sessionId: string): string {
