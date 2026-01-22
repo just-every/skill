@@ -11,11 +11,12 @@ Add these to `~/.env` (bootstrap CLI) **and** `workers/api/.dev.vars` (local Wra
 | `STRIPE_SECRET_KEY` | Stripe API key (Dashboard → Developers → API keys → Secret key) |
 | `STRIPE_WEBHOOK_SECRET` | Signing secret from the webhook endpoint you create below |
 | `STRIPE_PRODUCTS` | JSON array describing the plans/prices the dashboard should list (each entry must include `priceId`, `unitAmount`, and `currency`; `id`, `name`, `description`, `interval`, and `metadata` are optional) |
-| `BILLING_CHECKOUT_TOKEN` | Service token issued by login with the `billing.checkout` scope. The worker uses it to call `POST /api/billing/checkout` on login. |
+| `BILLING_SERVICE_CLIENT_ID` | Login service client id used for Basic auth on billing routes. |
+| `BILLING_SERVICE_CLIENT_SECRET` | Login service client secret used for Basic auth on billing routes. |
 | `TRIAL_PERIOD_DAYS` | Optional integer (default **30**). Controls the seeded `current_period_end` when a brand-new account is provisioned before Stripe fires real webhooks. Set shorter values (e.g., `14`) when demoing rapid trial expirations; keep ≥30 in prod to mirror your Stripe trial length. |
 | `STRIPE_REDIRECT_ALLOWLIST` | Optional comma-separated list of absolute URLs or origins that are allowed for `successUrl`, `cancelUrl`, and `returnUrl`. Each entry should include the scheme+host (e.g., `https://starter.justevery.com,https://app.local`) and is matched by origin. Use this to permit additional dev tunnels or staging domains; leave unset to fall back to the first-party origins (`APP_BASE_URL`, `PROJECT_DOMAIN`, `EXPO_PUBLIC_WORKER_ORIGIN`, `LOGIN_ORIGIN`). |
 
-Automation: if you supply `LOGIN_PROVISIONER_CLIENT_ID`, `LOGIN_PROVISIONER_CLIENT_SECRET`, and `LOGIN_PROVISIONER_OWNER_USER_ID` in the deploy secret blob, the bootstrap CLI will mint a per-project service client in login and write `BILLING_CHECKOUT_TOKEN` for you. Otherwise set `BILLING_CHECKOUT_TOKEN` manually.
+Automation: if you supply `LOGIN_PROVISIONER_CLIENT_ID`, `LOGIN_PROVISIONER_CLIENT_SECRET`, and `LOGIN_PROVISIONER_OWNER_USER_ID` in the deploy secret blob, the bootstrap CLI will mint a per-project service client in login and write `BILLING_SERVICE_CLIENT_ID`/`BILLING_SERVICE_CLIENT_SECRET` for you.
 
 Example `.dev.vars` snippet:
 
@@ -30,14 +31,15 @@ STRIPE_PRODUCTS='[
 TRIAL_PERIOD_DAYS=30
 # Allow localhost + deployed origin
 STRIPE_REDIRECT_ALLOWLIST="https://starter.justevery.com,https://app.local"
-BILLING_CHECKOUT_TOKEN=svc_... # billing.checkout token minted via login service clients UI
+BILLING_SERVICE_CLIENT_ID=client_...
+BILLING_SERVICE_CLIENT_SECRET=secret_...
 ```
 
 Restart `npm run dev:worker` after editing secrets so Wrangler reloads them.
 
 ### Login checkout helper
 
-The worker now defers checkout/session creation to the login worker via the shared helper at `../login/src/client/billing.ts`. Server routes import it through the `@justevery/login-client` path alias, pass the `BILLING_CHECKOUT_TOKEN`, and receive the canonical `{ checkoutRequestId, sessionId, url }` payload. Downstream services should follow the same pattern instead of talking to Stripe directly.
+The worker now defers checkout/session creation to the login worker via the shared helper at `../login/src/client/billing.ts`. Server routes import it through the `@justevery/login-client` path alias, pass the billing service client credentials, and receive the canonical `{ checkoutRequestId, sessionId, url }` payload. Downstream services should follow the same pattern instead of talking to Stripe directly.
 
 ## Worker Endpoints
 

@@ -7,9 +7,11 @@ export interface BillingCheckoutRequest {
   loginOrigin?: string;
   /** Explicit fetch implementation (pass a Cloudflare service binding for intra-worker calls). */
   fetchImpl?: FetchLike;
-  /** Service token with the `billing.checkout` scope. */
-  token: string;
-  /** Organization to bill (omit if the service token encodes `org`). */
+  /** Login service client id (Basic auth). */
+  clientId: string;
+  /** Login service client secret (Basic auth). */
+  clientSecret: string;
+  /** Organization to bill. */
   organizationId?: string;
   /** Stripe price ID to charge. Mutually exclusive with `productCode`. */
   priceId?: string;
@@ -61,7 +63,8 @@ export async function createBillingCheckout(request: BillingCheckoutRequest): Pr
   const {
     loginOrigin = DEFAULT_LOGIN_ORIGIN,
     fetchImpl = fetch,
-    token,
+    clientId,
+    clientSecret,
     organizationId,
     priceId,
     productCode,
@@ -72,8 +75,8 @@ export async function createBillingCheckout(request: BillingCheckoutRequest): Pr
     signal,
   } = request;
 
-  if (!token || token.trim().length === 0) {
-    throw new BillingCheckoutError('billing.checkout token is required', { status: 0, code: 'missing_token' });
+  if (!clientId || !clientSecret) {
+    throw new BillingCheckoutError('billing service client credentials are required', { status: 0, code: 'missing_credentials' });
   }
   if (!successUrl || !cancelUrl) {
     throw new BillingCheckoutError('Both successUrl and cancelUrl are required', {
@@ -84,7 +87,7 @@ export async function createBillingCheckout(request: BillingCheckoutRequest): Pr
 
   const url = buildCheckoutUrl(loginOrigin);
   const headers = new Headers({ 'content-type': 'application/json' });
-  headers.set('authorization', `Bearer ${token}`);
+  headers.set('authorization', `Basic ${encodeBase64(`${clientId}:${clientSecret}`)}`);
 
   const payload = pruneUndefined({
     organizationId,
@@ -121,6 +124,13 @@ export async function createBillingCheckout(request: BillingCheckoutRequest): Pr
     });
   }
   return data;
+}
+
+function encodeBase64(value: string): string {
+  if (typeof btoa === 'function') {
+    return btoa(value);
+  }
+  return Buffer.from(value, 'utf8').toString('base64');
 }
 
 function buildCheckoutUrl(origin: string): string {

@@ -143,15 +143,18 @@ for (const check of optionalChecks) {
   }
 }
 
-const hasBillingToken = Boolean(env.BILLING_CHECKOUT_TOKEN && env.BILLING_CHECKOUT_TOKEN.trim());
+const hasBillingServiceClient = Boolean(
+  env.BILLING_SERVICE_CLIENT_ID && env.BILLING_SERVICE_CLIENT_ID.trim() &&
+  env.BILLING_SERVICE_CLIENT_SECRET && env.BILLING_SERVICE_CLIENT_SECRET.trim()
+);
 const hasProvisionerTriplet = Boolean(
   env.LOGIN_PROVISIONER_CLIENT_ID &&
   env.LOGIN_PROVISIONER_CLIENT_SECRET &&
   env.LOGIN_PROVISIONER_OWNER_USER_ID
 );
 
-if (!hasBillingToken && !hasProvisionerTriplet) {
-  issues.push('Provide BILLING_CHECKOUT_TOKEN or the LOGIN_PROVISIONER_* credentials');
+if (!hasBillingServiceClient && !hasProvisionerTriplet) {
+  issues.push('Provide BILLING_SERVICE_CLIENT_ID/BILLING_SERVICE_CLIENT_SECRET or the LOGIN_PROVISIONER_* credentials');
 }
 
 const productsValue = env.STRIPE_PRODUCTS || '';

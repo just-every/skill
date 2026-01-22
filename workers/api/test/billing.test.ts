@@ -109,7 +109,8 @@ function createMockEnv(overrides: Partial<Env> = {}): Env {
     LOGIN_ORIGIN: 'https://login.local',
     APP_BASE_URL: '/app',
     PROJECT_DOMAIN: 'https://app.local',
-    BILLING_CHECKOUT_TOKEN: 'svc_token_123',
+    BILLING_SERVICE_CLIENT_ID: 'svc_client_123',
+    BILLING_SERVICE_CLIENT_SECRET: 'svc_secret_123',
     STRIPE_PRODUCTS: JSON.stringify([
       {
         id: 'prod_launch',
@@ -320,7 +321,8 @@ describe('Account billing endpoints', () => {
     expect(data.url).toMatch(/checkout/);
     expect(checkoutMock).toHaveBeenCalledWith(
       expect.objectContaining({
-        token: env.BILLING_CHECKOUT_TOKEN,
+        clientId: env.BILLING_SERVICE_CLIENT_ID,
+        clientSecret: env.BILLING_SERVICE_CLIENT_SECRET,
         priceId: 'price_123',
         successUrl: 'https://app.local/success',
         cancelUrl: 'https://app.local/cancel',
@@ -358,8 +360,11 @@ describe('Account billing endpoints', () => {
     expect(response.status).toBe(403);
   });
 
-  it('returns a placeholder checkout session when login checkout token is missing but mock data is allowed', async () => {
-    const env = createMockEnv({ BILLING_CHECKOUT_TOKEN: undefined });
+  it('returns a placeholder checkout session when billing credentials are missing but mock data is allowed', async () => {
+    const env = createMockEnv({
+      BILLING_SERVICE_CLIENT_ID: undefined,
+      BILLING_SERVICE_CLIENT_SECRET: undefined,
+    });
     const request = new Request('http://127.0.0.1/api/accounts/justevery/billing/checkout', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },

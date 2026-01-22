@@ -23,7 +23,8 @@ const BaseEnvSchema = z.object({
   LOGIN_ORIGIN: z.string().optional(),
   SESSION_COOKIE_DOMAIN: z.string().optional(),
   STRIPE_SECRET_KEY: z.string().min(1, 'STRIPE_SECRET_KEY is required'),
-  BILLING_CHECKOUT_TOKEN: z.string().optional(),
+  BILLING_SERVICE_CLIENT_ID: z.string().optional(),
+  BILLING_SERVICE_CLIENT_SECRET: z.string().optional(),
   STRIPE_MODE: z.string().optional(),
   STRIPE_LIVE_SECRET_KEY: z.string().optional(),
   STRIPE_TEST_SECRET_KEY: z.string().optional(),
@@ -46,7 +47,8 @@ const GeneratedEnvSchema = z.object({
   STRIPE_PRODUCT_DEFINITIONS: z.string().optional(),
   STRIPE_PRODUCT_IDS: z.string().optional(),
   STRIPE_PRICE_IDS: z.string().optional(),
-  BILLING_CHECKOUT_TOKEN: z.string().optional(),
+  BILLING_SERVICE_CLIENT_ID: z.string().optional(),
+  BILLING_SERVICE_CLIENT_SECRET: z.string().optional(),
   EXPO_PUBLIC_WORKER_ORIGIN: z.string().optional(),
   EXPO_PUBLIC_WORKER_ORIGIN_LOCAL: z.string().optional()
 });
@@ -200,15 +202,18 @@ function validateRequiredKeys(env: BootstrapEnv): string[] {
   if (!env.STRIPE_PRODUCTS || env.STRIPE_PRODUCTS.trim() === '') {
     issues.push('STRIPE_PRODUCTS is required and must describe at least one plan');
   }
-  const hasBillingToken = Boolean(env.BILLING_CHECKOUT_TOKEN && env.BILLING_CHECKOUT_TOKEN.trim());
+  const hasBillingServiceClient = Boolean(
+    env.BILLING_SERVICE_CLIENT_ID && env.BILLING_SERVICE_CLIENT_ID.trim() &&
+    env.BILLING_SERVICE_CLIENT_SECRET && env.BILLING_SERVICE_CLIENT_SECRET.trim()
+  );
   const hasProvisionerCreds = Boolean(
     env.LOGIN_PROVISIONER_CLIENT_ID &&
     env.LOGIN_PROVISIONER_CLIENT_SECRET &&
     env.LOGIN_PROVISIONER_OWNER_USER_ID
   );
-  if (!hasBillingToken && !hasProvisionerCreds) {
+  if (!hasBillingServiceClient && !hasProvisionerCreds) {
     issues.push(
-      'Either BILLING_CHECKOUT_TOKEN or LOGIN_PROVISIONER_CLIENT_ID/LOGIN_PROVISIONER_CLIENT_SECRET/LOGIN_PROVISIONER_OWNER_USER_ID must be provided'
+      'Either BILLING_SERVICE_CLIENT_ID/BILLING_SERVICE_CLIENT_SECRET or LOGIN_PROVISIONER_CLIENT_ID/LOGIN_PROVISIONER_CLIENT_SECRET/LOGIN_PROVISIONER_OWNER_USER_ID must be provided'
     );
   }
 const hasD1 = Boolean(env.D1_DATABASE_ID);

@@ -27,7 +27,7 @@ import {
   type StripePlan,
   type StripeProvisionResult
 } from './providers/stripe.js';
-import { ensureBillingCheckoutToken } from './providers/login.js';
+import { ensureProjectServiceClient } from './providers/login.js';
 import { buildGeneratedFiles, deriveAppUrl, deriveWorkerOrigin } from './env/files.js';
 import {
   writeFileIfChanged,
@@ -105,7 +105,7 @@ interface SmokeOptions {
 function baseTasks(
   cwd: string,
   options: {
-    skipBillingCheckoutToken?: boolean;
+    skipBillingServiceClient?: boolean;
   } = {}
 ): ListrTask<BootstrapTaskContext>[] {
   return [
@@ -132,21 +132,40 @@ function baseTasks(
       }
     },
     {
-      title: 'Ensure billing checkout token',
-      enabled: () => !options.skipBillingCheckoutToken,
+      title: 'Ensure billing service client',
+      enabled: () => !options.skipBillingServiceClient,
       task: async (ctx: BootstrapTaskContext, task: BootstrapTaskWrapper) => {
         if (!ctx.envResult) {
           throw new Error('Environment not loaded');
         }
 
         const env = ctx.envResult.env;
-        if (env.BILLING_CHECKOUT_TOKEN && env.BILLING_CHECKOUT_TOKEN.trim()) {
-          task.output = 'Existing BILLING_CHECKOUT_TOKEN found';
+        if (
+          env.BILLING_SERVICE_CLIENT_ID &&
+          env.BILLING_SERVICE_CLIENT_ID.trim() &&
+          env.BILLING_SERVICE_CLIENT_SECRET &&
+          env.BILLING_SERVICE_CLIENT_SECRET.trim()
+        ) {
+          task.output = 'Existing BILLING_SERVICE_CLIENT_ID/BILLING_SERVICE_CLIENT_SECRET found';
           return;
         }
-        const token = await ensureBillingCheckoutToken(env);
-        ctx.envResult = mergeGeneratedValues(ctx.envResult, { BILLING_CHECKOUT_TOKEN: token });
-        task.output = 'Issued BILLING_CHECKOUT_TOKEN via login';
+
+        const hasProvisionerCreds = Boolean(
+          env.LOGIN_PROVISIONER_CLIENT_ID &&
+            env.LOGIN_PROVISIONER_CLIENT_SECRET &&
+            env.LOGIN_PROVISIONER_OWNER_USER_ID
+        );
+        if (!hasProvisionerCreds) {
+          task.skip('Login provisioner credentials not configured');
+          return;
+        }
+
+        const client = await ensureProjectServiceClient(env);
+        ctx.envResult = mergeGeneratedValues(ctx.envResult, {
+          BILLING_SERVICE_CLIENT_ID: client.clientId,
+          BILLING_SERVICE_CLIENT_SECRET: client.clientSecret,
+        });
+        task.output = 'Provisioned billing service client via login';
       }
     },
     {
@@ -236,7 +255,7 @@ function baseTasks(
 export function createPreflightTasks(options: PipelineOptions = {}): Listr<BootstrapTaskContext> {
   const cwd = resolveCwd(options.cwd);
   const dryRun = options.dryRun ?? false;
-  return new Listr<BootstrapTaskContext>(baseTasks(cwd, { skipBillingCheckoutToken: dryRun }), {
+  return new Listr<BootstrapTaskContext>(baseTasks(cwd, { skipBillingServiceClient: dryRun }), {
     ctx: {},
     rendererOptions: {
       collapseSubtasks: false
@@ -248,7 +267,7 @@ export function createApplyTasks(options: PipelineOptions = {}): Listr<Bootstrap
   const cwd = resolveCwd(options.cwd);
   const dryRun = options.dryRun ?? false;
   const tasks = [
-    ...baseTasks(cwd, { skipBillingCheckoutToken: dryRun }),
+    ...baseTasks(cwd, { skipBillingServiceClient: dryRun }),
     {
       title: dryRun ? 'Preview Cloudflare actions' : 'Apply Cloudflare actions',
       task: async (ctx: BootstrapTaskContext, task: BootstrapTaskWrapper) => {
@@ -409,24 +428,6 @@ export function createEnvGenerateTasks(options: EnvGenerateOptions = {}): Listr<
             } as Partial<GeneratedEnv>;
             ctx.envResult = mergeGeneratedValues(ctx.envResult, stripeUpdates);
           }
-        }
-      },
-      {
-        title: 'Ensure billing checkout token',
-        task: async (ctx, task) => {
-          if (!ctx.envResult) {
-            throw new Error('Environment not loaded');
-          }
-
-          const env = ctx.envResult.env;
-          if (env.BILLING_CHECKOUT_TOKEN && env.BILLING_CHECKOUT_TOKEN.trim()) {
-            task.output = 'Existing BILLING_CHECKOUT_TOKEN found';
-            return;
-          }
-
-          const token = await ensureBillingCheckoutToken(env);
-          ctx.envResult = mergeGeneratedValues(ctx.envResult, { BILLING_CHECKOUT_TOKEN: token });
-          task.output = 'Issued BILLING_CHECKOUT_TOKEN via login';
         }
       },
       {
@@ -703,8 +704,12 @@ export function createDeployTasks(options: DeployOptions = {}): Listr<DeployCont
             placeholder: 'whsec_missing_secret'
           },
           {
-            name: 'BILLING_CHECKOUT_TOKEN',
-            value: ctx.envResult.env.BILLING_CHECKOUT_TOKEN?.trim()
+            name: 'BILLING_SERVICE_CLIENT_ID',
+            value: ctx.envResult.env.BILLING_SERVICE_CLIENT_ID?.trim()
+          },
+          {
+            name: 'BILLING_SERVICE_CLIENT_SECRET',
+            value: ctx.envResult.env.BILLING_SERVICE_CLIENT_SECRET?.trim()
           }
         ];
 

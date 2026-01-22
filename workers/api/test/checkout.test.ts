@@ -67,7 +67,8 @@ describe('Stripe billing checkout & portal', () => {
 
     expect(checkoutMock).toHaveBeenCalledWith(
       expect.objectContaining({
-        token: env.BILLING_CHECKOUT_TOKEN,
+        clientId: env.BILLING_SERVICE_CLIENT_ID,
+        clientSecret: env.BILLING_SERVICE_CLIENT_SECRET,
         priceId: 'price_launch_monthly',
         quantity: 2,
         organizationId: 'acct-justevery',

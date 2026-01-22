@@ -109,7 +109,8 @@ export interface Env {
   STRIPE_SECRET_KEY?: string;
   STRIPE_WEBHOOK_SECRET?: string;
   EXPO_PUBLIC_WORKER_ORIGIN?: string;
-  BILLING_CHECKOUT_TOKEN?: string;
+  BILLING_SERVICE_CLIENT_ID?: string;
+  BILLING_SERVICE_CLIENT_SECRET?: string;
   ALLOW_PLACEHOLDER_DATA?: string;
   ALLOW_SAMPLE_ACCOUNT_AUTO_MEMBERS?: string;
   ASSETS?: AssetFetcher;
@@ -2959,23 +2960,25 @@ async function handleBillingCheckout(
     }
     throw error;
   }
-  const billingToken = env.BILLING_CHECKOUT_TOKEN?.trim();
+  const billingClientId = env.BILLING_SERVICE_CLIENT_ID?.trim();
+  const billingClientSecret = env.BILLING_SERVICE_CLIENT_SECRET?.trim();
   const loginOrigin = env.LOGIN_ORIGIN?.trim();
-  if (!billingToken || !loginOrigin) {
+  if (!billingClientId || !billingClientSecret || !loginOrigin) {
     if (allowFallback) {
-      console.warn('Checkout token/login origin missing; returning placeholder session');
+      console.warn('Checkout credentials/login origin missing; returning placeholder session');
       const placeholderSession = buildPlaceholderCheckoutSession(account, priceId, successUrl);
       return jsonResponse(placeholderSession);
     }
     return jsonResponse({
       error: 'billing_checkout_unconfigured',
-      hint: 'Set BILLING_CHECKOUT_TOKEN and LOGIN_ORIGIN to proxy checkout through login.',
+      hint: 'Set BILLING_SERVICE_CLIENT_ID/BILLING_SERVICE_CLIENT_SECRET and LOGIN_ORIGIN to proxy checkout through login.',
     }, 503);
   }
 
   try {
     const checkout = await createBillingCheckout({
-      token: billingToken,
+      clientId: billingClientId,
+      clientSecret: billingClientSecret,
       loginOrigin,
       organizationId: account.id,
       priceId,

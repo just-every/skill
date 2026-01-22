@@ -1,4 +1,3 @@
-import { setTimeout as delay } from 'node:timers/promises';
 import type { BootstrapEnv } from '../env.js';
 
 const BILLING_SCOPE = 'billing.checkout';
@@ -109,17 +108,4 @@ export async function ensureProjectServiceClient(env: BootstrapEnv): Promise<Boo
     clientSecret: data.clientSecret,
     scopes: data.scopes ?? [BILLING_SCOPE],
   };
-}
-
-export async function ensureBillingCheckoutToken(env: BootstrapEnv): Promise<string> {
-  if (env.BILLING_CHECKOUT_TOKEN && env.BILLING_CHECKOUT_TOKEN.trim()) {
-    return env.BILLING_CHECKOUT_TOKEN.trim();
-  }
-
-  const { clientId, clientSecret } = await ensureProjectServiceClient(env);
-
-  // Small jitter to avoid hitting rate limits if many projects are bootstrapping simultaneously
-  await delay(Math.floor(Math.random() * 50));
-
-  return issueToken(requireEnv(env.LOGIN_ORIGIN, 'LOGIN_ORIGIN'), clientId, clientSecret, BILLING_SCOPE);
 }

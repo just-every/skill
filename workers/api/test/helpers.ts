@@ -81,7 +81,8 @@ export function createMockEnv(overrides: Partial<Env> = {}): Env {
     LOGIN_ORIGIN: 'https://login.local',
     APP_BASE_URL: '/app',
     PROJECT_DOMAIN: 'https://app.local',
-    BILLING_CHECKOUT_TOKEN: 'svc_token_123',
+    BILLING_SERVICE_CLIENT_ID: 'svc_client_123',
+    BILLING_SERVICE_CLIENT_SECRET: 'svc_secret_123',
     STRIPE_PRODUCTS: JSON.stringify([
       {
         id: 'prod_launch',
