@@ -1,6 +1,7 @@
 import React from 'react';
-import { AppRegistry } from 'react-native';
-import { createRoot } from 'react-dom/client';
+import { AppRegistry, Platform } from 'react-native';
+
+import './global.css';
 
 import App from './App';
 
@@ -9,10 +10,11 @@ const appName = 'main';
 // Register the native entrypoint so iOS/Android can load the bundle.
 AppRegistry.registerComponent(appName, () => App);
 
-// Keep the existing web entrypoint so Expo Web continues to work.
-if (typeof document !== 'undefined') {
+if (Platform.OS === 'web') {
+  // Load react-dom/client only on web to avoid native bundling issues.
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const { createRoot } = require('react-dom/client');
   const rootElement = document.getElementById('root');
-
   if (rootElement) {
     const root = createRoot(rootElement);
     root.render(React.createElement(App));

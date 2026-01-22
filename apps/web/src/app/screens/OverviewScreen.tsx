@@ -22,8 +22,8 @@ const OverviewScreen = ({ company, members, subscription, onNavigateToTeam }: Ov
   return (
     <View className="flex flex-col gap-6">
       <View className="rounded-3xl bg-gradient-to-br from-ink via-ink to-brand-900 p-6 text-white">
-        <Text className="text-xs uppercase tracking-[0.35em] text-slate-200">Current company</Text>
-        <Text className="mt-2 text-3xl font-bold text-white">{company?.name ?? 'No company selected'}</Text>
+        <Text className="text-xs uppercase tracking-[0.35em] text-slate-200">Current organization</Text>
+        <Text className="mt-2 text-3xl font-bold text-white">{company?.name ?? 'No organization selected'}</Text>
         <Text className="mt-2 text-base text-slate-200">
           {company?.branding?.tagline ?? 'Connect billing, usage, and asset analytics as soon as your Worker API is live.'}
         </Text>

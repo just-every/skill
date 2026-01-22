@@ -31,10 +31,25 @@ type AppShellProps = {
   readonly navItems: AppNavItem[];
   readonly activeItem: string;
   readonly onNavigate: (key: string) => void;
+  readonly getHrefForNavItem?: (key: string) => string;
   readonly companies: Company[];
   readonly isLoadingCompanies: boolean;
   readonly onRefreshCompanies: () => void;
   readonly children?: ReactNode;
+};
+
+const shouldHandleAnchorClick = (event: React.MouseEvent<HTMLAnchorElement>): boolean => {
+  if (event.defaultPrevented) return false;
+  if (event.button !== 0) return false;
+  if (event.metaKey || event.altKey || event.ctrlKey || event.shiftKey) return false;
+  return true;
+};
+
+const defaultNavHref = (key: string) => {
+  if (key === 'overview') {
+    return '/app/overview';
+  }
+  return `/app/${key}`;
 };
 
 const STARFIELD_MICRO_EVENT_FREQ = 0.003;
@@ -43,6 +58,7 @@ const AppShell = ({
   navItems,
   activeItem,
   onNavigate,
+  getHrefForNavItem,
   companies,
   isLoadingCompanies,
   onRefreshCompanies,
@@ -174,7 +190,7 @@ const AppShell = ({
         setShowSwitcher(false);
         setSwitcherHover(false);
       } catch (error) {
-        const message = error instanceof Error ? error.message : 'Failed to switch company';
+        const message = error instanceof Error ? error.message : 'Failed to switch organization';
         setSwitchError(message);
       } finally {
         setPendingCompanyId(null);
@@ -185,7 +201,7 @@ const AppShell = ({
 
   const handleInviteSubmit = async (draft: InviteDraft) => {
     if (!activeCompany?.slug) {
-      throw new Error('Select a company before inviting teammates.');
+      throw new Error('Select an organization before inviting teammates.');
     }
     await api.post(`/api/accounts/${activeCompany.slug}/invites`, {
       email: draft.email,
@@ -317,7 +333,7 @@ const AppShell = ({
               </Text>
             </View>
             <View className="mt-4 space-y-2">
-              <Text className="text-[10px] uppercase tracking-[0.3em] text-slate-400">Current company</Text>
+              <Text className="text-[10px] uppercase tracking-[0.3em] text-slate-400">Current organization</Text>
               <div
                 className="relative"
                 ref={switcherRef}
@@ -334,19 +350,19 @@ const AppShell = ({
                   }}
                   className="rounded-2xl border border-slate-800 bg-slate-950/70 px-3 py-3 text-left text-sm font-semibold text-white"
                   accessibilityRole="button"
-                  accessibilityLabel="Select company"
+                  accessibilityLabel="Select organization"
                   aria-expanded={showSwitcher || switcherHover}
                   aria-haspopup="menu"
                 >
                   <Text className="text-base font-semibold text-white">
-                    {activeCompany?.name ?? 'Select company'}
+                    {activeCompany?.name ?? 'Select organization'}
                   </Text>
                   <Text className="text-xs text-slate-400">{activeCompany?.plan ?? '—'}</Text>
                 </Pressable>
                 {(showSwitcher || switcherHover) && (
                   <View
                     accessibilityRole="menu"
-                    aria-label="Company switcher"
+                    aria-label="Organization switcher"
                     testID="company-switcher-menu"
                     className="absolute left-0 top-full mt-2 w-full overflow-hidden rounded-2xl border border-slate-800 bg-slate-950/95 p-1 shadow-sm"
                   >
@@ -459,6 +475,7 @@ const AppShell = ({
           navItems={navItems}
           activeItem={activeItem}
           handleNavPress={handleNavPress}
+          getHrefForNavItem={getHrefForNavItem}
           renderAccountMenu={renderAccountMenu}
           microEventFrequency={STARFIELD_MICRO_EVENT_FREQ}
         />
@@ -510,6 +527,7 @@ const AppShell = ({
                   navItems={navItems}
                   activeItem={activeItem}
                   handleNavPress={handleNavPress}
+                  getHrefForNavItem={getHrefForNavItem}
                   renderAccountMenu={renderAccountMenu}
                   microEventFrequency={STARFIELD_MICRO_EVENT_FREQ}
                 />
@@ -532,6 +550,7 @@ type SidebarProps = {
   navItems: AppNavItem[];
   activeItem: string;
   handleNavPress: (key: string) => void;
+  getHrefForNavItem?: (key: string) => string;
   renderAccountMenu: () => React.ReactNode;
   microEventFrequency: number;
 };
@@ -545,6 +564,7 @@ function Sidebar({
   navItems,
   activeItem,
   handleNavPress,
+  getHrefForNavItem,
   renderAccountMenu,
   microEventFrequency,
 }: SidebarProps) {
@@ -575,19 +595,15 @@ function Sidebar({
           <View className="mt-8 flex flex-1 flex-col gap-2">
             {navItems.map((item) => {
               const isActive = item.key === activeItem;
-              return (
-                <Pressable
-                  key={item.key}
-                  testID={`nav-${item.key}`}
-                  accessibilityRole="button"
-                  accessibilityState={{ selected: isActive }}
-                  aria-current={isActive ? 'page' : undefined}
-                  onPress={() => handleNavPress(item.key)}
-                  className={cn(
-                    'flex flex-row items-start gap-3 rounded-2xl px-4 py-3 transition-colors',
-                    isActive ? 'bg-white/10 text-white' : 'text-slate-300 hover:bg-white/5'
-                  )}
-                >
+              const href = (getHrefForNavItem ?? defaultNavHref)(item.key);
+
+              const linkClasses = cn(
+                'flex flex-row items-start gap-3 rounded-2xl px-4 py-3 transition-colors',
+                isActive ? 'bg-white/10 text-white' : 'text-slate-300 hover:bg-white/5'
+              );
+
+              const linkContent = (
+                <>
                   <View className="pt-1">
                     <FontAwesomeIcon icon={item.icon} size={16} color={isActive ? '#ffffff' : '#b8c2d8'} />
                   </View>
@@ -597,6 +613,41 @@ function Sidebar({
                     </Text>
                     <Text className="text-[11px] text-slate-400">{item.description}</Text>
                   </View>
+                </>
+              );
+
+              if (Platform.OS === 'web') {
+                return (
+                  <a
+                    key={item.key}
+                    href={href}
+                    data-testid={`nav-${item.key}`}
+                    aria-current={isActive ? 'page' : undefined}
+                    className={linkClasses}
+                    onClick={(event) => {
+                      if (!shouldHandleAnchorClick(event)) {
+                        return;
+                      }
+                      event.preventDefault();
+                      handleNavPress(item.key);
+                    }}
+                  >
+                    {linkContent}
+                  </a>
+                );
+              }
+
+              return (
+                <Pressable
+                  key={item.key}
+                  testID={`nav-${item.key}`}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: isActive }}
+                  aria-current={isActive ? 'page' : undefined}
+                  onPress={() => handleNavPress(item.key)}
+                  className={linkClasses}
+                >
+                  {linkContent}
                 </Pressable>
               );
             })}

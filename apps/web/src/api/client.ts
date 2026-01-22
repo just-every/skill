@@ -1,4 +1,5 @@
 import { useCallback } from 'react';
+import { Platform } from 'react-native';
 
 import { useAuth } from '../auth/AuthProvider';
 import { replaceLocalhost, usePublicEnv } from '../runtimeEnv';
@@ -45,7 +46,7 @@ const normaliseWorkerOrigin = (origin?: string): string | undefined => {
 
 export const useApiClient = () => {
   const env = usePublicEnv();
-  const { status } = useAuth();
+  const { status, sessionToken } = useAuth();
 
   const buildUrl = useCallback(
     (path: string) => resolveWorkerUrl(env.workerOrigin ?? env.workerOriginLocal, path),
@@ -58,6 +59,10 @@ export const useApiClient = () => {
       const headers = new Headers(init?.headers ?? {});
       if (!headers.has('Content-Type') && init?.body) {
         headers.set('Content-Type', 'application/json');
+      }
+
+      if (Platform.OS !== 'web' && sessionToken && !headers.has('x-session-token')) {
+        headers.set('x-session-token', sessionToken);
       }
 
       const response = await fetch(url, {
@@ -79,7 +84,7 @@ export const useApiClient = () => {
 
       return (await response.json()) as T;
     },
-    [buildUrl, status]
+    [buildUrl, sessionToken, status]
   );
 
   return {

@@ -106,7 +106,7 @@ class RecordingD1 implements D1Database {
   private async handleRun(sql: string, bindings: unknown[]): Promise<void> {
     const normalized = sql.trim().toLowerCase();
 
-    if (normalized.startsWith('insert into company_subscriptions')) {
+    if (normalized.startsWith('insert into organization_subscriptions')) {
       const [id, companyId, stripeSubscriptionId, stripePriceId, planName, status, seats, mrrCents, periodStart, periodEnd, cancelAt, cancelAtPeriodEnd]
         = bindings as [string, string, string | null, string | null, string | null, string, number, number, string | null, string | null, string | null, number | null];
       this.subscriptions.set(companyId, {
@@ -121,7 +121,7 @@ class RecordingD1 implements D1Database {
       return;
     }
 
-    if (normalized.startsWith('update companies set plan')) {
+    if (normalized.startsWith('update organizations set plan')) {
       const [plan, companyId] = bindings as [string, string];
       const company = this.companies.get(companyId);
       if (company) {
@@ -130,7 +130,7 @@ class RecordingD1 implements D1Database {
       return;
     }
 
-    if (normalized.startsWith('insert into stripe_customers')) {
+    if (normalized.startsWith('insert into organization_stripe_customers')) {
       const [id, companyId, stripeCustomerId, billingEmail]
         = bindings as [string, string, string, string | null];
       this.stripeCustomers.set(companyId, { stripe_customer_id: stripeCustomerId, billing_email: billingEmail ?? null });
@@ -142,7 +142,7 @@ class RecordingD1 implements D1Database {
       return;
     }
 
-    if (normalized.startsWith('update companies set stripe_customer_id')) {
+    if (normalized.startsWith('update organizations set stripe_customer_id')) {
       const [stripeCustomerId, companyId] = bindings as [string, string];
       const company = this.companies.get(companyId);
       if (company) {
@@ -155,19 +155,19 @@ class RecordingD1 implements D1Database {
   private async handleFirst(sql: string, bindings: unknown[]): Promise<Record<string, unknown> | null> {
     const normalized = sql.trim().toLowerCase();
 
-    if (normalized.includes('from company_subscriptions')) {
+    if (normalized.includes('from organization_subscriptions')) {
       const [companyId] = bindings as [string];
       const row = this.subscriptions.get(companyId);
       return row ? { ...row, seats: row.seats ?? 0, mrr_cents: 0 } : null;
     }
 
-    if (normalized.includes('from stripe_customers')) {
+    if (normalized.includes('from organization_stripe_customers')) {
       const [companyId] = bindings as [string];
       const customer = this.stripeCustomers.get(companyId);
       return customer ? { stripe_customer_id: customer.stripe_customer_id } : null;
     }
 
-    if (normalized.includes('from companies')) {
+    if (normalized.includes('from organizations')) {
       const [companyId] = bindings as [string];
       const company = this.companies.get(companyId);
       return company ? {
@@ -177,7 +177,7 @@ class RecordingD1 implements D1Database {
       } : null;
     }
 
-    if (normalized.includes('from company_members')) {
+    if (normalized.includes('from organization_members')) {
       const [companyId] = bindings as [string];
       const row = this.members.get(companyId)?.[0];
       return row ? { email: row.email, role: row.role } : null;
@@ -291,7 +291,11 @@ describe('billing regression coverage', () => {
     const { env, db } = createProvisioningEnv();
     const session = buildSession('user_future', 'future@example.com', 'Future Founder');
 
-    await ensureAccountProvisionedForSession(env, session);
+    const request = new Request('https://app.local/api/accounts', {
+      headers: { cookie: 'better-auth.session_token=testtoken' },
+    });
+
+    await ensureAccountProvisionedForSession(env, request, session);
 
     expect(db.subscriptions).toHaveLength(1);
     const seeded = db.subscriptions[0];

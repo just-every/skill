@@ -96,13 +96,13 @@ export class ProvisioningDbMock implements D1Database {
     const normalized = sql.trim().toUpperCase();
     let record: Record<string, unknown> | null = null;
 
-    if (normalized.startsWith('SELECT COMPANY_ID FROM COMPANY_MEMBERS WHERE USER_ID')) {
+    if (normalized.startsWith('SELECT COMPANY_ID FROM ORGANIZATION_MEMBERS WHERE USER_ID')) {
       const [userId] = bindings as [string];
       const match = this.companyMembers.find((member) => member.user_id === userId);
       record = match ? { company_id: match.company_id } : null;
     }
 
-    if (normalized.startsWith('SELECT COMPANY_ID FROM COMPANY_MEMBERS WHERE LOWER(EMAIL)')) {
+    if (normalized.startsWith('SELECT COMPANY_ID FROM ORGANIZATION_MEMBERS WHERE LOWER(EMAIL)')) {
       const [email] = bindings as [string];
       const match = this.companyMembers.find(
         (member) => member.email.toLowerCase() === email.toLowerCase(),
@@ -110,7 +110,7 @@ export class ProvisioningDbMock implements D1Database {
       record = match ? { company_id: match.company_id } : null;
     }
 
-    if (normalized.startsWith('SELECT SLUG FROM COMPANIES WHERE SLUG')) {
+    if (normalized.startsWith('SELECT SLUG FROM ORGANIZATIONS WHERE SLUG')) {
       const [slug] = bindings as [string];
       const match = this.companies.find((company) => company.slug === slug);
       record = match ? { slug: match.slug } : null;
@@ -119,6 +119,20 @@ export class ProvisioningDbMock implements D1Database {
     if (normalized.startsWith('SELECT ID FROM USERS WHERE LOWER(EMAIL)')) {
       const [email] = bindings as [string];
       const match = this.users.find((user) => user.email.toLowerCase() === email.toLowerCase());
+      record = match ? { id: match.id } : null;
+    }
+
+    if (normalized.startsWith('SELECT ID FROM ORGANIZATIONS WHERE SLUG')) {
+      const [slug] = bindings as [string];
+      const match = this.companies.find((company) => company.slug === slug);
+      record = match ? { id: match.id } : null;
+    }
+
+    if (normalized.startsWith('SELECT ID FROM ORGANIZATION_MEMBERS WHERE COMPANY_ID')) {
+      const [companyId, userId] = bindings as [string, string];
+      const match = this.companyMembers.find(
+        (member) => member.company_id === companyId && member.user_id === userId,
+      );
       record = match ? { id: match.id } : null;
     }
 
@@ -222,7 +236,7 @@ export class ProvisioningDbMock implements D1Database {
       });
     }
 
-    if (normalized.startsWith('INSERT INTO COMPANIES')) {
+    if (normalized.startsWith('INSERT INTO ORGANIZATIONS')) {
       const [id, slug, name, plan, billingEmail] = bindings as [
         string,
         string,
@@ -230,8 +244,12 @@ export class ProvisioningDbMock implements D1Database {
         string,
         string | null,
       ];
-      if (this.companies.some((company) => company.slug === slug)) {
-        throw new Error('UNIQUE constraint failed: companies.slug');
+      const existing = this.companies.find((company) => company.slug === slug);
+      if (existing) {
+        existing.name = name;
+        existing.plan = plan;
+        existing.billing_email = billingEmail ?? null;
+        return this.buildResult([], { rows_written: 1, changes: 1, changed_db: true });
       }
       this.companies.push({ id, slug, name, plan, billing_email: billingEmail ?? null });
       return this.buildResult([], {
@@ -242,7 +260,18 @@ export class ProvisioningDbMock implements D1Database {
       });
     }
 
-    if (normalized.startsWith('INSERT INTO COMPANY_MEMBERS')) {
+    if (normalized.startsWith('UPDATE ORGANIZATIONS SET NAME')) {
+      const [name, billingEmail, slug] = bindings as [string, string | null, string];
+      const existing = this.companies.find((company) => company.slug === slug);
+      if (existing) {
+        existing.name = name;
+        existing.billing_email = billingEmail ?? null;
+        return this.buildResult([], { rows_written: 1, changes: 1, changed_db: true });
+      }
+      return this.buildResult();
+    }
+
+    if (normalized.startsWith('INSERT INTO ORGANIZATION_MEMBERS')) {
       const [id, companyId, userId, email, displayName] = bindings as [
         string,
         string,
@@ -250,15 +279,76 @@ export class ProvisioningDbMock implements D1Database {
         string,
         string,
       ];
+      const role = bindings.length >= 6 ? (bindings as any)[5] : 'owner';
+      const byEmail = this.companyMembers.find(
+        (member) => member.company_id === companyId && member.email.toLowerCase() === email.toLowerCase(),
+      );
+      if (byEmail) {
+        byEmail.user_id = userId;
+        byEmail.display_name = displayName;
+        byEmail.role = String(role);
+        return this.buildResult([], { rows_written: 1, changes: 1, changed_db: true });
+      }
+      const byUserId = userId
+        ? this.companyMembers.find((member) => member.company_id === companyId && member.user_id === userId)
+        : undefined;
+      if (byUserId) {
+        byUserId.email = email;
+        byUserId.display_name = displayName;
+        byUserId.role = String(role);
+        return this.buildResult([], { rows_written: 1, changes: 1, changed_db: true });
+      }
       this.companyMembers.push({
         id,
         company_id: companyId,
         user_id: userId,
         email,
         display_name: displayName,
-        role: 'owner',
+        role: String(role),
       });
       return this.buildResult([], { rows_written: 1, changes: 1, changed_db: true });
+    }
+
+    if (normalized.startsWith('UPDATE ORGANIZATION_MEMBERS')) {
+      if (normalized.includes("SET STATUS = 'SUSPENDED'")) {
+        return this.buildResult([], { rows_written: 1, changes: 1, changed_db: true });
+      }
+      if (normalized.includes('WHERE COMPANY_ID') && normalized.includes('AND USER_ID')) {
+        const [email, displayName, role, companyId, userId] = bindings as [
+          string,
+          string,
+          string,
+          string,
+          string,
+        ];
+        const existing = this.companyMembers.find(
+          (member) => member.company_id === companyId && member.user_id === userId,
+        );
+        if (existing) {
+          existing.email = email;
+          existing.display_name = displayName;
+          existing.role = role;
+          return this.buildResult([], { rows_written: 1, changes: 1, changed_db: true });
+        }
+        return this.buildResult();
+      }
+      const [userId, displayName, role, companyId, email] = bindings as [
+        string,
+        string,
+        string,
+        string,
+        string,
+      ];
+      const existing = this.companyMembers.find(
+        (member) => member.company_id === companyId && member.email.toLowerCase() === email.toLowerCase(),
+      );
+      if (existing) {
+        existing.user_id = userId;
+        existing.display_name = displayName;
+        existing.role = role;
+        return this.buildResult([], { rows_written: 1, changes: 1, changed_db: true });
+      }
+      return this.buildResult();
     }
 
     if (normalized.startsWith('INSERT INTO COMPANY_BRANDING_SETTINGS')) {
@@ -272,7 +362,7 @@ export class ProvisioningDbMock implements D1Database {
       return this.buildResult([], { rows_written: 1, changes: 1, changed_db: true });
     }
 
-    if (normalized.startsWith('INSERT INTO COMPANY_SUBSCRIPTIONS')) {
+    if (normalized.startsWith('INSERT INTO ORGANIZATION_SUBSCRIPTIONS')) {
       const [id, companyId, planName, currentPeriodStart, currentPeriodEnd] = bindings as [
         string,
         string,
@@ -299,6 +389,23 @@ export function createProvisioningEnv(): { env: Env; db: ProvisioningDbMock } {
   const db = new ProvisioningDbMock();
   const env = {
     LOGIN_ORIGIN: 'https://login.local',
+    LOGIN_SERVICE: {
+      fetch: async () =>
+        new Response(
+          JSON.stringify({
+            data: [
+              {
+                id: 'org-test',
+                name: 'Test',
+                slug: 'test',
+                status: 'active',
+                role: 'owner',
+              },
+            ],
+          }),
+          { headers: { 'content-type': 'application/json' } },
+        ),
+    },
     APP_BASE_URL: '/app',
     PROJECT_DOMAIN: 'https://app.local',
     STRIPE_PRODUCTS: '[]',

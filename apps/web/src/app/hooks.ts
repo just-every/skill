@@ -165,7 +165,7 @@ export const useSendInviteMutation = (companyId?: string, companySlug?: string) 
   return useMutation({
     mutationFn: async (invite: InviteDraft) => {
       if (!companySlug) {
-        throw new Error('Company slug is required');
+        throw new Error('Organization slug is required');
       }
       return await api.post<{ invite: Invite }>(`/api/accounts/${companySlug}/invites`, invite);
     },
@@ -210,7 +210,7 @@ export const useDeleteInviteMutation = (companyId?: string, companySlug?: string
   return useMutation({
     mutationFn: async (inviteId: string) => {
       if (!companySlug) {
-        throw new Error('Company slug is required');
+        throw new Error('Organization slug is required');
       }
       return await api.delete(`/api/accounts/${companySlug}/invites/${inviteId}`);
     },
@@ -242,7 +242,7 @@ export const useResendInviteMutation = (companyId?: string, companySlug?: string
   return useMutation({
     mutationFn: async (inviteId: string) => {
       if (!companySlug) {
-        throw new Error('Company slug is required');
+        throw new Error('Organization slug is required');
       }
       return await api.post(`/api/accounts/${companySlug}/invites/${inviteId}/resend`, {});
     },
@@ -259,7 +259,7 @@ export const useUpdateMemberRoleMutation = (companyId?: string, companySlug?: st
   return useMutation({
     mutationFn: async ({ memberId, role }: { memberId: string; role: Member['role'] }) => {
       if (!companySlug) {
-        throw new Error('Company slug is required');
+        throw new Error('Organization slug is required');
       }
       return await api.patch(`/api/accounts/${companySlug}/members/${memberId}`, { role });
     },
@@ -276,7 +276,7 @@ export const useRemoveMemberMutation = (companyId?: string, companySlug?: string
   return useMutation({
     mutationFn: async (memberId: string) => {
       if (!companySlug) {
-        throw new Error('Company slug is required');
+        throw new Error('Organization slug is required');
       }
       return await api.delete(`/api/accounts/${companySlug}/members/${memberId}`);
     },
@@ -293,7 +293,7 @@ export const useUpdateMemberNameMutation = (companyId?: string, companySlug?: st
   return useMutation({
     mutationFn: async ({ memberId, name }: { memberId: string; name: string }) => {
       if (!companySlug) {
-        throw new Error('Company slug is required');
+        throw new Error('Organization slug is required');
       }
       return await api.patch(`/api/accounts/${companySlug}/members/${memberId}`, { name });
     },
@@ -374,7 +374,7 @@ export const useCreateCheckoutMutation = (companyId?: string, companySlug?: stri
   return useMutation({
     mutationFn: async (priceId: string) => {
       if (!companySlug) {
-        throw new Error('Company slug is required');
+        throw new Error('Organization slug is required');
       }
       const baseUrl = resolveCheckoutBaseUrl(env.workerOrigin, env.workerOriginLocal);
       const { successUrl, cancelUrl } = buildCheckoutRedirectUrls(baseUrl);
@@ -399,7 +399,7 @@ export const useCreatePortalMutation = (companyId?: string, companySlug?: string
   return useMutation({
     mutationFn: async () => {
       if (!companySlug) {
-        throw new Error('Company slug is required');
+        throw new Error('Organization slug is required');
       }
       const baseUrl = typeof window !== 'undefined' ? window.location.origin : 'https://app.localhost';
       return await api.post<PortalResponse>(`/api/accounts/${companySlug}/billing/portal`, {
@@ -421,7 +421,7 @@ export const useSwitchCompanyMutation = () => {
   return useMutation({
     mutationFn: async ({ slug }: { slug: string }) => {
       if (!slug) {
-        throw new Error('Company slug is required');
+        throw new Error('Organization slug is required');
       }
       return await api.post<SwitchCompanyResponse>(`/api/accounts/${slug}/switch`, {});
     },
@@ -449,7 +449,7 @@ export const useUpdateBillingEmailMutation = (companyId?: string, companySlug?: 
   return useMutation({
     mutationFn: async (billingEmail: string | null) => {
       if (!companySlug) {
-        throw new Error('Company slug is required');
+        throw new Error('Organization slug is required');
       }
       return await api.patch(`/api/accounts/${companySlug}`, { billingEmail });
     },

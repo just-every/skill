@@ -60,6 +60,45 @@ const resolveSection = (path: string): string => {
   return NAV_ITEMS.some((item) => item.key === section) ? section : 'overview';
 };
 
+type DesignRoute =
+  | { view: 'list' }
+  | { view: 'create' }
+  | { view: 'detail'; runId: string };
+
+const stripQueryAndHash = (path: string): string => {
+  const queryIndex = path.indexOf('?');
+  const hashIndex = path.indexOf('#');
+  const cut = [queryIndex, hashIndex].filter((idx) => idx >= 0).sort((a, b) => a - b)[0];
+  if (typeof cut === 'number') {
+    return path.slice(0, cut);
+  }
+  return path;
+};
+
+const parseDesignRoute = (path: string): DesignRoute => {
+  const cleaned = stripQueryAndHash(path);
+  const segments = cleaned.split('/').filter(Boolean);
+  const appIndex = segments.indexOf('app');
+  const appSegments = appIndex >= 0 ? segments.slice(appIndex) : segments;
+
+  if (appSegments[0] !== 'app' || appSegments[1] !== 'design') {
+    return { view: 'list' };
+  }
+  if (appSegments.length === 2) {
+    return { view: 'list' };
+  }
+
+  const sub = appSegments[2];
+  if (sub === 'create') {
+    return { view: 'create' };
+  }
+  if (sub === 'runs' && appSegments[3]) {
+    return { view: 'detail', runId: appSegments[3] };
+  }
+
+  return { view: 'list' };
+};
+
 const parseBillingReturnState = (path: string): { variant: 'success' | 'cancel'; sessionId: string | null } | null => {
   if (!path.startsWith('/app/billing/')) {
     return null;
@@ -94,11 +133,22 @@ const toPath = (segment: string): string => {
   return `/app/${segment}`;
 };
 
+const toDesignListPath = () => '/app/design';
+const toDesignCreatePath = () => '/app/design/create';
+const toDesignRunPath = (runId: string) => `/app/design/runs/${encodeURIComponent(runId)}`;
+
 const Dashboard = () => {
   const { path, navigate } = useRouterContext();
   const { status: authStatus, isAuthenticated, openHostedLogin, session, loginOrigin } = useAuth();
   const section = resolveSection(path);
   const billingReturnState = React.useMemo(() => parseBillingReturnState(path), [path]);
+  const designRoute = React.useMemo(() => parseDesignRoute(path), [path]);
+
+  useEffect(() => {
+    if (path === '/app' || path === '/app/') {
+      navigate('/app/overview', { replace: true });
+    }
+  }, [navigate, path]);
 
   const companiesQuery = useCompaniesQuery();
   const companies = companiesQuery.data?.accounts ?? [];
@@ -126,13 +176,11 @@ const Dashboard = () => {
   const subscriptionQuery = useSubscriptionQuery(activeCompanyForQueries?.id, activeCompanyForQueries?.slug);
 
   // Design runs state and queries
-  const [designView, setDesignView] = React.useState<'list' | 'create' | 'detail'>('list');
-  const [selectedRunId, setSelectedRunId] = React.useState<string | null>(null);
   const designRunsQuery = useDesignRunsQuery(activeCompanyForQueries?.id, activeCompanyForQueries?.slug);
   const designRunDetailQuery = useDesignRunDetailQuery(
     activeCompanyForQueries?.id,
     activeCompanyForQueries?.slug,
-    selectedRunId ?? undefined
+    designRoute.view === 'detail' ? designRoute.runId : undefined
   );
   const createDesignRunMutation = useCreateDesignRunMutation(
     activeCompanyForQueries?.id,
@@ -147,10 +195,6 @@ const Dashboard = () => {
   const handleNavigate = useCallback(
     (segment: string) => {
       navigate(toPath(segment));
-      if (segment === 'design') {
-        setDesignView('list');
-        setSelectedRunId(null);
-      }
     },
     [navigate]
   );
@@ -158,18 +202,16 @@ const Dashboard = () => {
   const handleCreateDesignRun = useCallback(async (input: DesignRunCreateInput) => {
     try {
       const result = await createDesignRunMutation.mutateAsync(input);
-      setDesignView('detail');
-      setSelectedRunId(result.run.id);
+      navigate(toDesignRunPath(result.run.id));
     } catch (error) {
       console.error('Failed to create design run:', error);
       throw error;
     }
-  }, [createDesignRunMutation]);
+  }, [createDesignRunMutation, navigate]);
 
   const handleViewDesignRun = useCallback((runId: string) => {
-    setSelectedRunId(runId);
-    setDesignView('detail');
-  }, []);
+    navigate(toDesignRunPath(runId));
+  }, [navigate]);
 
   const handleDeleteDesignRun = useCallback(async (runId: string) => {
     setDeletingRunId(runId);
@@ -183,9 +225,8 @@ const Dashboard = () => {
   }, [deleteDesignRunMutation]);
 
   const handleBackToDesignList = useCallback(() => {
-    setDesignView('list');
-    setSelectedRunId(null);
-  }, []);
+    navigate(toDesignListPath());
+  }, [navigate]);
 
   const redirectSection = React.useMemo(() => {
     if (section === 'team') return 'organizations';
@@ -274,7 +315,7 @@ const Dashboard = () => {
     const message = companiesQuery.error instanceof Error ? companiesQuery.error.message : 'Unknown error';
     return (
       <View className={centerClassName}>
-        <Text className="text-2xl font-bold text-ink">Unable to load company data</Text>
+        <Text className="text-2xl font-bold text-ink">Unable to load organization data</Text>
         <Text className="mx-auto mt-3 max-w-[420px] text-center text-sm text-slate-500">
           {message}. Please retry once your session is valid and the Worker can reach Cloudflare D1.
         </Text>
@@ -292,7 +333,7 @@ const Dashboard = () => {
     return (
       <View className={centerClassName}>
         <ActivityIndicator size="large" color="#0f172a" />
-        <Text className="mt-3 text-base text-slate-500">Loading company data…</Text>
+        <Text className="mt-3 text-base text-slate-500">Loading organization data…</Text>
       </View>
     );
   }
@@ -334,7 +375,7 @@ const Dashboard = () => {
 
     switch (section) {
       case 'design':
-        if (designView === 'create') {
+        if (designRoute.view === 'create') {
           return (
             <DesignCreateScreen
               onSubmit={handleCreateDesignRun}
@@ -343,7 +384,7 @@ const Dashboard = () => {
             />
           );
         }
-        if (designView === 'detail') {
+        if (designRoute.view === 'detail') {
           return (
             <DesignDetailScreen
               run={designRunDetailQuery.data}
@@ -357,7 +398,7 @@ const Dashboard = () => {
           <DesignListScreen
             runs={designRunsQuery.data ?? []}
             isLoading={designRunsQuery.isLoading}
-            onCreateNew={() => setDesignView('create')}
+            onCreateNew={() => navigate(toDesignCreatePath())}
             onViewRun={handleViewDesignRun}
             onDeleteRun={handleDeleteDesignRun}
             isDeletingRun={deletingRunId}

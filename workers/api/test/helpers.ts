@@ -47,10 +47,10 @@ function createDbMock(): D1Database {
         return this;
       },
       async first() {
-        if (sql.includes('FROM stripe_customers')) {
+        if (sql.includes('FROM organization_stripe_customers')) {
           return { stripe_customer_id: 'cus_test_123' };
         }
-        if (sql.includes('FROM companies')) {
+        if (sql.includes('FROM organizations')) {
           return { stripe_customer_id: 'cus_test_123', billing_email: 'billing@justevery.com' };
         }
         return null;

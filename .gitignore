@@ -8,6 +8,8 @@ yarn.lock
 # Expo
 .expo/
 .expo-shared/
+apps/web/ios/
+apps/web/android/
 
 # Build outputs
 dist/

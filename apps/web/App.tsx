@@ -1,8 +1,7 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import React, { Component, PropsWithChildren, ReactNode, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, DevSettings, Pressable, Text, View } from 'react-native';
-
-import './global.css';
+import Constants from 'expo-constants';
 
 import { AuthProvider, useAuth } from './src/auth/AuthProvider';
 import Layout from './src/components/Layout';
@@ -15,7 +14,7 @@ import { usePublicEnv } from './src/runtimeEnv';
 const RoutedView = () => {
   const { path } = useRouterContext();
 
-  if (path === '/callback') {
+  if (path.startsWith('/callback')) {
     return <Callback />;
   }
 
@@ -95,6 +94,15 @@ const App = (): ReactNode => {
   useCodeBridge();
 
   const env = usePublicEnv();
+
+  useEffect(() => {
+    if (typeof document === 'undefined') return;
+    const nextTitle = Constants.expoConfig?.name;
+    if (nextTitle && document.title !== nextTitle) {
+      document.title = nextTitle;
+    }
+  }, []);
+
   const queryClientRef = useRef<QueryClient>();
 
   if (!queryClientRef.current) {
