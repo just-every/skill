@@ -261,6 +261,8 @@ const Dashboard = () => {
     }
   }, [handleNavigate, redirectSection]);
 
+  const redirectPopupOpenRef = React.useRef<string | null>(null);
+
   const { open: openProfilePopup } = useJustEveryProfilePopup({
     baseUrl: loginOrigin,
     defaultSection: 'account',
@@ -288,8 +290,14 @@ const Dashboard = () => {
 
   useEffect(() => {
     if (authStatus !== 'authenticated' || !isAuthenticated || !redirectSection) {
+      redirectPopupOpenRef.current = null;
       return;
     }
+    const key = `${redirectSection}:${section}`;
+    if (redirectPopupOpenRef.current === key) {
+      return;
+    }
+    redirectPopupOpenRef.current = key;
     requestProfilePopup({ section: redirectSection as any, organizationId: activeCompanyForQueries?.id }, `route:${section}`);
   }, [activeCompanyForQueries?.id, authStatus, isAuthenticated, redirectSection, requestProfilePopup, section]);
 

@@ -172,6 +172,7 @@ export function useJustEveryProfilePopup(options: UseJustEveryProfilePopupOption
     section: defaultSection,
     organizationId: defaultOrganizationId,
   });
+  const lastOrganizationSnapshotRef = useRef<{ id: string | null; name: string | null; role: string | null } | null>(null);
 
   const resolvedBaseUrl = useMemo(() => {
     const fallback = 'https://login.justevery.com';
@@ -264,7 +265,27 @@ export function useJustEveryProfilePopup(options: UseJustEveryProfilePopupOption
             readyCb?.(evt.data ?? evt.payload);
             break;
           case 'organization:change':
-            orgCb?.((evt.data ?? evt.payload ?? {}) as { organizationId?: string });
+            if (orgCb) {
+              const payload = (evt.data ?? evt.payload ?? {}) as {
+                organizationId?: string;
+                organization?: { id?: string; name?: string; role?: string };
+              };
+              const nextSnapshot = {
+                id: payload.organizationId ?? payload.organization?.id ?? null,
+                name: payload.organization?.name ?? null,
+                role: payload.organization?.role ?? null,
+              };
+              const previous = lastOrganizationSnapshotRef.current;
+              const changed =
+                !previous ||
+                previous.id !== nextSnapshot.id ||
+                previous.name !== nextSnapshot.name ||
+                previous.role !== nextSnapshot.role;
+              if (changed) {
+                lastOrganizationSnapshotRef.current = nextSnapshot;
+                orgCb(payload);
+              }
+            }
             break;
           case 'session:logout':
             logoutCb?.(evt.data ?? evt.payload);

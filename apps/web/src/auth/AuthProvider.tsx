@@ -590,7 +590,11 @@ const resolveWorkerBase = (
   sessionEndpoint: string,
   betterAuthBaseUrl: string
 ): string => {
-  const candidates = [workerOriginLocal, workerOrigin, sessionEndpoint, betterAuthBaseUrl];
+  const host = typeof window !== 'undefined' ? window.location?.hostname : undefined;
+  const preferLocal = host === 'localhost' || host === '127.0.0.1';
+  const candidates = preferLocal
+    ? [workerOriginLocal, workerOrigin, sessionEndpoint, betterAuthBaseUrl]
+    : [workerOrigin, workerOriginLocal, sessionEndpoint, betterAuthBaseUrl];
 
   for (const candidate of candidates) {
     if (isHttpUrl(candidate)) {
