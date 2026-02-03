@@ -46,6 +46,12 @@ export async function installSkills(options) {
         changed,
         skipped,
         notes,
+        tokens: {
+          SKILL_DIR: destDir,
+          SKILL_NAME: skill.name,
+          SKILLS_ROOT: skillRoot,
+          CLIENT_NAME: client,
+        },
       });
     }
   }

@@ -41,8 +41,8 @@ Do not respond until all workflows complete successfully or you have a clear, us
 
 Use `scripts/gh-run-wait.ts` to monitor the latest GitHub Actions run when the `gh_run_wait` tool is unavailable. It waits briefly for a run to appear after a push, prints the run URL plus job/step counts, and then reports progress every 5 seconds until completion.
 
-Run:
-- `npx -y tsx skills/git-push/scripts/gh-run-wait.ts`
+Run (installed skill path):
+- `npx -y tsx {{SKILL_DIR}}/scripts/gh-run-wait.ts`
 
 Common options:
 - `--workflow <name>`

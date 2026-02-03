@@ -77,6 +77,15 @@ Registry entries can point to a local `path` (copied into client skill folders) 
 }
 ```
 
+## Install Path Variables
+
+During install, `SKILL.md` supports template tokens that are replaced per client:
+
+- `{{SKILL_DIR}}` → installed skill directory (client-specific)
+- `{{SKILL_NAME}}` → skill name
+- `{{SKILLS_ROOT}}` → client skills root directory
+- `{{CLIENT_NAME}}` → client key (code, codex, claude-code, cursor, gemini, qwen, claude-desktop)
+
 ## Notes
 
 - Skills are installed into `~/.codex/skills`, `~/.code/skills`, and `~/.claude/skills` when those clients are detected.
