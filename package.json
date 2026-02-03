@@ -1,6 +1,6 @@
 {
   "name": "@just-every/skill",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "Skill starter kit installer for CLI apps",
   "type": "module",
   "bin": {
