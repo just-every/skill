@@ -1,0 +1,134 @@
+name: Release Skill
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - src/**
+      - skills/**
+      - templates/**
+      - package.json
+      - README.md
+      - .github/workflows/release-skill.yml
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version type (patch, minor, major)'
+        required: true
+        default: 'patch'
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+
+permissions:
+  contents: write
+
+concurrency:
+  # Avoid self-cancellation: this workflow pushes a version-bump commit with [skip ci].
+  # If we used a single concurrency group, that follow-up push would cancel the active publish run.
+  group: release-skill-${{ github.ref }}-${{ github.event_name == 'push' && contains(github.event.head_commit.message, '[skip ci]') && 'skip' || 'main' }}
+  cancel-in-progress: true
+
+jobs:
+  release:
+    name: Publish @just-every/skill
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    if: github.event_name != 'push' || !contains(github.event.head_commit.message, '[skip ci]')
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GH_PAT || secrets.GITHUB_TOKEN }}
+
+      - name: Check whether to publish
+        id: should_publish
+        run: |
+          set -euo pipefail
+          if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          BEFORE="${{ github.event.before }}"
+          AFTER="${{ github.sha }}"
+          if [ -z "${BEFORE:-}" ] || [ "$BEFORE" = "0000000000000000000000000000000000000000" ]; then
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if git diff --name-only "$BEFORE" "$AFTER" | grep -Eq '^(src/|skills/|templates/|package\\.json|README\\.md|\\.github/workflows/release-skill\\.yml)'; then
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+            echo "No relevant changes detected; skipping publish." >&2
+          fi
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Bump version, commit, and tag
+        id: version
+        if: steps.should_publish.outputs.publish == 'true'
+        run: |
+          if [ -z "${NPM_TOKEN:-}" ]; then
+            echo "NPM_TOKEN not set; cannot publish" >&2
+            exit 1
+          fi
+
+          # Configure git
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+
+          BUMP="patch"
+          if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
+            BUMP="${{ github.event.inputs.version }}"
+          fi
+
+          BUMP_KIND="$BUMP" node -e 'const fs=require("node:fs");const pkg=JSON.parse(fs.readFileSync("package.json","utf8"));const kind=(process.env.BUMP_KIND||"patch").trim();const m=String(pkg.version||"").trim().match(/^(\d+)\.(\d+)\.(\d+)/);if(!m)throw new Error("Invalid version: "+pkg.version);let major=Number(m[1]),minor=Number(m[2]),patch=Number(m[3]);if(kind==="major"){major+=1;minor=0;patch=0;}else if(kind==="minor"){minor+=1;patch=0;}else{patch+=1;}pkg.version=`${major}.${minor}.${patch}`;fs.writeFileSync("package.json",JSON.stringify(pkg,null,2)+"\n");console.log(pkg.version);'
+          VERSION=$(node -p "require('./package.json').version")
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+          git add package.json
+          git commit -m "chore(release): @just-every/skill v${VERSION} [skip ci]"
+          git tag "skill-v${VERSION}"
+        env:
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Publish to npm
+        if: steps.should_publish.outputs.publish == 'true'
+        run: npm publish --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Push changes
+        if: steps.should_publish.outputs.publish == 'true'
+        run: |
+          git push origin main
+          git push origin --tags
+
+      - name: Create GitHub Release
+        if: steps.should_publish.outputs.publish == 'true'
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: skill-v${{ env.VERSION }}
+          release_name: skill v${{ env.VERSION }}
+          body: |
+            Released @just-every/skill@${{ env.VERSION }} to npm.
+
+            Install with:
+            ```bash
+            npm install @just-every/skill@${{ env.VERSION }}
+            ```
+          draft: false
+          prerelease: false
