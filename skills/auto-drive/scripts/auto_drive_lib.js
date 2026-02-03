@@ -3,6 +3,8 @@ import path from "path";
 import os from "os";
 import { spawn } from "child_process";
 
+const DEFAULT_CLI_TIMEOUT_MS = 180000;
+
 export function resolveAutoDriveHome() {
   if (process.env.AUTO_DRIVE_HOME && process.env.AUTO_DRIVE_HOME.trim()) {
     return process.env.AUTO_DRIVE_HOME.trim();
@@ -186,12 +188,20 @@ async function runCommand(command, args, options) {
     let stdout = "";
     let stderr = "";
     let finished = false;
+    let timeoutTimer = null;
+    let killTimer = null;
 
     const finish = (code) => {
       if (finished) {
         return;
       }
       finished = true;
+      if (timeoutTimer) {
+        clearTimeout(timeoutTimer);
+      }
+      if (killTimer) {
+        clearTimeout(killTimer);
+      }
       resolve({ code, stdout, stderr });
     };
 
@@ -214,12 +224,21 @@ async function runCommand(command, args, options) {
     }
 
     if (timeoutMs) {
-      setTimeout(() => {
+      timeoutTimer = setTimeout(() => {
         try {
           child.kill("SIGTERM");
         } catch (err) {
           // ignore
         }
+        killTimer = setTimeout(() => {
+          try {
+            child.kill("SIGKILL");
+          } catch (err) {
+            // ignore
+          }
+        }, 5000);
+        stderr += "\n[auto-drive] command timed out";
+        finish(124);
       }, timeoutMs);
     }
   });
@@ -237,6 +256,7 @@ export async function runModelPrompt({
   schemaFlag,
   cwd,
   env,
+  timeoutMs,
 }) {
   const args = [];
   if (Array.isArray(cliArgs) && cliArgs.length > 0) {
@@ -275,10 +295,16 @@ export async function runModelPrompt({
   };
 
   const promptInput = promptMode === "stdin" ? prompt : null;
+  const resolvedTimeoutMs =
+    timeoutMs !== undefined && timeoutMs !== null
+      ? timeoutMs
+      : parseNumber(pickEnvValue("AUTO_DRIVE_CLI_TIMEOUT_MS", ""), DEFAULT_CLI_TIMEOUT_MS);
+
   let result = await runCommand(cliCommand, buildArgsWithSchema(), {
     cwd,
     env,
     input: promptInput,
+    timeoutMs: resolvedTimeoutMs,
   });
 
   if (
@@ -292,6 +318,7 @@ export async function runModelPrompt({
       cwd,
       env,
       input: promptInput,
+      timeoutMs: resolvedTimeoutMs,
     });
   }
 

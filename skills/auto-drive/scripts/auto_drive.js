@@ -540,7 +540,7 @@ async function main() {
 
   if (args.goal && !args.id && !args.plan && !args.summary) {
     const currentSession = findLatestSessionForCwd(process.cwd());
-    const id = currentSession ? currentSession.id : buildSessionId();
+    const id = buildSessionId();
     const skillDir = resolveSkillDir();
     const session = {
       id,

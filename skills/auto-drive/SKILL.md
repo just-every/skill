@@ -44,3 +44,4 @@ Keep calling `--id` or sending `--summary` until the script says the session is 
 - If the task prompt includes an `<agents>` block, use native agents if available, then merge their results into your work.
 - Provide concrete summaries: commands run, files changed, tests run, and results.
 - The script runs `codex exec` under the hood. You do not need to call `codex` directly.
+- Default model timeout is 3 minutes. Set `AUTO_DRIVE_CLI_TIMEOUT_MS` (milliseconds) to override (use `0` to disable).
