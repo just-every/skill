@@ -1,0 +1,70 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "finish_status",
+    "status_title",
+    "status_sent_to_user",
+    "prompt_sent_to_cli",
+    "agents"
+  ],
+  "properties": {
+    "finish_status": {
+      "type": "string",
+      "enum": ["continue", "finish_success", "finish_failed"],
+      "description": "Prefer 'continue' unless the goal is fully complete or truly blocked."
+    },
+    "status_title": {
+      "type": ["string", "null"],
+      "minLength": 2,
+      "maxLength": 80
+    },
+    "status_sent_to_user": {
+      "type": ["string", "null"],
+      "minLength": 4,
+      "maxLength": 600
+    },
+    "prompt_sent_to_cli": {
+      "type": ["string", "null"],
+      "minLength": 4
+    },
+    "agents": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "required": ["timing", "list"],
+      "properties": {
+        "timing": {
+          "type": "string",
+          "enum": ["parallel", "blocking"]
+        },
+        "list": {
+          "type": "array",
+          "maxItems": 5,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["prompt", "context", "write", "models"],
+            "properties": {
+              "prompt": {
+                "type": "string",
+                "minLength": 8,
+                "maxLength": 400
+              },
+              "context": {
+                "type": ["string", "null"],
+                "maxLength": 1500
+              },
+              "write": {
+                "type": "boolean"
+              },
+              "models": {
+                "type": "array",
+                "items": { "type": "string" }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

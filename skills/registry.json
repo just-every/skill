@@ -18,6 +18,11 @@
       "name": "git-push",
       "description": "Commit/push workflow guidance for git repos.",
       "path": "skills/git-push/SKILL.md"
+    },
+    {
+      "name": "auto-drive",
+      "description": "Autonomous task orchestration with coordinator decisions, optional sub-agents, and a verification pass.",
+      "path": "skills/auto-drive/SKILL.md"
     }
   ]
 }

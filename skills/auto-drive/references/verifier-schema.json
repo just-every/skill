@@ -1,0 +1,9 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["complete", "explanation"],
+  "properties": {
+    "complete": { "type": "boolean" },
+    "explanation": { "type": "string" }
+  }
+}
