@@ -6,6 +6,7 @@ You are the coordinator. You decide what the worker should do next.
 Return exactly one JSON object that matches the decision schema.
 Do not include any text before or after the JSON.
 If you are unsure, choose "continue" and ask the worker to gather evidence.
+Always include a `prompt_sent_to_cli` string, even for finish statuses.
 
 Goal:
 {{GOAL}}

@@ -169,8 +169,6 @@ function normalizeDecision(decision) {
   }
   return {
     finish_status: status,
-    status_title: decision.status_title || null,
-    status_sent_to_user: decision.status_sent_to_user || null,
     prompt_sent_to_cli: decision.prompt_sent_to_cli || null,
     agents: decision.agents || null,
   };
@@ -271,10 +269,10 @@ async function requestDecision({
   const parsed = parseJsonFromText(stdout);
   const normalized = normalizeDecision(parsed);
   if (normalized) {
-    return { decision: normalized, raw: stdout, stderr, code: result.code };
+    return { decision: normalized, raw: stdout, stderr, code: result.code, prompt };
   }
 
-  return { decision: null, raw: stdout, stderr, code: result.code };
+  return { decision: null, raw: stdout, stderr, code: result.code, prompt };
 }
 
 async function runObserver({ templates, history, historyTail, model }) {
@@ -361,7 +359,7 @@ function printTaskPrompt(id, prompt) {
   console.log(prompt);
   console.log("");
   console.log(
-    `Execute \`node ${skillDir}/scripts/auto_drive.js --id ${id} --summary "Work completed since last call"\``
+    `Execute (timeout_ms=300000) \`node ${skillDir}/scripts/auto_drive.js --id ${id} --summary "Work completed since last call"\``
   );
 }
 
@@ -428,6 +426,15 @@ async function handleDecisionLoop({
       historyTail: config.historyTail,
       model: modelOverride,
     });
+    appendJsonl(eventsPath, {
+      type: "coordinator_call",
+      attempt: attempts + 1,
+      prompt: result.prompt,
+      stdout: result.raw,
+      stderr: result.stderr,
+      code: result.code,
+      ts: Date.now(),
+    });
     if (result.decision) {
       decisionResult = result.decision;
       appendJsonl(eventsPath, { type: "decision", decision: result.decision, ts: Date.now() });
@@ -462,8 +469,8 @@ async function handleDecisionLoop({
     session.status = "failed";
     saveSession(autoHome, session);
     console.log("Auto Drive Failed");
-    if (decisionResult.status_sent_to_user) {
-      console.log(decisionResult.status_sent_to_user);
+    if (decisionResult.prompt_sent_to_cli) {
+      console.log(decisionResult.prompt_sent_to_cli);
     }
     return;
   }
@@ -480,7 +487,9 @@ async function handleDecisionLoop({
         session.verification = verify;
         saveSession(autoHome, session);
         console.log("Auto Drive Complete");
-        if (verify.explanation) {
+        if (decisionResult.prompt_sent_to_cli) {
+          console.log(decisionResult.prompt_sent_to_cli);
+        } else if (verify.explanation) {
           console.log(verify.explanation);
         }
         return;
@@ -494,8 +503,8 @@ async function handleDecisionLoop({
     session.status = "completed";
     saveSession(autoHome, session);
     console.log("Auto Drive Complete");
-    if (decisionResult.status_sent_to_user) {
-      console.log(decisionResult.status_sent_to_user);
+    if (decisionResult.prompt_sent_to_cli) {
+      console.log(decisionResult.prompt_sent_to_cli);
     }
     return;
   }
@@ -597,7 +606,7 @@ async function main() {
     console.log(`Goal: ${session.goal}`);
     console.log("");
     console.log(
-      `Execute \`node ${resolveSkillDir()}/scripts/auto_drive.js --id ${session.id} --plan "Your plan here"\``
+      `Execute (timeout_ms=300000) \`node ${resolveSkillDir()}/scripts/auto_drive.js --id ${session.id} --plan "Your plan here"\``
     );
     return;
   }

@@ -3,7 +3,7 @@ import path from "path";
 import os from "os";
 import { spawn } from "child_process";
 
-const DEFAULT_CLI_TIMEOUT_MS = 180000;
+const DEFAULT_CLI_TIMEOUT_MS = 270000;
 
 export function resolveAutoDriveHome() {
   if (process.env.AUTO_DRIVE_HOME && process.env.AUTO_DRIVE_HOME.trim()) {
