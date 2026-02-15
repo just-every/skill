@@ -25,6 +25,31 @@ function getInitialPath(): string {
   return `${window.location.pathname}${window.location.search}${window.location.hash}`;
 }
 
+function scrollToHash(path: string): void {
+  if (typeof window === 'undefined' || typeof document === 'undefined') {
+    return;
+  }
+
+  const hashIndex = path.indexOf('#');
+  if (hashIndex === -1) {
+    return;
+  }
+
+  const hash = path.slice(hashIndex + 1);
+  if (!hash) {
+    return;
+  }
+
+  const targetId = decodeURIComponent(hash);
+  window.requestAnimationFrame(() => {
+    const target = document.getElementById(targetId);
+    if (!target) {
+      return;
+    }
+    target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  });
+}
+
 export interface RouterProviderProps {
   readonly initialPath?: string;
   readonly children?: React.ReactNode;
@@ -52,7 +77,12 @@ export const RouterProvider = ({ initialPath, children }: RouterProviderProps) =
       window.history.pushState(null, '', next);
     }
     setPath(next);
+    scrollToHash(next);
   }, []);
+
+  useEffect(() => {
+    scrollToHash(path);
+  }, [path]);
 
   const value = useMemo(() => ({ path, navigate }), [path, navigate]);
   return <RouterContext.Provider value={value}>{children}</RouterContext.Provider>;

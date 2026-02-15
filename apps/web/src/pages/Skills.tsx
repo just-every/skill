@@ -11,6 +11,7 @@ const Skills = () => {
   const [taskQuery, setTaskQuery] = React.useState(initialTask);
   const [agent, setAgent] = React.useState<Agent>('codex');
   const [submittedTask, setSubmittedTask] = React.useState(initialTask);
+  const [lastEvaluatedAt, setLastEvaluatedAt] = React.useState<Date>(new Date());
 
   const summaries = React.useMemo(() => getSkillSummaries(), []);
   const approvedSkills = React.useMemo(() => summaries.filter((entry) => entry.securityReview.status === 'approved'), [summaries]);
@@ -21,6 +22,7 @@ const Skills = () => {
     const next = taskQuery.trim();
     if (next.length >= 8) {
       setSubmittedTask(next);
+      setLastEvaluatedAt(new Date());
     }
   }, [taskQuery]);
 
@@ -75,8 +77,12 @@ const Skills = () => {
               const active = candidate === agent;
               return (
                 <Pressable
+                  accessibilityRole="button"
                   key={candidate}
-                  onPress={() => setAgent(candidate)}
+                  onPress={() => {
+                    setAgent(candidate);
+                    setLastEvaluatedAt(new Date());
+                  }}
                   className={active ? 'rounded-full bg-[#184f87] px-4 py-2' : 'rounded-full border border-[#d3c6b3] bg-white px-4 py-2'}
                 >
                   <Text className={active ? 'text-sm font-semibold text-white' : 'text-sm font-semibold text-[#463d32]'}>
@@ -87,7 +93,7 @@ const Skills = () => {
             })}
           </View>
 
-          <Pressable onPress={onSubmit} className="self-start rounded-2xl bg-[#174f87] px-6 py-3">
+          <Pressable accessibilityRole="button" onPress={onSubmit} className="self-start rounded-2xl bg-[#174f87] px-6 py-3">
             <Text className="text-base font-semibold text-white">Recommend Skill</Text>
           </Pressable>
 
@@ -100,6 +106,9 @@ const Skills = () => {
             </Text>
             <Text className="mt-1 text-sm text-[#554b3f]">
               similarity {recommendation.recommendation.embeddingSimilarity} · benchmark {recommendation.recommendation.averageBenchmarkScore}
+            </Text>
+            <Text className="mt-1 text-sm text-[#554b3f]">
+              evaluated for {agent.toUpperCase()} at {lastEvaluatedAt.toLocaleTimeString()}
             </Text>
           </View>
         </View>
@@ -151,7 +160,7 @@ const Skills = () => {
             </View>
           </View>
 
-          <View className="rounded-[24px] border border-[#dbcfbe] bg-white p-6">
+          <View nativeID="top-candidates" className="rounded-[24px] border border-[#dbcfbe] bg-white p-6">
             <Text className="text-lg font-semibold text-[#231d17] md:text-2xl">Top candidates</Text>
             <View className="mt-3 gap-2">
               {recommendation.candidates.slice(0, 5).map((candidate, index) => (
