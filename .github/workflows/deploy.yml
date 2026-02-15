@@ -38,6 +38,10 @@ jobs:
         id: set-mode
         run: |
           MODE="${{ github.event_name == 'workflow_dispatch' && github.event.inputs.mode || 'deploy' }}"
+          if [ "$MODE" = "deploy" ] && [ -z "${ENV_BLOB:-}" ]; then
+            echo "ENV_BLOB secret missing; switching to dry-run mode"
+            MODE="dry-run"
+          fi
           echo "MODE=$MODE" >> "$GITHUB_ENV"
           echo "Deployment mode: $MODE"
 
