@@ -3,9 +3,9 @@
 PRAGMA foreign_keys = ON;
 
 INSERT OR IGNORE INTO projects (id, slug, domain, app_url)
-VALUES ('starter', 'starter', 'starter.justevery.com', 'https://starter.justevery.com/app');
+VALUES ('skill', 'skill', 'skill.justevery.com', 'https://skill.justevery.com/app');
 
 UPDATE companies
-SET project_id = 'starter'
+SET project_id = 'skill'
 WHERE id = 'acct-justevery'
-  AND (project_id IS NULL OR project_id = '' OR project_id = 'starter');
+  AND (project_id IS NULL OR project_id = '' OR project_id = 'skill');

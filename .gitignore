@@ -25,6 +25,8 @@ blob-report/
 
 # Scratch files
 temp.html
+every-design/
+benchmarks/runs/
 
 # Local env overlays
 workers/api/.dev.vars

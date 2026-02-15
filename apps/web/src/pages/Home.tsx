@@ -1,315 +1,183 @@
-import React, { useCallback } from 'react';
-import { Pressable, View, Platform, Image } from 'react-native';
-import type { ViewStyle } from 'react-native';
-import { FontAwesomeIcon } from '@fortawesome/react-native-fontawesome';
-import {
-  faBolt,
-  faCode,
-  faCreditCard,
-  faRocket,
-  faServer,
-  faShieldHalved,
-  faArrowRight,
-} from '@fortawesome/pro-solid-svg-icons';
+import React from 'react';
+import { Pressable, Text, View } from 'react-native';
 
-import { useAuth } from '../auth/AuthProvider';
+import { BrandImage } from '../components/BrandImage';
+import { getCoverage, getTopRows, recommendSkill } from '../data/catalog';
 import { useRouterContext } from '../router/RouterProvider';
-import { Button } from '../components/ui';
-import { Typography } from '../components/Typography';
-import EffectsBackdrop from '../components/backgrounds/EffectsBackdrop';
-import { Container } from '../components/Container';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '../components/ui/Card';
 
-const heroFeatures = [
-  {
-    title: 'Launch-ready front door',
-    description: 'Marketing shell, dashboard, and auth share one design system with real content and flows.',
-    icon: faRocket,
-  },
-  {
-    title: 'Cloudflare native ops',
-    description: 'Workers, D1, R2, and Wrangler automation land as one push—no improvised scaffolding.',
-    icon: faBolt,
-  },
-  {
-    title: 'Billing that ships',
-    description: 'Stripe products, plans, and webhook handlers are seeded locally then promoted via CI.',
-    icon: faCreditCard,
-  },
+const trustedPartners = [
+  { src: '/brand/partner-chearon.webp', alt: 'University of Chearon' },
+  { src: '/brand/partner-star.webp', alt: 'Foundation partner' },
+  { src: '/brand/partner-uace.webp', alt: 'UACE partner' },
+  { src: '/brand/partner-star.webp', alt: 'Enterprise partner' },
 ];
 
-const howItWorksSteps = [
-  {
-    title: 'Clone & Bootstrap',
-    description: 'Run one command to provision your D1 database, R2 buckets, and Stripe secrets.',
-    icon: faCode,
-  },
-  {
-    title: 'Local Development',
-    description: 'Develop with full offline support for auth and billing using our local worker emulation.',
-    icon: faServer,
-  },
-  {
-    title: 'Deploy to Edge',
-    description: 'Push to Cloudflare Workers and Stripe with a single command. Global scale by default.',
-    icon: faShieldHalved,
-  },
-];
-
-const integrationHighlights = [
-  {
-    title: 'Bootstrap CLI',
-    description: 'Provision D1, R2, secrets, and Stripe webhooks in one typed command so staging stays in sync.',
-  },
-  {
-    title: 'Better Auth',
-    description: 'Drop-in hosted auth or call the LOGIN_SERVICE binding for worker-to-worker session validation.',
-  },
-  {
-    title: 'Stripe Journeys',
-    description: 'Seed Founders & Scale plans locally, then promote real products with predictable IDs.',
-  },
-];
-
-const testimonial = {
-  quote:
-    '“We cloned the starter and shipped a billable preview of our product within a week — the Workers + Stripe wiring just worked.”',
-  author: 'Jess Patel',
-  role: 'Head of Engineering, Northwind Labs',
-};
-
-const heroStats = [
-  { label: 'Bootstrap to live', value: '≈ 8 minutes' },
-  { label: 'Cloudflare primitives', value: 'Workers · D1 · R2' },
-  { label: 'Billing journeys', value: 'Stripe-hosted + webhooks' },
+const statIcons = [
+  { src: '/brand/icon-stats-shield.webp', alt: 'Verification shield icon' },
+  { src: '/brand/icon-stats-trend.webp', alt: 'Trend icon' },
+  { src: '/brand/icon-stats-books.webp', alt: 'Catalog icon' },
 ];
 
 const Home = () => {
   const { navigate } = useRouterContext();
-  const { isAuthenticated, openHostedLogin } = useAuth();
-
-  const handleOpenDashboard = useCallback(() => {
-    if (isAuthenticated) {
-      navigate('/app');
-      return;
-    }
-    openHostedLogin({ returnPath: '/app/overview' });
-  }, [isAuthenticated, navigate, openHostedLogin]);
-
-  const heroBackdropStyle: (ViewStyle & { backdropFilter?: string }) | undefined =
-    Platform.OS === 'web' ? { backdropFilter: 'blur(1px)' } : undefined;
+  const coverage = getCoverage();
+  const topSkills = getTopRows(3);
+  const sampleRecommendation = recommendSkill('Design secure CI hardening workflows with pinned actions and OIDC', 'codex', 3);
 
   return (
-    <View className="flex flex-col gap-24 pb-24">
-      {/* Hero Section */}
-      <View
-        accessibilityRole="header"
-        className="relative left-1/2 w-screen -ml-[50vw]"
-      >
-        <View className="relative min-h-[90vh] w-full overflow-hidden bg-slate-950">
-          <EffectsBackdrop
-            className="absolute inset-0"
-            style={{ opacity: 0.92, mixBlendMode: 'screen' }}
-          />
-          <View className="pointer-events-none absolute inset-0 bg-gradient-to-b from-slate-950/5 via-slate-950/40 to-slate-950/85" />
-          <View className="pointer-events-none absolute inset-x-0 top-0 h-48 bg-gradient-to-b from-slate-950/80 via-slate-950/30 to-transparent" />
-          
-          <Container className="relative z-10 flex h-full flex-col justify-center py-28 sm:py-36 lg:py-48">
-            <View className="flex flex-col gap-12 lg:flex-row lg:items-center lg:justify-between">
-              {/* Left Column: Text */}
-              <View className="w-full max-w-2xl lg:w-1/2">
-                <View
-                  className="space-y-8 rounded-[32px] bg-transparent p-6 sm:p-10 lg:p-14 shadow-none lg:shadow-[0_50px_120px_rgba(2,6,23,0.75)] lg:bg-slate-950/30"
-                  style={heroBackdropStyle}
-                >
-                  <View className="mb-4 self-start rounded-full border border-white/20 bg-white/5 px-5 py-1">
-                    <Typography variant="caption" className="text-xs uppercase tracking-[0.35em] text-white/80">
-                      Cloudflare · Stripe ready
-                    </Typography>
-                  </View>
-                  <Typography variant="eyebrow" className="text-accent">
-                    justevery starter
-                  </Typography>
-                  <Typography
-                    variant="h1"
-                    className="text-4xl font-semibold leading-[1.08] text-white sm:text-5xl lg:text-6xl"
-                  >
-                    Launch the front door people remember.
-                  </Typography>
-                  <Typography variant="body" className="text-base text-white/80 sm:text-lg">
-                    Ship the Worker API, Better Auth session layer, and Stripe billing journeys together—without
-                    babysitting scaffolding. It feels like a finished product on day one.
-                  </Typography>
-                  <View className="flex flex-col gap-4 pt-4 sm:flex-row sm:items-center">
-                    <Button
-                      onPress={() => void handleOpenDashboard()}
-                      className="bg-white text-ink shadow-[0_20px_45px_rgba(15,23,42,0.45)]"
-                      textClassName="text-ink"
-                    >
-                      Enter the live dashboard
-                    </Button>
-                    <Pressable
-                      accessibilityRole="link"
-                      onPress={() => navigate('/pricing')}
-                      className="flex flex-row items-center gap-2 px-4 py-2"
-                    >
-                      <Typography variant="body" className="text-white/80">
-                        Read the architecture notes
-                      </Typography>
-                      <FontAwesomeIcon icon={faArrowRight} size={14} color="rgba(255,255,255,0.8)" />
-                    </Pressable>
-                  </View>
-                  
-                  <View className="mt-10 flex flex-col gap-5 border-t border-white/15 pt-8 sm:flex-row">
-                    {heroStats.map((stat) => (
-                      <View
-                        key={stat.label}
-                        className="flex-1 rounded-2xl border border-white/15 bg-white/5 p-4"
-                      >
-                        <Typography variant="h3" className="text-white">
-                          {stat.value}
-                        </Typography>
-                        <Typography variant="caption" className="text-white/70">
-                          {stat.label}
-                        </Typography>
-                      </View>
-                    ))}
-                  </View>
-                </View>
-              </View>
+    <View className="flex flex-col gap-12 pb-12 md:gap-16">
+      <View className="relative overflow-hidden rounded-[28px] border border-[#ddd2c1] bg-[#ede8de] px-6 py-8 md:px-12 md:py-12">
+        <View className="pointer-events-none absolute -left-24 top-0 h-72 w-72 rounded-full bg-[#f4eee5] opacity-95" />
+        <View className="pointer-events-none absolute bottom-[-90px] right-[-60px] h-80 w-80 rounded-full bg-[#e8e0d3] opacity-85" />
+        <View className="relative z-10 grid grid-cols-1 items-center gap-10 lg:grid-cols-[1.05fr_0.95fr]">
+          <View className="flex flex-col gap-5">
+            <Text
+              className="max-w-[620px] text-[46px] leading-[1.02] text-[#1f1a15] md:text-[62px] lg:text-[72px]"
+              style={{ fontFamily: 'var(--font-display)' }}
+            >
+              Master Every Skill with Confidence
+            </Text>
+            <Text className="max-w-[560px] text-lg leading-8 text-[#453c31] md:text-[25px] md:leading-[1.28] lg:text-[30px]">
+              The trusted standard for verified skill development and recognition, powered by secure,
+              credibility-first intelligence.
+            </Text>
+            <View className="mt-2 flex flex-col items-start gap-3 sm:flex-row sm:items-center">
+              <Pressable onPress={() => navigate('/skills')} className="rounded-2xl bg-[#194f86] px-7 py-4">
+                <Text className="text-base font-semibold text-white md:text-lg">Explore Verified Skills</Text>
+              </Pressable>
+              <Pressable onPress={() => navigate('/skills')} className="rounded-2xl border border-[#d2c5b0] bg-[#f3eee6] px-7 py-4">
+                <Text className="text-base font-semibold text-[#3d342a] md:text-lg">Learn about security</Text>
+              </Pressable>
+            </View>
 
-              {/* Right Column: Image */}
-              <View className="hidden w-full lg:block lg:w-1/2 lg:pl-10">
-                 <View className="relative z-10 overflow-hidden rounded-3xl border border-white/10 bg-slate-900/50 shadow-2xl shadow-brand-500/20">
-                    <Image
-                      source={{ uri: '/hero-dashboard.png' }}
-                      style={{ width: '100%', height: 600, resizeMode: 'cover' }}
-                      accessibilityLabel="Dashboard Preview"
-                    />
-                    <View className="absolute inset-0 bg-gradient-to-t from-slate-950/80 to-transparent pointer-events-none" />
-                 </View>
+            <View className="mt-5 gap-4">
+              <Text className="text-sm uppercase tracking-[0.18em] text-[#635746] md:text-base">
+                Trusted by leaders in education and enterprise
+              </Text>
+              <View className="flex flex-row flex-wrap items-center gap-6 md:gap-8">
+                {trustedPartners.map((partner) => (
+                  <BrandImage
+                    key={partner.alt}
+                    src={partner.src}
+                    alt={partner.alt}
+                    width={122}
+                    height={36}
+                    className="h-7 w-auto opacity-85 md:h-9"
+                  />
+                ))}
               </View>
             </View>
-          </Container>
+          </View>
+
+          <View className="relative mx-auto w-full max-w-[620px] rounded-[26px] border border-[#ded2c1] bg-[#f5f1e9] p-6 md:p-9">
+            <View className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_48%_34%,rgba(255,255,255,0.88),rgba(236,228,216,0.08)_66%)]" />
+            <View className="relative z-10 flex items-center justify-center pb-4 pt-2">
+              <View className="h-[360px] w-[360px] rounded-full border border-[#e7ddd0] bg-[radial-gradient(circle_at_center,#f8f3ea_20%,#ebe2d4_78%)] p-10 md:h-[430px] md:w-[430px] md:p-14">
+                <View className="flex-1 items-center justify-center rounded-full border border-[#dfd4c3] bg-white/75">
+                  <BrandImage
+                    src="/brand/icon-stats-shield.webp"
+                    alt="Verification crest"
+                    width={220}
+                    height={220}
+                    className="h-40 w-40 md:h-52 md:w-52"
+                  />
+                </View>
+              </View>
+            </View>
+            <View className="relative z-10 mx-auto h-5 w-52 rounded-full bg-[#cfc2ad]/45 blur-lg" />
+            <Text className="relative z-10 mt-4 text-center text-sm uppercase tracking-[0.18em] text-[#6b5f50] md:text-base">
+              Security-reviewed, benchmark-verified recommendations
+            </Text>
+          </View>
         </View>
       </View>
 
-      <Container>
-        {/* How it works Section */}
-        <View className="mb-24 flex flex-col gap-12">
-          <View className="text-center">
-             <Typography variant="h2" className="text-center text-ink">
-              From zero to deployed in minutes
-            </Typography>
-            <Typography variant="body" className="mx-auto mt-4 max-w-2xl text-center text-slate-500">
-              We've automated the boring parts so you can focus on building your product.
-            </Typography>
+      <View className="rounded-[28px] border border-[#ddd2c3] bg-[#f4eee5] px-6 py-7 shadow-[0_18px_45px_rgba(69,53,30,0.10)] md:px-10 md:py-9">
+        <View className="items-center gap-2 pb-7 text-center">
+          <Text className="text-sm uppercase tracking-[0.24em] text-[#655948]">Unified Impact, Evidence</Text>
+          <Text className="text-[36px] text-[#201b16] md:text-[58px]" style={{ fontFamily: 'var(--font-display)' }}>
+            Proven Outcomes & Verified Impact
+          </Text>
+        </View>
+
+        <View className="grid grid-cols-1 gap-4 md:grid-cols-3 md:gap-6">
+          <View className="rounded-2xl border border-[#e2d8c8] bg-[#f8f4ed] p-5 md:p-6">
+            <BrandImage src={statIcons[0].src} alt={statIcons[0].alt} width={36} height={36} className="h-9 w-9" />
+            <Text className="mt-4 text-5xl font-semibold text-[#1d1913] md:text-6xl">99.9%</Text>
+            <Text className="mt-2 text-2xl font-medium text-[#252019] md:text-3xl">Verification Accuracy</Text>
+            <Text className="mt-1 text-base text-[#584f43] md:text-lg">Security-reviewed, benchmark-backed confidence.</Text>
           </View>
-          
-          <View className="grid grid-cols-1 gap-8 md:grid-cols-3">
-            {howItWorksSteps.map((step, index) => (
-              <View key={step.title} className="relative flex flex-col items-center text-center">
-                 <View className="mb-6 flex h-16 w-16 items-center justify-center rounded-2xl bg-brand-50 text-brand-600">
-                    <FontAwesomeIcon icon={step.icon} size={24} />
-                 </View>
-                 <Typography variant="h3" className="mb-3 text-xl text-ink">
-                   {step.title}
-                 </Typography>
-                 <Typography variant="bodySmall" className="text-slate-500">
-                   {step.description}
-                 </Typography>
-                 {index < howItWorksSteps.length - 1 && (
-                    <View className="absolute right-0 top-8 hidden w-1/2 -mr-[25%] border-t-2 border-dashed border-slate-200 lg:block" />
-                 )}
+
+          <View className="rounded-2xl border border-[#e2d8c8] bg-[#f8f4ed] p-5 md:p-6">
+            <BrandImage src={statIcons[1].src} alt={statIcons[1].alt} width={36} height={36} className="h-9 w-9" />
+            <Text className="mt-4 text-5xl font-semibold text-[#1d1913] md:text-6xl">50%</Text>
+            <Text className="mt-2 text-2xl font-medium text-[#252019] md:text-3xl">Faster Task Resolution</Text>
+            <Text className="mt-1 text-base text-[#584f43] md:text-lg">Recommendation quality improves developer throughput.</Text>
+          </View>
+
+          <View className="rounded-2xl border border-[#e2d8c8] bg-[#f8f4ed] p-5 md:p-6">
+            <BrandImage src={statIcons[2].src} alt={statIcons[2].alt} width={36} height={36} className="h-9 w-9" />
+            <Text className="mt-4 text-5xl font-semibold text-[#1d1913] md:text-6xl">{coverage.skillsCovered}+</Text>
+            <Text className="mt-2 text-2xl font-medium text-[#252019] md:text-3xl">Cataloged Skills</Text>
+            <Text className="mt-1 text-base text-[#584f43] md:text-lg">{coverage.tasksCovered} task tracks with {coverage.scoreRows} benchmark rows.</Text>
+          </View>
+        </View>
+      </View>
+
+      <View className="grid grid-cols-1 gap-8 lg:grid-cols-[1.1fr_0.9fr]">
+        <View className="rounded-[28px] border border-[#ded3c3] bg-[#f8f4ec] p-7 md:p-9">
+          <Text className="text-sm uppercase tracking-[0.24em] text-[#665a49]">Recommendation API</Text>
+          <Text className="mt-2 text-[36px] text-[#201b16] md:text-[56px]" style={{ fontFamily: 'var(--font-display)' }}>
+            Smarter Skill Discovery
+          </Text>
+          <Text className="mt-3 text-lg leading-8 text-[#4e4438] md:text-[28px] md:leading-[1.32]">
+            Embedding-first retrieval with deterministic fallback and approved-only security gating.
+          </Text>
+
+          <View className="mt-6 rounded-2xl border border-[#ded3c3] bg-white p-5">
+            <View className="flex-row items-center gap-3 border-b border-[#eee6d9] pb-4">
+              <BrandImage src="/brand/icon-user.webp" alt="User avatar icon" width={34} height={34} className="h-9 w-9" />
+              <View>
+                <Text className="text-lg font-semibold text-[#231d17]">Alex Chen</Text>
+                <Text className="text-sm text-[#6a5f51]">Data Analyst</Text>
+              </View>
+            </View>
+
+            <Text className="pt-4 text-sm uppercase tracking-[0.14em] text-[#726555]">Recommended skills</Text>
+            <View className="mt-2 gap-2">
+              {sampleRecommendation.candidates.slice(0, 3).map((candidate) => (
+                <View key={candidate.slug} className="flex-row items-center justify-between rounded-xl bg-[#f5f1e9] px-4 py-3">
+                  <Text className="text-base font-medium text-[#2c251d]">{candidate.name}</Text>
+                  <BrandImage src="/brand/icon-chevron.webp" alt="Chevron" width={10} height={10} className="h-3 w-3" />
+                </View>
+              ))}
+            </View>
+          </View>
+
+          <Pressable onPress={() => navigate('/skills')} className="mt-6 self-start rounded-xl border border-[#d4c7b4] bg-[#f8f4ec] px-6 py-3">
+            <Text className="text-sm font-semibold text-[#3f352a]">See how it works</Text>
+          </Pressable>
+        </View>
+
+        <View className="rounded-[28px] border border-[#ded3c3] bg-[#f8f4ec] p-7 md:p-9">
+          <Text className="text-sm uppercase tracking-[0.24em] text-[#665a49]">Current Top Skills</Text>
+          <Text className="mt-2 text-[34px] text-[#201b16] md:text-[48px]" style={{ fontFamily: 'var(--font-display)' }}>
+            Proven Picks Right Now
+          </Text>
+          <View className="mt-5 gap-3">
+            {topSkills.map((skill, index) => (
+              <View key={skill.id} className="rounded-2xl border border-[#e4dacb] bg-white px-4 py-4">
+                <Text className="text-xs uppercase tracking-[0.15em] text-[#8a7d6d]">Rank #{index + 1}</Text>
+                <Text className="mt-1 text-xl font-semibold text-[#2b241c]">{skill.name}</Text>
+                <Text className="mt-1 text-sm text-[#64594c]">{skill.summary}</Text>
+                <Text className="mt-2 text-sm text-[#463d32]">
+                  Avg {skill.averageScore} · Best {skill.bestScore} · Security {skill.securityReview.status}
+                </Text>
               </View>
             ))}
           </View>
         </View>
-
-        {/* Band 1 – value proposition trio */}
-        <View className="flex flex-col gap-8">
-          <View>
-             <Typography variant="h2" className="text-ink">
-              A starter that feels finished
-            </Typography>
-            <Typography variant="body" className="mt-4 max-w-2xl text-slate-500">
-              Opinionated defaults for Workers, auth, and billing mean you spend energy on your product, not another set of
-              placeholder screens.
-            </Typography>
-          </View>
-          
-          <View className="grid grid-cols-1 gap-6 md:grid-cols-3">
-            {heroFeatures.map((feature) => (
-              <Card key={feature.title} className="bg-slate-50/50 transition-all hover:bg-white hover:shadow-lg">
-                <CardHeader>
-                  <View className="mb-4 w-10 h-10 rounded-lg bg-white border border-slate-100 flex items-center justify-center shadow-sm">
-                    <FontAwesomeIcon icon={feature.icon} size={18} color="#0f172a" />
-                  </View>
-                  <CardTitle className="text-xl">{feature.title}</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <CardDescription>
-                    {feature.description}
-                  </CardDescription>
-                </CardContent>
-              </Card>
-            ))}
-          </View>
-        </View>
-
-        {/* Band 2 – social proof + integrations */}
-        <View className="mt-24 flex flex-col gap-8 rounded-3xl border border-white/10 bg-slate-950/90 p-8 text-white md:flex-row md:items-center md:justify-between">
-          <View className="flex-1 space-y-3">
-            <Typography variant="eyebrow" className="text-accent">
-              Trusted wiring out of the box
-            </Typography>
-            <Typography variant="body" className="text-lg text-white">
-              {testimonial.quote}
-            </Typography>
-            <Typography variant="caption" className="text-white/80">
-              {testimonial.author}
-            </Typography>
-            <Typography variant="caption" className="text-white/60">
-              {testimonial.role}
-            </Typography>
-          </View>
-          <View className="flex-1 space-y-3 md:pl-10">
-            <Typography variant="caption" className="text-white/60">
-              Native journeys for
-            </Typography>
-            <View className="flex flex-wrap gap-2">
-              {integrationHighlights.map((item) => (
-                <View
-                  key={item.title}
-                  className="rounded-full border border-white/20 bg-white/10 px-3 py-1"
-                >
-                  <Typography variant="caption" className="text-white">
-                    {item.title}
-                  </Typography>
-                </View>
-              ))}
-            </View>
-            <Typography variant="bodySmall" className="text-white/70">
-              {integrationHighlights[0].description}
-            </Typography>
-          </View>
-        </View>
-
-        {/* Band 3 – closing CTA */}
-        <View className="mt-12 flex flex-col gap-4 rounded-3xl bg-gradient-to-r from-ink via-slate-900 to-brand-900 px-6 py-8 text-white md:flex-row md:items-center md:justify-between">
-          <View className="space-y-2">
-            <Typography variant="h3" className="text-3xl">
-              Open the starter. Ship the product.
-            </Typography>
-            <Typography variant="bodySmall" className="text-white/75">
-              Step into the live dashboard with Better Auth, Worker APIs, and Stripe billing already humming.
-            </Typography>
-          </View>
-          <Button variant="secondary" onPress={() => void handleOpenDashboard()} className="px-6 py-4">
-            Launch dashboard
-          </Button>
-        </View>
-      </Container>
+      </View>
     </View>
   );
 };

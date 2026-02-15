@@ -13,6 +13,7 @@ const specs = [
   'test/checkout.test.ts',
   'test/index.test.ts',
   'test/runnerStorage.test.ts',
+  'test/skills.test.ts',
   'test/billing.test.ts',
   'test/billingGaps.test.ts',
   'test/session.test.ts',

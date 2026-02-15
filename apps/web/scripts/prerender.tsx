@@ -61,16 +61,8 @@ type RenderDeps = {
   AppRegistry: typeof import('react-native-web').AppRegistry;
   Layout: React.ComponentType<{ children?: React.ReactNode }>;
   Home: React.ComponentType;
-  Pricing: React.ComponentType;
-  Contact: React.ComponentType;
-  RouterProvider: React.ComponentType<{ children?: React.ReactNode }>;
-  AuthProvider: React.ComponentType<{
-    children?: React.ReactNode;
-    loginOrigin: string;
-    betterAuthBaseUrl: string;
-    sessionEndpoint: string;
-  }>;
-  DEFAULT_LOGIN_ORIGIN: string;
+  Skills: React.ComponentType;
+  RouterProvider: React.ComponentType<{ children?: React.ReactNode; initialPath?: string }>;
 };
 
 type Route = {
@@ -84,6 +76,13 @@ const routes: Route[] = [
     render: (deps) => {
       const HomeComponent = deps.Home;
       return <HomeComponent />;
+    },
+  },
+  {
+    path: '/skills',
+    render: (deps) => {
+      const SkillsComponent = deps.Skills;
+      return <SkillsComponent />;
     },
   },
 ];
@@ -136,23 +135,14 @@ const loadRenderDeps = (): RenderDeps => ({
   AppRegistry: require('react-native-web').AppRegistry,
   Layout: require('../src/components/Layout').default,
   Home: require('../src/pages/Home').default,
-  Pricing: require('../src/pages/Pricing').default,
-  Contact: require('../src/pages/Contact').default,
+  Skills: require('../src/pages/Skills').default,
   RouterProvider: require('../src/router/RouterProvider').RouterProvider,
-  AuthProvider: require('../src/auth/AuthProvider').AuthProvider,
-  DEFAULT_LOGIN_ORIGIN: require('@justevery/config/auth').DEFAULT_LOGIN_ORIGIN,
 });
 
-const buildPage = (Component: React.ReactNode, deps: RenderDeps) => {
+const buildPage = (Component: React.ReactNode, deps: RenderDeps, initialPath: string) => {
   const Entry = () => (
-    <deps.RouterProvider>
-      <deps.AuthProvider
-        loginOrigin={deps.DEFAULT_LOGIN_ORIGIN}
-        betterAuthBaseUrl={`${deps.DEFAULT_LOGIN_ORIGIN}/api/auth`}
-        sessionEndpoint={`${deps.DEFAULT_LOGIN_ORIGIN}/api/auth/session`}
-      >
-        <deps.Layout>{Component}</deps.Layout>
-      </deps.AuthProvider>
+    <deps.RouterProvider initialPath={initialPath}>
+      <deps.Layout>{Component}</deps.Layout>
     </deps.RouterProvider>
   );
   deps.AppRegistry.registerComponent('Marketing', () => Entry);
@@ -182,7 +172,7 @@ async function prerender() {
 
     if (deps) {
       try {
-        const { html, styles } = buildPage(route.render(deps), deps);
+        const { html, styles } = buildPage(route.render(deps), deps, route.path);
         document = baseTemplate.replace('<div id="root"></div>', `<div id="root">${html}</div>`);
         document = document.replace('</head>', `${styles}</head>`);
       } catch (renderError) {

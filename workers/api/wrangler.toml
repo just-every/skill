@@ -1,4 +1,4 @@
-name = "starter-worker"
+name = "skill-worker"
 main = "src/index.ts"
 compatibility_date = "2024-09-01"
 compatibility_flags = ["nodejs_compat"]
@@ -10,7 +10,7 @@ workers_dev = true
 binding = "ASSETS"
 directory = "../../apps/web/dist"
 
-# This file is rendered by the bootstrap CLI. Placeholders like starter are replaced
+# This file is rendered by the bootstrap CLI. Placeholders like skill are replaced
 # with explicit .env inputs or generated identifiers recorded in .env.generated.
 [vars]
 # --- Authentication ---
@@ -18,31 +18,32 @@ LOGIN_ORIGIN = "https://login.justevery.com"
 SESSION_COOKIE_DOMAIN = ".justevery.com"
 
 # --- Application URLs ---
-PROJECT_DOMAIN = "https://starter.justevery.com"
+PROJECT_DOMAIN = "https://skill.justevery.com"
 APP_BASE_URL = "/app"
 
 # --- Stripe ---
 STRIPE_PRODUCTS = '''Founders:2500,usd,month;Scale:4900,usd,month'''
-EXPO_PUBLIC_WORKER_ORIGIN = "https://starter.justevery.com"
-
-# --- Daytona / Runner ---
-DAYTONA_API_URL = "https://api.daytona.io/monaco/server"
-# Secrets: DAYTONA_API_KEY, RUNNER_AUTH_SECRET
+EXPO_PUBLIC_WORKER_ORIGIN = "https://skill.justevery.com"
 
 # --- Cloudflare metadata ---
 CLOUDFLARE_ZONE_ID = "723318de8bc1f3353196efc02c4a09ed"
 
+# --- Design Runner & Daytona ---
+# RUNNER_AUTH_SECRET = "your-secure-runner-secret"
+# DAYTONA_API_URL = "https://daytona.example.com/api"
+# DAYTONA_API_KEY = "your-daytona-api-key"
+
 [[d1_databases]]
 binding = "DB"
-database_name = "starter-d1"
+database_name = "skill-d1"
 database_id = "94e98a62-69a0-49e2-86ab-283c9e75fa52"
 
 [[r2_buckets]]
 binding = "STORAGE"
-bucket_name = "starter-assets"
+bucket_name = "skill-assets"
 
 [[routes]]
-pattern = "starter.justevery.com"
+pattern = "skill.justevery.com"
 custom_domain = true
 
 [observability]

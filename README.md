@@ -1,158 +1,123 @@
-# Starter Stack (Cloudflare Worker + Expo)
+# Every Skill
 
-Ultra-minimal starter: Cloudflare Worker (`workers/api`) plus Expo web (`apps/web`).
-Secrets live in `~/.env`. The Node-based bootstrap CLI renders config from
-`workers/api/wrangler.toml.template` (no `wrangler.toml` committed). Authentication via Better Auth
-(login.justevery.com OIDC worker). Better Auth now scopes the
-`better-auth.session_token` cookie to `/api/*`, so anything that needs the
-session (e.g. `/api/accounts`, `/api/me`) must be served from `/api` or proxied
-through the Worker—direct browser calls to non-`/api` paths will never receive
-the cookie.
+Every Skill is a benchmarked skill catalog and retrieval API for AI coding agents.
 
-Session verification relies on a Cloudflare Service Binding (`LOGIN_SERVICE`)
-that points to the `login` worker. Make sure every environment’s
-`wrangler.toml` keeps that binding in sync, otherwise the Worker will try to
-hit the DNS origin directly and time out.
+- Domain: `https://skill.justevery.com`
+- Project ID: `skill`
+- Stack: Cloudflare Worker (`workers/api`) + Expo web (`apps/web`)
 
-## Prerequisites
-- Node.js ≥ 18 and npm or pnpm
-- Cloudflare account + Wrangler (authenticated)
-- Optional: Stripe account
-- Secrets in `~/.env` (see quick start)
+The MVP ships:
 
-## Quick Start (CLI)
+- A public website with a live task → skill retrieval demo (`/skills`)
+- A Worker API for skill cataloging and embedding-based matching (`/api/skills/*`)
+- Seeded curated skills + benchmark records (>= 5 skills)
+- Reproducible benchmark artifacts and fallback benchmarking mode
+
+## Core APIs
+
+- `GET /api/skills`
+  - Returns benchmarked skill summaries
+- `GET /api/skills/tasks`
+  - Returns benchmark task templates
+- `GET /api/skills/benchmarks`
+  - Returns benchmark runs and coverage summary
+- `GET /api/skills/:slug`
+  - Returns detailed score breakdown for one skill
+- `POST /api/skills/recommend`
+  - Request body: `{ "task": "...", "agent": "codex|claude|gemini" }`
+  - Returns top recommendation and ranked candidates
+
+## Quick Start
+
 1. Install dependencies
-   ```bash
-   pnpm install
-   ```
-2. Copy the env template and export secrets
-   ```bash
-   cp .env.example ~/.env
-   $EDITOR ~/.env
-   set -a; source ~/.env; set +a
-   ```
-   Annotated keys live in `docs/ENVIRONMENT_VARIABLE_MAPPING.md`. See `docs/SECRETS_CLOUDFLARE.md` for instructions on obtaining Cloudflare API credentials.
-   `CLOUDFLARE_*`, `STRIPE_*`, and Better Auth secrets stay exclusively in `~/.env`; the checked-in `.env.example` only documents non-sensitive defaults.
-3. Bootstrap infrastructure
-   ```bash
-   pnpm bootstrap:preflight
-   pnpm bootstrap:env
-   pnpm bootstrap:deploy:dry-run   # optional validation
-   ```
-4. Develop locally
-   ```bash
-   # One-shot: start worker + Expo web shell together
-   pnpm run dev                 # spawns dev:worker and dev:local with loopback overrides
-
-   # Separate processes if you prefer
-   pnpm run dev:worker          # loads .env.generated automatically
-   pnpm run dev:local           # rewrites .env.local + workers/api/.dev.vars and launches Expo for localhost
-
-   # Need the Worker itself to run with localhost overrides?
-   pnpm run dev:worker:local    # same rewrites, then wrangler dev with .env.local
-
-   # dev:local assumes Better Auth/login at http://127.0.0.1:9787; export JE_LOCAL_LOGIN_ORIGIN to override
-   ```
-5. Deploy & verify
-   ```bash
-   pnpm bootstrap:deploy:dry-run
-   pnpm bootstrap:deploy
-   pnpm bootstrap:env -- --check           # confirm generated files are current
-   curl -I https://starter.justevery.com/
-   curl -s https://starter.justevery.com/api/session
-   ```
-
-More detail: `docs/QUICKSTART.md`. Prefer the `pnpm bootstrap:*` commands—the legacy shell scripts have been archived for reference only. For marketing SSR + bot validation notes, see `docs/SSR_MARKETING.md`.
-
-### Using this repo as a template
-
-`docs/STARTER_TEMPLATE.md` walks through cloning this repository for a new product, renaming the project, running the bootstrap CLI, and validating the Worker + Expo surfaces. Share that doc with downstream teams so every fork follows the same provisioning + verification steps.
-
-## GitHub Actions (ENV_BLOB)
-
-The repo now uses a single secret (`ENV_BLOB`) that contains your entire `.env`. See
-`docs/env-blob.md` for the required keys and maintenance checklist. To sync:
 
 ```bash
-./scripts/sync-env-to-github.sh          # reads $HOME/.env by default
+pnpm install
 ```
 
-Need a one-off blob for testing? Run `./scripts/generate-env-blob.sh .env`
-and paste the output into `gh secret set ENV_BLOB`.
+2. Generate env and local worker vars
 
-Repo-specific overrides (like `PROJECT_ID`/`PROJECT_DOMAIN`) belong in the
-`ENV_BLOB_OVERRIDE` secret (base64-encoded `KEY=VALUE` lines). Local overrides
-live in `.env.repo` and are ignored by git.
+```bash
+pnpm bootstrap:env
+```
 
-This repo targets `starter.justevery.com` and keeps isolated infra via overrides:
-`PROJECT_ID=starter`, `PROJECT_DOMAIN=https://starter.justevery.com`,
-`D1_DATABASE_NAME=starter-d1`, and `CLOUDFLARE_R2_BUCKET=starter-assets`.
+3. Start local dev (worker + web)
 
-## iOS simulator testing (Appetize)
+```bash
+pnpm dev
+```
 
-Use Appetize for remote iOS simulator sessions when you do not have a local Mac.
+4. Open:
 
-- Ensure `APPETIZE_API_KEY` (or `APPETTIZE_API_KEY`) is present in `~/.env`.
-- Build a simulator binary using the `simulator` profile in `apps/web/eas.json`.
-- Upload to Appetize; if the helper scripts are installed, run:
-  `~/.code/skills/ios-appetize-automation/scripts/appetize_build_upload.sh --repo . --name "Starter"`
-- The command prints an Appetize URL you can share.
+- `http://127.0.0.1:19006` (web)
+- `http://127.0.0.1:9788/api/skills` (API)
 
-If you need to bypass login inside the simulator, use the approval-link flow in
-`../login/docs/cli-tokens.md` to mint a 12-hour token and deep-link a session.
+## Skill and Benchmark Data
 
-## Login approval link (12h debug token)
+Seeded MVP catalog lives in D1 migration:
 
-The login worker can mint short-lived tokens via an approval URL so you do not
-have to share credentials.
+- `workers/api/migrations/0007_skills_mvp.sql`
 
-- Create a request: `node ../login/scripts/request-approval-token.mjs --wait`
-- Approver opens the printed `/m2m/approve?request=...` URL and clicks Approve.
-- The script prints a token + user id (valid for 12 hours). Use it to mint a
-  session for simulator or device testing (see `../login/docs/cli-tokens.md`).
+The worker includes fallback in-memory seeded data if D1 is unavailable so demo endpoints still work.
 
-**Initial bootstrap shortcut:** `pnpm bootstrap:deploy:new` runs the full bootstrap
-pipeline and immediately publishes a refreshed `ENV_BLOB` secret to the
-`production` environment (requires `gh auth login` or a `GH_TOKEN`). After that,
-CI’s `deploy.yml` handles all incremental deploys.
+## Curated Imports
 
-### Workflow
+Import curated skill index from `openai/skills`:
 
-- `.github/workflows/deploy.yml` – runs on push to `main`; decodes ENV_BLOB, runs Wrangler migrations, calls `pnpm bootstrap:deploy`, uploads artifacts, and (when a test cookie exists) runs the authenticated Playwright suite.
+```bash
+pnpm skills:import
+```
 
-### Rollback
+Output:
 
-1. Use Time Travel to rewind the D1 database: `wrangler d1 time-travel restore starter-d1 --timestamp=<ISO8601>` (or `--bookmark=<id>`). CI logs the `time-travel info` bookmark during deploys; you can capture a fresh one locally with `wrangler d1 time-travel info starter-d1` before experimenting.
-2. Re-run `deploy.yml` pointing at the previous commit via `workflow_dispatch`.
+- `benchmarks/imports/openai-curated-skills.json`
 
-## Bootstrap CLI
-- `pnpm bootstrap:preflight` – validations (Cloudflare token, required envs)
-- `pnpm bootstrap:env` – writes `.env.generated` and `workers/api/.dev.vars`
-- `pnpm bootstrap:deploy` – render `wrangler.toml`, sync secrets, and deploy the Worker
-- `pnpm bootstrap:deploy:dry-run` – render and validate without deploying
-- `pnpm bootstrap:smoke` – HTTP + screenshot smoke checks against a base URL
-- `pnpm bootstrap:env -- --check` – diff generated files without writing
+## Benchmarking
 
-Rollback: rerunning the previous release of the CLI is safe—`pnpm bootstrap:deploy:dry-run`
-shows exactly what would change and `pnpm bootstrap:env -- --check` confirms generated files
-before writing.
+Generate reproducible benchmark artifacts:
 
-See `docs/BOOTSTRAP-CLI-MIGRATION.md` for the full migration guide.
+```bash
+pnpm skills:benchmark
+```
 
-## Appendix: Operations Tips
+Modes:
 
-**ENV_BLOB Deploy** – Secrets travel via `pnpm bootstrap:deploy`; see `docs/SECRETS_CLOUDFLARE.md` for token setup and rotation.
+- `auto` (default): uses Daytona if available; falls back to deterministic local benchmark artifacts
+- `daytona`: requires `DAYTONA_API_KEY` and `../design-app/scripts/daytona-cli-run.mjs`
+- `fallback`: deterministic local artifact generation
 
-**D1 Time Travel** – Cloudflare keeps 30 days of point-in-time history for production D1 databases by default. Use `wrangler d1 time-travel info starter-d1` to capture a bookmark before risky changes, and `wrangler d1 time-travel restore starter-d1 --timestamp=<ISO8601>` (or `--bookmark=<id>`) to roll back. Because of this, we do **not** export SQL dumps in CI—avoid re‑adding manual backups. (Docs: <https://developers.cloudflare.com/d1/reference/time-travel/>)
+Manual examples:
 
-**SSR Validation** – Follow `docs/SSR_MARKETING.md` (or run `pnpm --filter @justevery/web run build` + `pnpm bootstrap:smoke`) before promoting changes.
+```bash
+node scripts/benchmark-skills.mjs --mode fallback
+node scripts/benchmark-skills.mjs --mode daytona
+```
 
-**Smoke Tests** – `pnpm bootstrap:smoke` exercises Worker APIs, assets, and Better Auth bindings; add `--minimal` in CI for fast checks.
+Artifacts are written to:
 
-**Local auth host** – Better Auth cookies in dev are scoped to `127.0.0.1`. The app normalizes
-any `localhost` return/login URLs to `127.0.0.1` automatically to keep sessions valid.
+- `benchmarks/runs/<date>-<mode>/`
 
-For runbooks and deeper troubleshooting, start with the `docs/` folder.
+## Retrieval Demo
 
-- Reference `docs/VERIFY.md` for the post-deploy smoke checks, `docs/TEMPLATE_READY.md` for the overall template checklist, and `docs/ACCEPTANCE.md` for the acceptance summary.
-- Playwright smoke now focuses on public surfaces; run `RUN_OPEN_E2E=true npm run test:e2e` to exercise landing/login/checkout. Authenticated coverage will return once the login worker ships M2M tokens, at which point we can add non-cookie credentials back to CI.
+After local worker starts, run:
+
+```bash
+pnpm skills:demo
+```
+
+This calls `/api/skills/recommend` and verifies the expected CI hardening skill is returned.
+
+## Deploy Metadata
+
+`.env.example` defaults are already set for this repo:
+
+- `PROJECT_ID=skill`
+- `PROJECT_NAME="Every Skill"`
+- `PROJECT_DOMAIN=https://skill.justevery.com`
+- `APP_URL=https://skill.justevery.com/app`
+
+Worker route metadata is configured in:
+
+- `workers/api/wrangler.toml`
+- `workers/api/wrangler.toml.template`
+

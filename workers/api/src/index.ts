@@ -8,6 +8,7 @@ import {
   type AuthenticatedSession,
 } from './sessionAuth';
 import { BillingCheckoutError, createBillingCheckout } from '@justevery/login-client/billing';
+import { handleSkillsRoute } from './skills';
 
 let __codeBridge: any = null;
 
@@ -1223,7 +1224,7 @@ const INACTIVE_SUBSCRIPTION_STATUSES = new Set(['canceled', 'incomplete_expired'
 
 const STATIC_ASSET_PREFIXES = ["/_expo/", "/assets/"];
 const STATIC_ASSET_PATHS = new Set(["/favicon.ico", "/index.html", "/manifest.json"]);
-const SPA_EXTRA_ROUTES = ["/callback", "/app", "/logout", "/dev/sidebar", "/pricing", "/contact"];
+const SPA_EXTRA_ROUTES = ["/callback", "/app", "/logout", "/dev/sidebar", "/pricing", "/contact", "/skills"];
 const PRERENDER_ROUTES: Record<string, string> = {
   '/': 'index.html'
 };
@@ -1577,6 +1578,10 @@ const Worker: ExportedHandler<Env> = {
 
     if (pathname === "/api/design/runs" || pathname.startsWith("/api/design/runs/")) {
       return cors(await handleDesignRoute(request, env, pathname), request, env);
+    }
+
+    if (pathname === "/api/skills" || pathname.startsWith("/api/skills/")) {
+      return cors(await handleSkillsRoute(request, env, pathname), request, env);
     }
 
     if (pathname.startsWith("/api/runner/")) {

@@ -81,6 +81,14 @@ const View = create('div');
 const Text = create('span');
 const ScrollView = create('div');
 const ActivityIndicator = create('div');
+const TextInput = React.forwardRef(({ children, value, onChangeText, ...props }, ref) =>
+  React.createElement('textarea', {
+    ref,
+    value: value ?? '',
+    ...mapProps(props),
+    onChange: (event) => onChangeText?.(event?.target?.value ?? ''),
+  }, children)
+);
 const Pressable = React.forwardRef(({ children, onPress, ...props }, ref) =>
   React.createElement(
     'button',
@@ -97,12 +105,13 @@ const Platform = {
   OS: 'web',
   select: (spec) => spec?.web ?? spec?.default ?? spec?.native ?? spec,
 };
-export { View, Text, ScrollView, ActivityIndicator, Pressable, Platform };
+export { View, Text, ScrollView, ActivityIndicator, TextInput, Pressable, Platform };
 export default {
   View,
   Text,
   ScrollView,
   ActivityIndicator,
+  TextInput,
   Pressable,
   StyleSheet: { create: (styles) => styles },
   Platform,

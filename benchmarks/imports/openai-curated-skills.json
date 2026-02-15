@@ -1,0 +1,216 @@
+{
+  "generatedAt": "2026-02-14T12:35:54.512Z",
+  "source": "openai/skills",
+  "indexUrl": "https://api.github.com/repos/openai/skills/contents/skills/.curated",
+  "totalCuratedSkills": 30,
+  "curated": [
+    {
+      "name": "cloudflare-deploy",
+      "path": "skills/.curated/cloudflare-deploy",
+      "htmlUrl": "https://github.com/openai/skills/tree/main/skills/.curated/cloudflare-deploy"
+    },
+    {
+      "name": "develop-web-game",
+      "path": "skills/.curated/develop-web-game",
+      "htmlUrl": "https://github.com/openai/skills/tree/main/skills/.curated/develop-web-game"
+    },
+    {
+      "name": "doc",
+      "path": "skills/.curated/doc",
+      "htmlUrl": "https://github.com/openai/skills/tree/main/skills/.curated/doc"
+    },
+    {
+      "name": "figma-implement-design",
+      "path": "skills/.curated/figma-implement-design",
+      "htmlUrl": "https://github.com/openai/skills/tree/main/skills/.curated/figma-implement-design"
+    },
+    {
+      "name": "figma",
+      "path": "skills/.curated/figma",
+      "htmlUrl": "https://github.com/openai/skills/tree/main/skills/.curated/figma"
+    },
+    {
+      "name": "gh-address-comments",
+      "path": "skills/.curated/gh-address-comments",
+      "htmlUrl": "https://github.com/openai/skills/tree/main/skills/.curated/gh-address-comments"
+    },
+    {
+      "name": "gh-fix-ci",
+      "path": "skills/.curated/gh-fix-ci",
+      "htmlUrl": "https://github.com/openai/skills/tree/main/skills/.curated/gh-fix-ci"
+    },
+    {
+      "name": "imagegen",
+      "path": "skills/.curated/imagegen",
+      "htmlUrl": "https://github.com/openai/skills/tree/main/skills/.curated/imagegen"
+    },
+    {
+      "name": "jupyter-notebook",
+      "path": "skills/.curated/jupyter-notebook",
+      "htmlUrl": "https://github.com/openai/skills/tree/main/skills/.curated/jupyter-notebook"
+    },
+    {
+      "name": "linear",
+      "path": "skills/.curated/linear",
+      "htmlUrl": "https://github.com/openai/skills/tree/main/skills/.curated/linear"
+    },
+    {
+      "name": "netlify-deploy",
+      "path": "skills/.curated/netlify-deploy",
+      "htmlUrl": "https://github.com/openai/skills/tree/main/skills/.curated/netlify-deploy"
+    },
+    {
+      "name": "notion-knowledge-capture",
+      "path": "skills/.curated/notion-knowledge-capture",
+      "htmlUrl": "https://github.com/openai/skills/tree/main/skills/.curated/notion-knowledge-capture"
+    },
+    {
+      "name": "notion-meeting-intelligence",
+      "path": "skills/.curated/notion-meeting-intelligence",
+      "htmlUrl": "https://github.com/openai/skills/tree/main/skills/.curated/notion-meeting-intelligence"
+    },
+    {
+      "name": "notion-research-documentation",
+      "path": "skills/.curated/notion-research-documentation",
+      "htmlUrl": "https://github.com/openai/skills/tree/main/skills/.curated/notion-research-documentation"
+    },
+    {
+      "name": "notion-spec-to-implementation",
+      "path": "skills/.curated/notion-spec-to-implementation",
+      "htmlUrl": "https://github.com/openai/skills/tree/main/skills/.curated/notion-spec-to-implementation"
+    },
+    {
+      "name": "openai-docs",
+      "path": "skills/.curated/openai-docs",
+      "htmlUrl": "https://github.com/openai/skills/tree/main/skills/.curated/openai-docs"
+    },
+    {
+      "name": "pdf",
+      "path": "skills/.curated/pdf",
+      "htmlUrl": "https://github.com/openai/skills/tree/main/skills/.curated/pdf"
+    },
+    {
+      "name": "playwright",
+      "path": "skills/.curated/playwright",
+      "htmlUrl": "https://github.com/openai/skills/tree/main/skills/.curated/playwright"
+    },
+    {
+      "name": "render-deploy",
+      "path": "skills/.curated/render-deploy",
+      "htmlUrl": "https://github.com/openai/skills/tree/main/skills/.curated/render-deploy"
+    },
+    {
+      "name": "screenshot",
+      "path": "skills/.curated/screenshot",
+      "htmlUrl": "https://github.com/openai/skills/tree/main/skills/.curated/screenshot"
+    },
+    {
+      "name": "security-best-practices",
+      "path": "skills/.curated/security-best-practices",
+      "htmlUrl": "https://github.com/openai/skills/tree/main/skills/.curated/security-best-practices"
+    },
+    {
+      "name": "security-ownership-map",
+      "path": "skills/.curated/security-ownership-map",
+      "htmlUrl": "https://github.com/openai/skills/tree/main/skills/.curated/security-ownership-map"
+    },
+    {
+      "name": "security-threat-model",
+      "path": "skills/.curated/security-threat-model",
+      "htmlUrl": "https://github.com/openai/skills/tree/main/skills/.curated/security-threat-model"
+    },
+    {
+      "name": "sentry",
+      "path": "skills/.curated/sentry",
+      "htmlUrl": "https://github.com/openai/skills/tree/main/skills/.curated/sentry"
+    },
+    {
+      "name": "sora",
+      "path": "skills/.curated/sora",
+      "htmlUrl": "https://github.com/openai/skills/tree/main/skills/.curated/sora"
+    },
+    {
+      "name": "speech",
+      "path": "skills/.curated/speech",
+      "htmlUrl": "https://github.com/openai/skills/tree/main/skills/.curated/speech"
+    },
+    {
+      "name": "spreadsheet",
+      "path": "skills/.curated/spreadsheet",
+      "htmlUrl": "https://github.com/openai/skills/tree/main/skills/.curated/spreadsheet"
+    },
+    {
+      "name": "transcribe",
+      "path": "skills/.curated/transcribe",
+      "htmlUrl": "https://github.com/openai/skills/tree/main/skills/.curated/transcribe"
+    },
+    {
+      "name": "vercel-deploy",
+      "path": "skills/.curated/vercel-deploy",
+      "htmlUrl": "https://github.com/openai/skills/tree/main/skills/.curated/vercel-deploy"
+    },
+    {
+      "name": "yeet",
+      "path": "skills/.curated/yeet",
+      "htmlUrl": "https://github.com/openai/skills/tree/main/skills/.curated/yeet"
+    }
+  ],
+  "sampled": [
+    {
+      "name": "cloudflare-deploy",
+      "path": "skills/.curated/cloudflare-deploy",
+      "htmlUrl": "https://github.com/openai/skills/tree/main/skills/.curated/cloudflare-deploy",
+      "skillUrl": "https://raw.githubusercontent.com/openai/skills/main/skills/.curated/cloudflare-deploy/SKILL.md",
+      "preview": "---\nname: cloudflare-deploy\ndescription: Deploy applications and infrastructure to Cloudflare using Workers, Pages, and related platform services. Use when the user asks to deploy, host, publish, or set up a project on Cloudflare.\n---\n\n# Cloudflare Deploy\n\nConsolidated skill for building on the Cloudflare platform. Use decision trees below to find the right product, then load detailed references.\n\n## Prerequisites\n\n- When sandboxing blocks the deployment network calls, rerun with `sandbox_permissions=require_escalated`."
+    },
+    {
+      "name": "develop-web-game",
+      "path": "skills/.curated/develop-web-game",
+      "htmlUrl": "https://github.com/openai/skills/tree/main/skills/.curated/develop-web-game",
+      "skillUrl": "https://raw.githubusercontent.com/openai/skills/main/skills/.curated/develop-web-game/SKILL.md",
+      "preview": "---\nname: \"develop-web-game\"\ndescription: \"Use when Codex is building or iterating on a web game (HTML/JS) and needs a reliable development + testing loop: implement small changes, run a Playwright-based test script with short input bursts and intentional pauses, inspect screenshots/text, and review console errors with render_game_to_text.\"\n---\n\n\n# Develop Web Game\n\nBuild games in small steps and validate every change. Treat each iteration as: implement → act → pause → observe → adjust.\n\n## Skill paths (set once)\n"
+    },
+    {
+      "name": "doc",
+      "path": "skills/.curated/doc",
+      "htmlUrl": "https://github.com/openai/skills/tree/main/skills/.curated/doc",
+      "skillUrl": "https://raw.githubusercontent.com/openai/skills/main/skills/.curated/doc/SKILL.md",
+      "preview": "---\nname: \"doc\"\ndescription: \"Use when the task involves reading, creating, or editing `.docx` documents, especially when formatting or layout fidelity matters; prefer `python-docx` plus the bundled `scripts/render_docx.py` for visual checks.\"\n---\n\n\n# DOCX Skill\n\n## When to use\n- Read or review DOCX content where layout matters (tables, diagrams, pagination).\n- Create or edit DOCX files with professional formatting.\n- Validate visual layout before delivery."
+    },
+    {
+      "name": "figma-implement-design",
+      "path": "skills/.curated/figma-implement-design",
+      "htmlUrl": "https://github.com/openai/skills/tree/main/skills/.curated/figma-implement-design",
+      "skillUrl": "https://raw.githubusercontent.com/openai/skills/main/skills/.curated/figma-implement-design/SKILL.md",
+      "preview": "---\nname: \"figma-implement-design\"\ndescription: \"Translate Figma nodes into production-ready code with 1:1 visual fidelity using the Figma MCP workflow (design context, screenshots, assets, and project-convention translation). Trigger when the user provides Figma URLs or node IDs, or asks to implement designs or components that must match Figma specs. Requires a working Figma MCP server connection.\"\n---\n\n\n# Implement Design\n\n## Overview\n\nThis skill provides a structured workflow for translating Figma designs into production-ready code with pixel-perfect accuracy. It ensures consistent integration with the Figma MCP server, proper use of design tokens, and 1:1 visual parity with designs.\n"
+    },
+    {
+      "name": "figma",
+      "path": "skills/.curated/figma",
+      "htmlUrl": "https://github.com/openai/skills/tree/main/skills/.curated/figma",
+      "skillUrl": "https://raw.githubusercontent.com/openai/skills/main/skills/.curated/figma/SKILL.md",
+      "preview": "---\nname: figma\ndescription: Use the Figma MCP server to fetch design context, screenshots, variables, and assets from Figma, and to translate Figma nodes into production code. Trigger when a task involves Figma URLs, node IDs, design-to-code implementation, or Figma MCP setup and troubleshooting.\n---\n\n# Figma MCP\n\nUse the Figma MCP server for Figma-driven implementation. For setup and debugging details (env vars, config, verification), see `references/figma-mcp-config.md`.\n\n## Figma MCP Integration Rules\nThese rules define how to translate Figma inputs into code for this project and must be followed for every Figma-driven change.\n"
+    },
+    {
+      "name": "gh-address-comments",
+      "path": "skills/.curated/gh-address-comments",
+      "htmlUrl": "https://github.com/openai/skills/tree/main/skills/.curated/gh-address-comments",
+      "skillUrl": "https://raw.githubusercontent.com/openai/skills/main/skills/.curated/gh-address-comments/SKILL.md",
+      "preview": "---\nname: gh-address-comments\ndescription: Help address review/issue comments on the open GitHub PR for the current branch using gh CLI; verify gh auth first and prompt the user to authenticate if not logged in.\nmetadata:\n  short-description: Address comments in a GitHub PR review\n---\n\n# PR Comment Handler\n\nGuide to find the open PR for the current branch and address its comments with gh CLI. Run all `gh` commands with elevated network access.\n\nPrereq: ensure `gh` is authenticated (for example, run `gh auth login` once), then run `gh auth status` with escalated permissions (include workflow/repo scopes) so `gh` commands succeed. If sandboxing blocks `gh auth status`, rerun it with `sandbox_permissions=require_escalated`."
+    },
+    {
+      "name": "gh-fix-ci",
+      "path": "skills/.curated/gh-fix-ci",
+      "htmlUrl": "https://github.com/openai/skills/tree/main/skills/.curated/gh-fix-ci",
+      "skillUrl": "https://raw.githubusercontent.com/openai/skills/main/skills/.curated/gh-fix-ci/SKILL.md",
+      "preview": "---\nname: \"gh-fix-ci\"\ndescription: \"Use when a user asks to debug or fix failing GitHub PR checks that run in GitHub Actions; use `gh` to inspect checks and logs, summarize failure context, draft a fix plan, and implement only after explicit approval. Treat external providers (for example Buildkite) as out of scope and report only the details URL.\"\n---\n\n\n# Gh Pr Checks Plan Fix\n\n## Overview\n\nUse gh to locate failing PR checks, fetch GitHub Actions logs for actionable failures, summarize the failure snippet, then propose a fix plan and implement after explicit approval.\n- If a plan-oriented skill (for example `create-plan`) is available, use it; otherwise draft a concise plan inline and request approval before implementing."
+    },
+    {
+      "name": "imagegen",
+      "path": "skills/.curated/imagegen",
+      "htmlUrl": "https://github.com/openai/skills/tree/main/skills/.curated/imagegen",
+      "skillUrl": "https://raw.githubusercontent.com/openai/skills/main/skills/.curated/imagegen/SKILL.md",
+      "preview": "---\nname: \"imagegen\"\ndescription: \"Use when the user asks to generate or edit images via the OpenAI Image API (for example: generate image, edit/inpaint/mask, background removal or replacement, transparent background, product shots, concept art, covers, or batch variants); run the bundled CLI (`scripts/image_gen.py`) and require `OPENAI_API_KEY` for live calls.\"\n---\n\n\n# Image Generation Skill\n\nGenerates or edits images for the current project (e.g., website assets, game assets, UI mockups, product mockups, wireframes, logo design, photorealistic images, infographics). Defaults to `gpt-image-1.5` and the OpenAI Image API, and prefers the bundled CLI for deterministic, reproducible runs.\n\n## When to use\n- Generate a new image (concept art, product shot, cover, website hero)"
+    }
+  ]
+}

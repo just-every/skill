@@ -6,8 +6,6 @@
   "scripts": {
     "dev": "expo start --web --port 19006",
     "start": "expo start --web --port 19006",
-    "dev:login:android": "bash ../../scripts/dev-login.sh android",
-    "dev:login:ios": "bash ../../scripts/dev-login.sh ios",
     "build": "expo export -p web && pnpm run prerender",
     "prerender": "tsx --tsconfig scripts/tsconfig.prerender.json scripts/prerender.tsx",
     "test": "vitest run --config vitest.config.ts"
@@ -18,7 +16,6 @@
     "@fortawesome/fontawesome-svg-core": "^7.1.0",
     "@fortawesome/pro-solid-svg-icons": "^7.1.0",
     "@fortawesome/react-native-fontawesome": "^0.3.2",
-    "@justevery/auth-client": "file:../../packages/auth-client",
     "@justevery/config": "file:../../packages/config",
     "@react-native-async-storage/async-storage": "^2.2.0",
     "@react-native/assets-registry": "^0.82.1",
