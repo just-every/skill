@@ -1,0 +1,6 @@
+{
+  "kits": {
+    "design": ["every-design", "playwright-cli"],
+    "starter": ["git-push", "every-design", "playwright-cli", "auto-drive"]
+  }
+}

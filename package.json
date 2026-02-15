@@ -1,7 +1,17 @@
 {
-  "name": "@justevery/stack",
+  "name": "@just-every/skill",
   "version": "0.2.0",
-  "private": true,
+  "description": "Skill catalog platform and starter kit installer for CLI apps",
+  "type": "module",
+  "bin": {
+    "every-skill": "./src/cli.js"
+  },
+  "files": [
+    "src",
+    "skills",
+    "templates",
+    "README.md"
+  ],
   "packageManager": "pnpm@10.12.4",
   "workspaces": [
     "apps/*",

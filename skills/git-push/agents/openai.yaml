@@ -1,0 +1,6 @@
+interface:
+  display_name: "Git Push"
+  short_description: "Commit, merge, push, and watch CI runs"
+  icon_small: "./assets/icon-small.png"
+  icon_large: "./assets/icon-large.png"
+  default_prompt: "Use $git-push to commit, push, and monitor workflows for this repo."

@@ -1,0 +1,28 @@
+{
+  "skills": [
+    {
+      "name": "every-design",
+      "description": "Required for all interface creation or visual tasks (UI, Web, Mobile, Logos, Icons, 3D, Photos).",
+      "installer": {
+        "runner": "npx",
+        "args": ["-y", "@just-every/design@latest", "install"],
+        "removeArgs": ["-y", "@just-every/design@latest", "remove"]
+      }
+    },
+    {
+      "name": "playwright-cli",
+      "description": "Automates browser interactions for web testing, form filling, screenshots, and data extraction.",
+      "path": "skills/playwright-cli/SKILL.md"
+    },
+    {
+      "name": "git-push",
+      "description": "Commit/push workflow guidance for git repos.",
+      "path": "skills/git-push/SKILL.md"
+    },
+    {
+      "name": "auto-drive",
+      "description": "Autonomous task orchestration with coordinator decisions, optional sub-agents, and a verification pass.",
+      "path": "skills/auto-drive/SKILL.md"
+    }
+  ]
+}

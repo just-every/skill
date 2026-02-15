@@ -1,123 +1,105 @@
-# Every Skill
+# @just-every/skill
 
-Every Skill is a benchmarked skill catalog and retrieval API for AI coding agents.
+Every Skill is a benchmarked skill catalog platform with a companion starter-kit
+installer for CLI apps.
 
 - Domain: `https://skill.justevery.com`
 - Project ID: `skill`
-- Stack: Cloudflare Worker (`workers/api`) + Expo web (`apps/web`)
+- Stack: Cloudflare Worker (`workers/api`) + Expo web (`apps/web`) + installer CLI (`src/cli.js`)
 
-The MVP ships:
+## What this repo ships
 
-- A public website with a live task → skill retrieval demo (`/skills`)
-- A Worker API for skill cataloging and embedding-based matching (`/api/skills/*`)
-- Seeded curated skills + benchmark records (>= 5 skills)
-- Reproducible benchmark artifacts and fallback benchmarking mode
+- Public site with a task-to-skill retrieval demo (`/skills`)
+- Worker API for cataloging and recommending skills (`/api/skills/*`)
+- Seeded curated skills + reproducible benchmark artifacts
+- `every-skill` CLI to install curated skills into supported clients
 
-## Core APIs
-
-- `GET /api/skills`
-  - Returns benchmarked skill summaries
-- `GET /api/skills/tasks`
-  - Returns benchmark task templates
-- `GET /api/skills/benchmarks`
-  - Returns benchmark runs and coverage summary
-- `GET /api/skills/:slug`
-  - Returns detailed score breakdown for one skill
-- `POST /api/skills/recommend`
-  - Request body: `{ "task": "...", "agent": "codex|claude|gemini" }`
-  - Returns top recommendation and ranked candidates
-
-## Quick Start
-
-1. Install dependencies
+## Quick start
 
 ```bash
 pnpm install
-```
-
-2. Generate env and local worker vars
-
-```bash
 pnpm bootstrap:env
-```
-
-3. Start local dev (worker + web)
-
-```bash
 pnpm dev
 ```
 
-4. Open:
+Local endpoints:
 
 - `http://127.0.0.1:19006` (web)
 - `http://127.0.0.1:9788/api/skills` (API)
 
-## Skill and Benchmark Data
+## Skill API
 
-Seeded MVP catalog lives in D1 migration:
+- `GET /api/skills`
+- `GET /api/skills/tasks`
+- `GET /api/skills/benchmarks`
+- `GET /api/skills/:slug`
+- `POST /api/skills/recommend`
 
-- `workers/api/migrations/0007_skills_mvp.sql`
+Example request body:
 
-The worker includes fallback in-memory seeded data if D1 is unavailable so demo endpoints still work.
+```json
+{ "task": "...", "agent": "codex|claude|gemini" }
+```
 
-## Curated Imports
-
-Import curated skill index from `openai/skills`:
+## Benchmarks and imports
 
 ```bash
 pnpm skills:import
-```
-
-Output:
-
-- `benchmarks/imports/openai-curated-skills.json`
-
-## Benchmarking
-
-Generate reproducible benchmark artifacts:
-
-```bash
 pnpm skills:benchmark
-```
-
-Modes:
-
-- `auto` (default): uses Daytona if available; falls back to deterministic local benchmark artifacts
-- `daytona`: requires `DAYTONA_API_KEY` and `../design-app/scripts/daytona-cli-run.mjs`
-- `fallback`: deterministic local artifact generation
-
-Manual examples:
-
-```bash
-node scripts/benchmark-skills.mjs --mode fallback
-node scripts/benchmark-skills.mjs --mode daytona
-```
-
-Artifacts are written to:
-
-- `benchmarks/runs/<date>-<mode>/`
-
-## Retrieval Demo
-
-After local worker starts, run:
-
-```bash
 pnpm skills:demo
 ```
 
-This calls `/api/skills/recommend` and verifies the expected CI hardening skill is returned.
+- Curated import output: `benchmarks/imports/openai-curated-skills.json`
+- Benchmark runs output: `benchmarks/runs/<date>-<mode>/`
 
-## Deploy Metadata
+Modes for `scripts/benchmark-skills.mjs`:
 
-`.env.example` defaults are already set for this repo:
+- `auto` (default): use Daytona when available, otherwise deterministic fallback
+- `daytona`: requires `DAYTONA_API_KEY`
+- `fallback`: deterministic local artifact generation
+
+## Installer CLI
+
+Install the starter kit:
+
+```bash
+npx -y @just-every/skill@latest install
+```
+
+Available commands:
+
+- `install`
+- `remove`
+- `list`
+- `create`
+
+Examples:
+
+```bash
+npx -y @just-every/skill@latest list
+npx -y @just-every/skill@latest remove --kit starter
+npx -y @just-every/skill@latest create my-skill --description "What this skill does"
+```
+
+## Install path variables
+
+`SKILL.md` templates support:
+
+- `{{SKILL_DIR}}`
+- `{{SKILL_NAME}}`
+- `{{SKILLS_ROOT}}`
+- `{{CLIENT_NAME}}`
+
+## Deploy metadata
+
+`.env.example` defaults:
 
 - `PROJECT_ID=skill`
 - `PROJECT_NAME="Every Skill"`
 - `PROJECT_DOMAIN=https://skill.justevery.com`
 - `APP_URL=https://skill.justevery.com/app`
 
-Worker route metadata is configured in:
+Worker route metadata:
 
 - `workers/api/wrangler.toml`
 - `workers/api/wrangler.toml.template`
-
