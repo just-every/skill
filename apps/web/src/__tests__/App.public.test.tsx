@@ -31,7 +31,7 @@ describe('public catalog app', () => {
     fireEvent.click(screen.getByText('Recommend Skill'));
 
     expect(screen.getAllByText('CI Security Hardening').length).toBeGreaterThan(0);
-    expect(screen.getByText(/slug `ci-security-hardening`/)).toBeInTheDocument();
+    expect(screen.getAllByText(/slug `ci-security-hardening`/).length).toBeGreaterThan(0);
     expect(fetchSpy).not.toHaveBeenCalled();
 
     fetchSpy.mockRestore();

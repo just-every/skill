@@ -33,6 +33,7 @@ export type SkillRecord = {
   name: string;
   summary: string;
   description: string;
+  content: string;
   keywords: string[];
   securityStatus: 'approved' | 'pending' | 'rejected';
   provenance: SkillProvenance;
@@ -103,6 +104,38 @@ export type RecommendationResult = {
     deterministicFallbackScore: number;
     averageBenchmarkScore: number;
   }>;
+};
+
+export type SkillDetail = {
+  skill: SkillRecord;
+  task: TaskRecord | null;
+  scores: BenchmarkScore[];
+  summary: SkillSummary;
+  byAgent: Array<{
+    agent: Agent;
+    rows: number;
+    averageScore: number;
+    bestScore: number;
+    averageQuality: number;
+    averageSecurity: number;
+    averageSpeed: number;
+    averageCost: number;
+  }>;
+  byTask: Array<{
+    taskId: string;
+    taskSlug: string;
+    taskName: string;
+    rows: number;
+    averageScore: number;
+  }>;
+};
+
+export type BenchmarkFilter = {
+  skillId?: string;
+  runId?: string;
+  agent?: Agent;
+  taskId?: string;
+  query?: string;
 };
 
 const REVIEWED_AT = '2026-02-14T03:00:00.000Z';
@@ -313,6 +346,8 @@ const SKILLS: SkillRecord[] = [
     baseBenchmark,
   })),
 ].map((seed) => ({
+  taskId: seed.taskId,
+  content: buildSkillContent(seed, TASKS.find((task) => task.id === seed.taskId) ?? null),
   id: seed.id,
   slug: seed.slug,
   name: seed.name,
@@ -320,7 +355,6 @@ const SKILLS: SkillRecord[] = [
   description: seed.description,
   keywords: seed.keywords,
   securityStatus: 'approved',
-  taskId: seed.taskId,
   provenance: {
     sourceUrl: seed.sourceUrl,
     repository: seed.repository,
@@ -442,6 +476,82 @@ export function getCoverage() {
 
 export function getTopRows(limit = 5) {
   return getSkillSummaries().slice(0, limit);
+}
+
+export function getSkillDetail(skillIdOrSlug: string): SkillDetail | null {
+  const skill = SKILLS.find((entry) => entry.id === skillIdOrSlug || entry.slug === skillIdOrSlug);
+  if (!skill) return null;
+
+  const scores = SCORES.filter((entry) => entry.skillId === skill.id);
+  const summary = getSkillSummaries().find((entry) => entry.id === skill.id);
+  if (!summary) return null;
+
+  const byAgent = (['codex', 'claude', 'gemini'] as const)
+    .map((agent) => {
+      const rows = scores.filter((entry) => entry.agent === agent);
+      if (rows.length === 0) return null;
+      return {
+        agent,
+        rows: rows.length,
+        averageScore: Number((rows.reduce((sum, row) => sum + row.overallScore, 0) / rows.length).toFixed(2)),
+        bestScore: Number(Math.max(...rows.map((row) => row.overallScore)).toFixed(2)),
+        averageQuality: Number((rows.reduce((sum, row) => sum + row.qualityScore, 0) / rows.length).toFixed(2)),
+        averageSecurity: Number((rows.reduce((sum, row) => sum + row.securityScore, 0) / rows.length).toFixed(2)),
+        averageSpeed: Number((rows.reduce((sum, row) => sum + row.speedScore, 0) / rows.length).toFixed(2)),
+        averageCost: Number((rows.reduce((sum, row) => sum + row.costScore, 0) / rows.length).toFixed(2)),
+      };
+    })
+    .filter((entry): entry is NonNullable<typeof entry> => entry !== null);
+
+  const byTaskMap = new Map<string, BenchmarkScore[]>();
+  for (const row of scores) {
+    const existing = byTaskMap.get(row.taskId) ?? [];
+    existing.push(row);
+    byTaskMap.set(row.taskId, existing);
+  }
+
+  const byTask = Array.from(byTaskMap.entries())
+    .map(([taskId, rows]) => ({
+      taskId,
+      taskSlug: rows[0].taskSlug,
+      taskName: rows[0].taskName,
+      rows: rows.length,
+      averageScore: Number((rows.reduce((sum, row) => sum + row.overallScore, 0) / rows.length).toFixed(2)),
+    }))
+    .sort((a, b) => b.averageScore - a.averageScore);
+
+  return {
+    skill,
+    task: TASKS.find((entry) => entry.id === skill.taskId) ?? null,
+    scores,
+    summary,
+    byAgent,
+    byTask,
+  };
+}
+
+export function getBenchmarkRows(filter?: BenchmarkFilter): BenchmarkScore[] {
+  const query = filter?.query?.trim().toLowerCase() ?? '';
+  return SCORES.filter((row) => {
+    if (filter?.skillId && row.skillId !== filter.skillId) return false;
+    if (filter?.runId && row.runId !== filter.runId) return false;
+    if (filter?.agent && row.agent !== filter.agent) return false;
+    if (filter?.taskId && row.taskId !== filter.taskId) return false;
+    if (!query) return true;
+
+    const skill = SKILLS.find((entry) => entry.id === row.skillId);
+    const haystack = [
+      row.agent,
+      row.taskName,
+      row.taskSlug,
+      skill?.name ?? '',
+      skill?.slug ?? '',
+      skill?.summary ?? '',
+    ]
+      .join(' ')
+      .toLowerCase();
+    return haystack.includes(query);
+  }).sort((a, b) => b.overallScore - a.overallScore);
 }
 
 export function recommendSkill(task: string, agent: Agent | 'any' = 'any', limit = 3): RecommendationResult {
@@ -645,3 +755,42 @@ function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
 }
 
+function buildSkillContent(seed: SkillSeed, task: TaskRecord | null): string {
+  const taskHeader = task ? `${task.name} (${task.slug})` : 'unmapped-task';
+  const taskTags = task ? task.tags.join(', ') : 'none';
+
+  return [
+    '---',
+    `name: ${seed.slug}`,
+    `task: ${taskHeader}`,
+    `security_status: approved`,
+    `source: ${seed.sourceUrl}`,
+    '---',
+    '',
+    `# ${seed.name}`,
+    '',
+    '## Purpose',
+    seed.summary,
+    '',
+    '## Detailed behavior',
+    seed.description,
+    '',
+    '## Trigger cues',
+    `- Task category: ${task?.category ?? 'unknown'}`,
+    `- Task tags: ${taskTags}`,
+    `- Skill keywords: ${seed.keywords.join(', ')}`,
+    '',
+    '## Execution checklist',
+    '1. Reproduce the task with deterministic inputs and explicit constraints.',
+    '2. Prefer minimally invasive edits that preserve existing behavior.',
+    '3. Run focused verification for changed paths before broader validation.',
+    '4. Summarize risks, rollback options, and unresolved follow-ups.',
+    '',
+    '## Security and trust guardrails',
+    seed.securityNotes,
+    '',
+    '## Provenance',
+    `Imported from: ${seed.importedFrom}`,
+    `License: ${seed.license}`,
+  ].join('\n');
+}
