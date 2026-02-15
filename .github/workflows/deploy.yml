@@ -90,6 +90,7 @@ jobs:
               trimmed="${trimmed#\'}"
               trimmed="${trimmed%\'}"
             fi
+            echo "::add-mask::$trimmed"
             printf '%s=%s\n' "$var" "$trimmed" >> $GITHUB_ENV
           done < <(grep -v '^#' .env.ci)
 

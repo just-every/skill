@@ -58,7 +58,16 @@ if (fs.existsSync(homeEnvPath)) {
 sources.push(parseEnv(basePath));
 sources.push(parseEnv(generatedPath));
 
-const combined = Object.assign({}, ...sources);
+const combined = {};
+for (const source of sources) {
+  for (const [key, value] of Object.entries(source)) {
+    // Keep earlier non-empty values when later files leave a key blank.
+    if (typeof value === 'undefined' || String(value).length === 0) {
+      continue;
+    }
+    combined[key] = value;
+  }
+}
 
 const lines = Object.entries(combined)
   .filter(([key, value]) => Boolean(key) && typeof value !== 'undefined' && String(value).length > 0)
