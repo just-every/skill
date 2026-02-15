@@ -120,9 +120,14 @@ jobs:
           done < .env.ci
 
       - uses: actions/setup-node@v4
+        if: env.MODE == 'deploy'
         with:
           node-version: 20
           cache: 'pnpm'
+      - uses: actions/setup-node@v4
+        if: env.MODE != 'deploy'
+        with:
+          node-version: 20
       - name: Sync Font Awesome registry token
         if: env.MODE == 'deploy'
         run: node scripts/sync-fontawesome-token.mjs
