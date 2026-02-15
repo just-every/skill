@@ -38,12 +38,20 @@
   background-color: var(--color-surface);
 }
 
+html,
+body,
+#root {
+  height: 100%;
+}
+
 body {
   min-height: 100vh;
   background: var(--color-surface);
+  overflow-x: hidden;
+  overflow-y: auto;
 }
 
 #root > div {
+  min-height: 100%;
   width: 100%;
 }
-
