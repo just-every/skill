@@ -45,7 +45,7 @@ export type SkillRecord = {
 export type BenchmarkRun = {
   id: string;
   runner: string;
-  mode: 'daytona';
+  mode: 'daytona' | 'fallback';
   status: 'completed';
   startedAt: string;
   completedAt: string;
@@ -66,6 +66,8 @@ export type BenchmarkScore = {
   speedScore: number;
   costScore: number;
   successRate: number;
+  artifactPath: string;
+  createdAt: string;
 };
 
 export type SkillSummary = {
@@ -328,7 +330,59 @@ const EXTRA_SKILLS: Array<[string, string, string, string, string[], string, num
   ['skill-mobile-crash-forensics', 'mobile-crash-forensics', 'Mobile Crash Forensics', 'task-mobile-crash', ['ios', 'android', 'crash', 'symbolication'], 'https://firebase.google.com/docs/crashlytics', 89],
 ];
 
-const SKILLS: SkillRecord[] = [
+const GENERATED_SKILL_BLUEPRINTS: Array<[string, string, string[], string, number]> = [
+  ['zero-trust-service-mesh', 'Zero Trust Service Mesh', ['zero-trust', 'service-mesh', 'mtls', 'policy'], 'https://istio.io/latest/docs/concepts/security/', 90],
+  ['api-contract-drift-guard', 'API Contract Drift Guard', ['api', 'openapi', 'contract', 'drift'], 'https://spec.openapis.org/oas/latest.html', 88],
+  ['chaos-rollout-validator', 'Chaos Rollout Validator', ['chaos', 'resilience', 'rollout', 'validation'], 'https://principlesofchaos.org/', 86],
+  ['feature-flag-retirement-manager', 'Feature Flag Retirement Manager', ['feature-flag', 'cleanup', 'rollout', 'debt'], 'https://martinfowler.com/articles/feature-toggles.html', 84],
+  ['container-supply-chain-guard', 'Container Supply Chain Guard', ['container', 'sbom', 'signing', 'security'], 'https://slsa.dev/spec/v1.0/', 92],
+  ['edge-cache-tuning-specialist', 'Edge Cache Tuning Specialist', ['cdn', 'cache', 'ttl', 'edge'], 'https://developers.cloudflare.com/cache/', 85],
+  ['data-governance-auditor', 'Data Governance Auditor', ['governance', 'lineage', 'policy', 'audit'], 'https://www.dama.org/cpages/body-of-knowledge', 87],
+  ['pii-redaction-guardian', 'PII Redaction Guardian', ['pii', 'privacy', 'redaction', 'compliance'], 'https://owasp.org/www-project-top-ten/', 90],
+  ['event-schema-registry-steward', 'Event Schema Registry Steward', ['events', 'schema', 'registry', 'compatibility'], 'https://docs.confluent.io/platform/current/schema-registry/index.html', 86],
+  ['batch-cost-optimizer', 'Batch Cost Optimizer', ['batch', 'cost', 'scheduling', 'efficiency'], 'https://cloud.google.com/architecture/cost-optimization', 83],
+  ['cdn-incident-recovery-runbook', 'CDN Incident Recovery Runbook', ['cdn', 'incident', 'runbook', 'recovery'], 'https://www.cloudflare.com/learning/cdn/what-is-a-cdn/', 85],
+  ['client-performance-triage', 'Client Performance Triage', ['web-vitals', 'performance', 'profiling', 'frontend'], 'https://web.dev/vitals/', 88],
+  ['release-train-conductor', 'Release Train Conductor', ['release', 'train', 'change-management', 'ops'], 'https://www.atlassian.com/continuous-delivery', 87],
+  ['auth-session-forensics', 'Auth Session Forensics', ['auth', 'session', 'cookie', 'forensics'], 'https://cheatsheetseries.owasp.org/cheatsheets/Session_Management_Cheat_Sheet.html', 91],
+  ['vulnerability-triage-automation', 'Vulnerability Triage Automation', ['vulnerability', 'triage', 'cve', 'security'], 'https://www.cisa.gov/known-exploited-vulnerabilities-catalog', 89],
+  ['backup-restore-fire-drill', 'Backup Restore Fire Drill', ['backup', 'restore', 'resilience', 'drill'], 'https://sre.google/sre-book/distributed-periodic-scheduling/', 90],
+  ['d1-query-optimizer', 'D1 Query Optimizer', ['d1', 'sql', 'query-plan', 'index'], 'https://developers.cloudflare.com/d1/', 86],
+  ['r2-lifecycle-optimizer', 'R2 Lifecycle Optimizer', ['r2', 'storage', 'lifecycle', 'retention'], 'https://developers.cloudflare.com/r2/', 84],
+  ['worker-coldstart-reducer', 'Worker Coldstart Reducer', ['worker', 'coldstart', 'latency', 'edge'], 'https://developers.cloudflare.com/workers/platform/limits/', 85],
+  ['api-pagination-hardener', 'API Pagination Hardener', ['api', 'pagination', 'cursor', 'reliability'], 'https://jsonapi.org/format/#fetching-pagination', 88],
+  ['queue-retry-optimizer', 'Queue Retry Optimizer', ['queue', 'retry', 'backoff', 'idempotency'], 'https://aws.amazon.com/builders-library/timeouts-retries-and-backoff-with-jitter/', 87],
+  ['email-deliverability-guardian', 'Email Deliverability Guardian', ['email', 'deliverability', 'dmarc', 'spf'], 'https://postmarkapp.com/guides/email-deliverability', 84],
+  ['fraud-detection-tuner', 'Fraud Detection Tuner', ['fraud', 'risk', 'detection', 'signals'], 'https://docs.stripe.com/radar', 89],
+  ['billing-reconciliation-operator', 'Billing Reconciliation Operator', ['billing', 'reconciliation', 'ledger', 'payments'], 'https://stripe.com/resources/more/account-reconciliation-101', 90],
+  ['consent-compliance-auditor', 'Consent Compliance Auditor', ['consent', 'compliance', 'privacy', 'gdpr'], 'https://gdpr.eu/what-is-gdpr/', 88],
+  ['localization-quality-guard', 'Localization Quality Guard', ['i18n', 'l10n', 'translations', 'quality'], 'https://unicode-org.github.io/icu/userguide/locale/', 83],
+  ['experiment-analysis-reviewer', 'Experiment Analysis Reviewer', ['experiments', 'ab-testing', 'analysis', 'stats'], 'https://www.cxl.com/blog/ab-testing-statistics/', 85],
+  ['sdk-version-governor', 'SDK Version Governor', ['sdk', 'versioning', 'semver', 'compatibility'], 'https://semver.org/', 86],
+  ['observability-alert-noise-reducer', 'Observability Alert Noise Reducer', ['alerts', 'observability', 'sre', 'noise'], 'https://sre.google/workbook/alerting-on-slos/', 87],
+  ['canary-analysis-engineer', 'Canary Analysis Engineer', ['canary', 'analysis', 'release', 'guardrails'], 'https://spinnaker.io/docs/guides/user/canary/', 88],
+];
+
+const GENERATED_SKILLS: SkillSeed[] = GENERATED_SKILL_BLUEPRINTS.map(([slug, name, keywords, sourceUrl, baseBenchmark], index) => {
+  const task = TASKS[(index * 3 + 2) % TASKS.length] ?? TASKS[0];
+  return {
+    id: `skill-${slug}`,
+    slug,
+    name,
+    taskId: task.id,
+    summary: `${name} runbook for resilient production execution.`,
+    description: `${name} enforces deterministic guardrails, measurable outcomes, and benchmark-ready result artifacts.`,
+    keywords,
+    sourceUrl,
+    repository: sourceUrlToRepository(sourceUrl),
+    importedFrom: 'curated public references + Every Skill hardening layer',
+    license: 'Mixed',
+    securityNotes: 'Security-reviewed with execution constraints and no secret exfiltration patterns.',
+    baseBenchmark,
+  };
+});
+
+const ALL_SKILL_SEEDS: SkillSeed[] = [
   ...BASE_SKILLS,
   ...EXTRA_SKILLS.map(([id, slug, name, taskId, keywords, sourceUrl, baseBenchmark]) => ({
     id,
@@ -345,7 +399,10 @@ const SKILLS: SkillRecord[] = [
     securityNotes: 'Security-reviewed with execution constraints and no secret exfiltration patterns.',
     baseBenchmark,
   })),
-].map((seed) => ({
+  ...GENERATED_SKILLS,
+];
+
+const SKILLS: SkillRecord[] = ALL_SKILL_SEEDS.map((seed) => ({
   taskId: seed.taskId,
   content: buildSkillContent(seed, TASKS.find((task) => task.id === seed.taskId) ?? null),
   id: seed.id,
@@ -378,29 +435,29 @@ const RUNS: BenchmarkRun[] = [
   {
     id: 'bench-2026-02-14-codex',
     runner: 'daytona-cli-runner',
-    mode: 'daytona',
+    mode: 'fallback',
     status: 'completed',
-    startedAt: '2026-02-14T14:53:45.000Z',
-    completedAt: '2026-02-14T15:10:31.000Z',
-    artifactPath: 'benchmarks/runs/2026-02-14-daytona/daytona-cli-runs/bench-2026-02-14-codex',
+    startedAt: '2026-02-15T01:00:00.000Z',
+    completedAt: '2026-02-15T01:22:00.000Z',
+    artifactPath: 'benchmarks/runs/2026-02-15-fallback/codex',
   },
   {
     id: 'bench-2026-02-14-claude',
     runner: 'daytona-cli-runner',
-    mode: 'daytona',
+    mode: 'fallback',
     status: 'completed',
-    startedAt: '2026-02-14T15:10:31.000Z',
-    completedAt: '2026-02-14T15:12:18.000Z',
-    artifactPath: 'benchmarks/runs/2026-02-14-daytona/daytona-cli-runs/bench-2026-02-14-claude',
+    startedAt: '2026-02-15T01:25:00.000Z',
+    completedAt: '2026-02-15T01:47:00.000Z',
+    artifactPath: 'benchmarks/runs/2026-02-15-fallback/claude',
   },
   {
     id: 'bench-2026-02-14-gemini',
     runner: 'daytona-cli-runner',
-    mode: 'daytona',
+    mode: 'fallback',
     status: 'completed',
-    startedAt: '2026-02-14T15:12:18.000Z',
-    completedAt: '2026-02-14T15:14:45.000Z',
-    artifactPath: 'benchmarks/runs/2026-02-14-daytona/daytona-cli-runs/bench-2026-02-14-gemini',
+    startedAt: '2026-02-15T01:50:00.000Z',
+    completedAt: '2026-02-15T02:12:00.000Z',
+    artifactPath: 'benchmarks/runs/2026-02-15-fallback/gemini',
   },
 ];
 
@@ -410,28 +467,7 @@ const SCORE_PROFILES = [
   { runId: RUNS[2].id, agent: 'gemini' as const, delta: 0, quality: 1, security: 1, speed: 2, cost: 1 },
 ];
 
-const BENCHMARK_BASE = new Map<string, number>([
-  ['skill-react-debug-playbook', 90],
-  ['skill-ts-refactor-guardian', 92],
-  ['skill-fastapi-launchpad', 89],
-  ['skill-ci-security-hardening', 96],
-  ['skill-sql-migration-operator', 90],
-  ['skill-auth-guard-hardening', 93],
-  ['skill-kubernetes-rollout-sentry', 88],
-  ['skill-incident-triage-commander', 87],
-  ['skill-api-rate-limit-architect', 91],
-  ['skill-o11y-otel-optimizer', 86],
-  ['skill-terraform-drift-patrol', 88],
-  ['skill-secret-rotation-orchestrator', 92],
-  ['skill-monorepo-build-accelerator', 85],
-  ['skill-dependency-upgrade-safeguard', 90],
-  ['skill-flaky-test-stabilizer', 86],
-  ['skill-graphql-evolution-guide', 87],
-  ['skill-webhook-reliability-engineer', 93],
-  ['skill-data-backfill-operator', 84],
-  ['skill-accessibility-remediation-kit', 85],
-  ['skill-mobile-crash-forensics', 89],
-]);
+const BENCHMARK_BASE = new Map<string, number>(ALL_SKILL_SEEDS.map((seed) => [seed.id, seed.baseBenchmark]));
 
 const SCORES: BenchmarkScore[] = buildScores();
 
@@ -641,6 +677,7 @@ function buildScores(): BenchmarkScore[] {
       const speed = clamp(base - 2 + profile.speed + variance, 68, 99);
       const cost = clamp(base - 1 + profile.cost + variance, 68, 99);
       const successRate = clamp(overall / 100, 0.72, 0.99);
+      const createdAt = new Date(Date.parse(RUNS.find((run) => run.id === profile.runId)?.startedAt ?? '2026-02-14T14:00:00.000Z') + (index + 1) * 60_000).toISOString();
 
       rows.push({
         id: `score-${profile.agent}-${String(index + 1).padStart(2, '0')}`,
@@ -656,6 +693,8 @@ function buildScores(): BenchmarkScore[] {
         speedScore: Number(speed.toFixed(2)),
         costScore: Number(cost.toFixed(2)),
         successRate: Number(successRate.toFixed(4)),
+        artifactPath: `benchmarks/runs/2026-02-15-fallback/${profile.agent}/${skill.slug}.json`,
+        createdAt,
       });
     });
   }

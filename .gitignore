@@ -27,6 +27,7 @@ blob-report/
 temp.html
 every-design/
 benchmarks/runs/
+artifacts/
 
 # Local env overlays
 workers/api/.dev.vars

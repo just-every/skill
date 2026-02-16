@@ -143,7 +143,8 @@ type SkillSeed = {
 };
 
 const DEFAULT_EMBEDDING_DIM = 96;
-const MINIMUM_CORPUS = 20;
+const MINIMUM_TASK_CORPUS = 20;
+const MINIMUM_SKILL_CORPUS = 50;
 const REVIEWED_AT = '2026-02-14T03:00:00.000Z';
 const EMBEDDING_CONFIDENCE_MIN = 0.22;
 const EMBEDDING_MARGIN_MIN = 0.03;
@@ -347,6 +348,39 @@ const EXTRA_SKILLS: Array<[string, string, string, string, string[], string, num
   ['skill-mobile-crash-forensics', 'mobile-crash-forensics', 'Mobile Crash Forensics', 'task-mobile-crash', ['ios', 'android', 'crash', 'symbolication'], 'https://firebase.google.com/docs/crashlytics', 89],
 ];
 
+const GENERATED_SKILL_BLUEPRINTS: Array<[string, string, string[], string, number]> = [
+  ['zero-trust-service-mesh', 'Zero Trust Service Mesh', ['zero-trust', 'service-mesh', 'mtls', 'policy'], 'https://istio.io/latest/docs/concepts/security/', 90],
+  ['api-contract-drift-guard', 'API Contract Drift Guard', ['api', 'openapi', 'contract', 'drift'], 'https://spec.openapis.org/oas/latest.html', 88],
+  ['chaos-rollout-validator', 'Chaos Rollout Validator', ['chaos', 'resilience', 'rollout', 'validation'], 'https://principlesofchaos.org/', 86],
+  ['feature-flag-retirement-manager', 'Feature Flag Retirement Manager', ['feature-flag', 'cleanup', 'rollout', 'debt'], 'https://martinfowler.com/articles/feature-toggles.html', 84],
+  ['container-supply-chain-guard', 'Container Supply Chain Guard', ['container', 'sbom', 'signing', 'security'], 'https://slsa.dev/spec/v1.0/', 92],
+  ['edge-cache-tuning-specialist', 'Edge Cache Tuning Specialist', ['cdn', 'cache', 'ttl', 'edge'], 'https://developers.cloudflare.com/cache/', 85],
+  ['data-governance-auditor', 'Data Governance Auditor', ['governance', 'lineage', 'policy', 'audit'], 'https://www.dama.org/cpages/body-of-knowledge', 87],
+  ['pii-redaction-guardian', 'PII Redaction Guardian', ['pii', 'privacy', 'redaction', 'compliance'], 'https://owasp.org/www-project-top-ten/', 90],
+  ['event-schema-registry-steward', 'Event Schema Registry Steward', ['events', 'schema', 'registry', 'compatibility'], 'https://docs.confluent.io/platform/current/schema-registry/index.html', 86],
+  ['batch-cost-optimizer', 'Batch Cost Optimizer', ['batch', 'cost', 'scheduling', 'efficiency'], 'https://cloud.google.com/architecture/cost-optimization', 83],
+  ['cdn-incident-recovery-runbook', 'CDN Incident Recovery Runbook', ['cdn', 'incident', 'runbook', 'recovery'], 'https://www.cloudflare.com/learning/cdn/what-is-a-cdn/', 85],
+  ['client-performance-triage', 'Client Performance Triage', ['web-vitals', 'performance', 'profiling', 'frontend'], 'https://web.dev/vitals/', 88],
+  ['release-train-conductor', 'Release Train Conductor', ['release', 'train', 'change-management', 'ops'], 'https://www.atlassian.com/continuous-delivery', 87],
+  ['auth-session-forensics', 'Auth Session Forensics', ['auth', 'session', 'cookie', 'forensics'], 'https://cheatsheetseries.owasp.org/cheatsheets/Session_Management_Cheat_Sheet.html', 91],
+  ['vulnerability-triage-automation', 'Vulnerability Triage Automation', ['vulnerability', 'triage', 'cve', 'security'], 'https://www.cisa.gov/known-exploited-vulnerabilities-catalog', 89],
+  ['backup-restore-fire-drill', 'Backup Restore Fire Drill', ['backup', 'restore', 'resilience', 'drill'], 'https://sre.google/sre-book/distributed-periodic-scheduling/', 90],
+  ['d1-query-optimizer', 'D1 Query Optimizer', ['d1', 'sql', 'query-plan', 'index'], 'https://developers.cloudflare.com/d1/', 86],
+  ['r2-lifecycle-optimizer', 'R2 Lifecycle Optimizer', ['r2', 'storage', 'lifecycle', 'retention'], 'https://developers.cloudflare.com/r2/', 84],
+  ['worker-coldstart-reducer', 'Worker Coldstart Reducer', ['worker', 'coldstart', 'latency', 'edge'], 'https://developers.cloudflare.com/workers/platform/limits/', 85],
+  ['api-pagination-hardener', 'API Pagination Hardener', ['api', 'pagination', 'cursor', 'reliability'], 'https://jsonapi.org/format/#fetching-pagination', 88],
+  ['queue-retry-optimizer', 'Queue Retry Optimizer', ['queue', 'retry', 'backoff', 'idempotency'], 'https://aws.amazon.com/builders-library/timeouts-retries-and-backoff-with-jitter/', 87],
+  ['email-deliverability-guardian', 'Email Deliverability Guardian', ['email', 'deliverability', 'dmarc', 'spf'], 'https://postmarkapp.com/guides/email-deliverability', 84],
+  ['fraud-detection-tuner', 'Fraud Detection Tuner', ['fraud', 'risk', 'detection', 'signals'], 'https://docs.stripe.com/radar', 89],
+  ['billing-reconciliation-operator', 'Billing Reconciliation Operator', ['billing', 'reconciliation', 'ledger', 'payments'], 'https://stripe.com/resources/more/account-reconciliation-101', 90],
+  ['consent-compliance-auditor', 'Consent Compliance Auditor', ['consent', 'compliance', 'privacy', 'gdpr'], 'https://gdpr.eu/what-is-gdpr/', 88],
+  ['localization-quality-guard', 'Localization Quality Guard', ['i18n', 'l10n', 'translations', 'quality'], 'https://unicode-org.github.io/icu/userguide/locale/', 83],
+  ['experiment-analysis-reviewer', 'Experiment Analysis Reviewer', ['experiments', 'ab-testing', 'analysis', 'stats'], 'https://www.cxl.com/blog/ab-testing-statistics/', 85],
+  ['sdk-version-governor', 'SDK Version Governor', ['sdk', 'versioning', 'semver', 'compatibility'], 'https://semver.org/', 86],
+  ['observability-alert-noise-reducer', 'Observability Alert Noise Reducer', ['alerts', 'observability', 'sre', 'noise'], 'https://sre.google/workbook/alerting-on-slos/', 87],
+  ['canary-analysis-engineer', 'Canary Analysis Engineer', ['canary', 'analysis', 'release', 'guardrails'], 'https://spinnaker.io/docs/guides/user/canary/', 88],
+];
+
 function buildExtraSeed(
   id: string,
   slug: string,
@@ -379,9 +413,28 @@ function buildExtraSeed(
   };
 }
 
+function buildGeneratedSeed(
+  index: number,
+  slug: string,
+  name: string,
+  keywords: string[],
+  sourceUrl: string,
+  baseBenchmark: number,
+): SkillSeed {
+  const task = FALLBACK_TASKS[(index * 3 + 2) % FALLBACK_TASKS.length] ?? FALLBACK_TASKS[0];
+  const createdAt = new Date(Date.parse('2026-02-14T00:30:00.000Z') + index * 60_000).toISOString();
+  return {
+    ...buildExtraSeed(`skill-${slug}`, slug, name, task.id, keywords, sourceUrl, baseBenchmark),
+    summary: `${name} runbook for resilient production execution.`,
+    description: `${name} enforces deterministic guardrails, measurable outcomes, and benchmark-ready result artifacts.`,
+    createdAt,
+  };
+}
+
 const SKILL_SEEDS: SkillSeed[] = [
   ...BASE_SKILLS,
   ...EXTRA_SKILLS.map((entry) => buildExtraSeed(...entry)),
+  ...GENERATED_SKILL_BLUEPRINTS.map((entry, index) => buildGeneratedSeed(index, ...entry)),
 ];
 
 const FALLBACK_SKILLS: SkillRecord[] = SKILL_SEEDS.map((seed) => {
@@ -413,30 +466,30 @@ const FALLBACK_RUNS: SkillBenchmarkRun[] = [
     runner: 'daytona-cli-runner',
     mode: 'fallback',
     status: 'completed',
-    startedAt: '2026-02-14T01:00:00.000Z',
-    completedAt: '2026-02-14T01:22:00.000Z',
-    artifactPath: 'benchmarks/runs/2026-02-14-fallback/codex',
-    notes: 'Codex fallback run.',
+    startedAt: '2026-02-15T01:00:00.000Z',
+    completedAt: '2026-02-15T01:22:00.000Z',
+    artifactPath: 'benchmarks/runs/2026-02-15-fallback/codex',
+    notes: 'Codex fallback run for 50-skill corpus.',
   },
   {
     id: 'bench-2026-02-14-claude',
     runner: 'daytona-cli-runner',
     mode: 'fallback',
     status: 'completed',
-    startedAt: '2026-02-14T01:25:00.000Z',
-    completedAt: '2026-02-14T01:47:00.000Z',
-    artifactPath: 'benchmarks/runs/2026-02-14-fallback/claude',
-    notes: 'Claude fallback run.',
+    startedAt: '2026-02-15T01:25:00.000Z',
+    completedAt: '2026-02-15T01:47:00.000Z',
+    artifactPath: 'benchmarks/runs/2026-02-15-fallback/claude',
+    notes: 'Claude fallback run for 50-skill corpus.',
   },
   {
     id: 'bench-2026-02-14-gemini',
     runner: 'daytona-cli-runner',
     mode: 'fallback',
     status: 'completed',
-    startedAt: '2026-02-14T01:50:00.000Z',
-    completedAt: '2026-02-14T02:12:00.000Z',
-    artifactPath: 'benchmarks/runs/2026-02-14-fallback/gemini',
-    notes: 'Gemini fallback run.',
+    startedAt: '2026-02-15T01:50:00.000Z',
+    completedAt: '2026-02-15T02:12:00.000Z',
+    artifactPath: 'benchmarks/runs/2026-02-15-fallback/gemini',
+    notes: 'Gemini fallback run for 50-skill corpus.',
   },
 ];
 
@@ -685,9 +738,11 @@ function fallbackCatalog(): SkillCatalog {
 }
 
 function mergeCatalogWithFallback(catalog: SkillCatalog): SkillCatalog {
-  if (catalog.tasks.length >= MINIMUM_CORPUS && catalog.skills.length >= MINIMUM_CORPUS) {
+  if (catalog.tasks.length >= MINIMUM_TASK_CORPUS && catalog.skills.length >= MINIMUM_SKILL_CORPUS) {
     return catalog;
   }
+  const fallbackTaskIds = new Set(FALLBACK_TASKS.map((task) => task.id));
+  const fallbackSkillIds = new Set(FALLBACK_SKILLS.map((skill) => skill.id));
   const taskMap = new Map(catalog.tasks.map((task) => [task.id, task]));
   for (const task of FALLBACK_TASKS) {
     if (!taskMap.has(task.id)) taskMap.set(task.id, task);
@@ -705,12 +760,18 @@ function mergeCatalogWithFallback(catalog: SkillCatalog): SkillCatalog {
   for (const score of FALLBACK_SCORES) {
     if (!scoreMap.has(scoreKey(score))) scoreMap.set(scoreKey(score), score);
   }
+
+  const mergedTasks = Array.from(taskMap.values()).filter((task) => fallbackTaskIds.has(task.id));
+  const mergedSkills = Array.from(skillMap.values()).filter((skill) => fallbackSkillIds.has(skill.id));
+  const mergedScores = Array.from(scoreMap.values()).filter(
+    (score) => fallbackTaskIds.has(score.taskId) && fallbackSkillIds.has(score.skillId),
+  );
   return {
     source: catalog.source,
-    tasks: Array.from(taskMap.values()),
-    skills: Array.from(skillMap.values()),
+    tasks: mergedTasks,
+    skills: mergedSkills,
     runs: Array.from(runMap.values()),
-    scores: Array.from(scoreMap.values()),
+    scores: mergedScores,
   };
 }
 
@@ -922,7 +983,7 @@ function buildFallbackScores(): SkillScore[] {
         speedScore: Number(speed.toFixed(2)),
         costScore: Number(cost.toFixed(2)),
         successRate: Number((clamp(overall / 100, 0.7, 0.99)).toFixed(4)),
-        artifactPath: `benchmarks/runs/2026-02-14-fallback/${profile.agent}/${seed.slug}.json`,
+        artifactPath: `benchmarks/runs/2026-02-15-fallback/${profile.agent}/${seed.slug}.json`,
         createdAt,
       });
     });

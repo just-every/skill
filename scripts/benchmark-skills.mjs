@@ -29,7 +29,7 @@ const taskSeed = [
   ['task-mobile-crash', 'mobile-crash-triage', 'Mobile Crash Triage'],
 ];
 
-const skillSeed = [
+const baseSkillSeed = [
   ['skill-react-debug-playbook', 'react-debug-playbook', 'React Debug Playbook', 'task-debug-react-build', 90],
   ['skill-ts-refactor-guardian', 'typescript-refactor-guardian', 'TypeScript Refactor Guardian', 'task-typescript-refactor', 92],
   ['skill-fastapi-launchpad', 'fastapi-launchpad', 'FastAPI Launchpad', 'task-fastapi-endpoint', 89],
@@ -50,6 +50,47 @@ const skillSeed = [
   ['skill-data-backfill-operator', 'data-backfill-operator', 'Data Backfill Operator', 'task-data-backfill', 84],
   ['skill-accessibility-remediation-kit', 'accessibility-remediation-kit', 'Accessibility Remediation Kit', 'task-accessibility', 85],
   ['skill-mobile-crash-forensics', 'mobile-crash-forensics', 'Mobile Crash Forensics', 'task-mobile-crash', 89],
+];
+
+const generatedSkillBlueprints = [
+  ['zero-trust-service-mesh', 'Zero Trust Service Mesh', 90],
+  ['api-contract-drift-guard', 'API Contract Drift Guard', 88],
+  ['chaos-rollout-validator', 'Chaos Rollout Validator', 86],
+  ['feature-flag-retirement-manager', 'Feature Flag Retirement Manager', 84],
+  ['container-supply-chain-guard', 'Container Supply Chain Guard', 92],
+  ['edge-cache-tuning-specialist', 'Edge Cache Tuning Specialist', 85],
+  ['data-governance-auditor', 'Data Governance Auditor', 87],
+  ['pii-redaction-guardian', 'PII Redaction Guardian', 90],
+  ['event-schema-registry-steward', 'Event Schema Registry Steward', 86],
+  ['batch-cost-optimizer', 'Batch Cost Optimizer', 83],
+  ['cdn-incident-recovery-runbook', 'CDN Incident Recovery Runbook', 85],
+  ['client-performance-triage', 'Client Performance Triage', 88],
+  ['release-train-conductor', 'Release Train Conductor', 87],
+  ['auth-session-forensics', 'Auth Session Forensics', 91],
+  ['vulnerability-triage-automation', 'Vulnerability Triage Automation', 89],
+  ['backup-restore-fire-drill', 'Backup Restore Fire Drill', 90],
+  ['d1-query-optimizer', 'D1 Query Optimizer', 86],
+  ['r2-lifecycle-optimizer', 'R2 Lifecycle Optimizer', 84],
+  ['worker-coldstart-reducer', 'Worker Coldstart Reducer', 85],
+  ['api-pagination-hardener', 'API Pagination Hardener', 88],
+  ['queue-retry-optimizer', 'Queue Retry Optimizer', 87],
+  ['email-deliverability-guardian', 'Email Deliverability Guardian', 84],
+  ['fraud-detection-tuner', 'Fraud Detection Tuner', 89],
+  ['billing-reconciliation-operator', 'Billing Reconciliation Operator', 90],
+  ['consent-compliance-auditor', 'Consent Compliance Auditor', 88],
+  ['localization-quality-guard', 'Localization Quality Guard', 83],
+  ['experiment-analysis-reviewer', 'Experiment Analysis Reviewer', 85],
+  ['sdk-version-governor', 'SDK Version Governor', 86],
+  ['observability-alert-noise-reducer', 'Observability Alert Noise Reducer', 87],
+  ['canary-analysis-engineer', 'Canary Analysis Engineer', 88],
+];
+
+const skillSeed = [
+  ...baseSkillSeed,
+  ...generatedSkillBlueprints.map(([slug, name, base], index) => {
+    const task = taskSeed[(index * 3 + 2) % taskSeed.length];
+    return [`skill-${slug}`, slug, name, task[0], base];
+  }),
 ];
 
 const seed = {

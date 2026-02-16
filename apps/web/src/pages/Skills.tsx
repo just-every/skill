@@ -34,6 +34,7 @@ const Skills = () => {
   const [benchmarkTaskFilter, setBenchmarkTaskFilter] = React.useState<'all' | string>('all');
   const [benchmarkAgentFilter, setBenchmarkAgentFilter] = React.useState<'all' | Agent>('all');
   const [benchmarkQuery, setBenchmarkQuery] = React.useState('');
+  const [selectedBenchmarkId, setSelectedBenchmarkId] = React.useState<string | null>(null);
 
   const summaries = React.useMemo(() => getSkillSummaries(), []);
   const coverage = React.useMemo(() => getCoverage(), []);
@@ -41,6 +42,7 @@ const Skills = () => {
 
   const skillsById = React.useMemo(() => new Map(catalog.skills.map((skill) => [skill.id, skill])), []);
   const tasksById = React.useMemo(() => new Map(catalog.tasks.map((task) => [task.id, task])), []);
+  const runsById = React.useMemo(() => new Map(catalog.runs.map((run) => [run.id, run])), []);
   const categories = React.useMemo(() => ['all', ...Array.from(new Set(catalog.tasks.map((task) => task.category))).sort()], []);
 
   const filteredSkills = React.useMemo(() => {
@@ -95,6 +97,28 @@ const Skills = () => {
     });
   }, [benchmarkScope, selectedSkillId, benchmarkRunFilter, benchmarkTaskFilter, benchmarkAgentFilter, benchmarkQuery]);
 
+  React.useEffect(() => {
+    if (benchmarkRows.length === 0) {
+      setSelectedBenchmarkId(null);
+      return;
+    }
+    if (!selectedBenchmarkId || !benchmarkRows.some((row) => row.id === selectedBenchmarkId)) {
+      setSelectedBenchmarkId(benchmarkRows[0].id);
+    }
+  }, [benchmarkRows, selectedBenchmarkId]);
+
+  const selectedBenchmark = React.useMemo(() => {
+    if (!selectedBenchmarkId) return null;
+    const row = benchmarkRows.find((entry) => entry.id === selectedBenchmarkId);
+    if (!row) return null;
+    return {
+      row,
+      run: runsById.get(row.runId) ?? null,
+      task: tasksById.get(row.taskId) ?? null,
+      skill: skillsById.get(row.skillId) ?? null,
+    };
+  }, [selectedBenchmarkId, benchmarkRows, runsById, tasksById, skillsById]);
+
   const onSubmit = React.useCallback(() => {
     const next = taskQuery.trim();
     if (next.length >= 8) {
@@ -104,40 +128,40 @@ const Skills = () => {
   }, [taskQuery]);
 
   return (
-    <View className="flex flex-col gap-8 pb-12 md:gap-10">
-      <View className="rounded-[24px] border border-[#ddd2c3] bg-[#f5efe5] p-6 md:p-8">
-        <Text className="text-sm uppercase tracking-[0.24em] text-[#6a5d4c]">Every Skill Catalog</Text>
-        <Text className="mt-2 text-[38px] text-[#211b15] md:text-[56px]" style={{ fontFamily: 'var(--font-display)' }}>
+    <View className="mx-auto flex w-full max-w-[1280px] flex-col gap-8 px-4 pb-14 md:gap-10 md:px-8">
+      <View className="rounded-[28px] border border-[#cfd8e8] bg-[#f4f8ff] p-6 md:p-8">
+        <Text className="text-xs uppercase tracking-[0.26em] text-[#44607f]">Every Skill Catalog</Text>
+        <Text className="mt-3 text-[34px] text-[#10243d] md:max-w-[920px] md:text-[54px]" style={{ fontFamily: 'var(--font-display)' }}>
           Skills, Benchmarks, and Retrieval Results
         </Text>
-        <Text className="mt-3 max-w-[980px] text-base leading-7 text-[#4d4337] md:text-[24px] md:leading-[1.34]">
-          Start here to inspect the full skill packets and benchmark rows behind every recommendation. Filter, drill into a skill,
-          and inspect the exact run/task/agent evidence used by this UI.
+        <Text className="mt-4 max-w-[980px] text-base leading-7 text-[#2f445f] md:text-[22px] md:leading-[1.38]">
+          Explore all 50 skills, inspect every benchmark result row, and validate provenance and security review metadata behind each recommendation.
         </Text>
       </View>
 
-      <View className="grid grid-cols-1 gap-4 md:grid-cols-4">
+      <View className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-5">
         <StatCard label="Catalog skills" value={String(catalog.skills.length)} detail={`${filteredSkills.length} visible with current filters`} />
         <StatCard label="Task tracks" value={String(catalog.tasks.length)} detail="Coverage across benchmark scenarios" />
-        <StatCard label="Benchmark runs" value={String(catalog.runs.length)} detail="Daytona manifests currently loaded" />
-        <StatCard label="Score rows" value={String(coverage.scoreRows)} detail={`Agents: ${coverage.agentsCovered.join(', ')}`} />
+        <StatCard label="Benchmark runs" value={String(catalog.runs.length)} detail="Codex, Claude, and Gemini" />
+        <StatCard label="Score rows" value={String(coverage.scoreRows)} detail="Result rows visible in benchmark explorer" />
+        <StatCard label="Approved skills" value={String(summaries.filter((skill) => skill.securityStatus === 'approved').length)} detail="Security-reviewed skills eligible for retrieval" />
       </View>
 
-      <View className="rounded-[24px] border border-[#dbd0bf] bg-[#f8f4ec] p-6 md:p-8">
-        <Text className="text-sm uppercase tracking-[0.22em] text-[#6c5f4f]">Recommendation simulator</Text>
-        <Text className="mt-2 text-2xl font-semibold text-[#211b15] md:text-4xl">Task → best skill</Text>
+      <View className="rounded-[28px] border border-[#cfd8e8] bg-white p-6 md:p-8">
+        <Text className="text-xs uppercase tracking-[0.24em] text-[#4a6480]">Recommendation simulator</Text>
+        <Text className="mt-2 text-2xl font-semibold text-[#10243d] md:text-[38px]">Task to skill retrieval</Text>
 
-        <View className="mt-4 gap-4">
+        <View className="mt-5 gap-4">
           <TextInput
             value={taskQuery}
             onChangeText={setTaskQuery}
             style={{
-              minHeight: 124,
-              borderRadius: 16,
+              minHeight: 132,
+              borderRadius: 18,
               borderWidth: 1,
-              borderColor: '#d8ccbc',
-              backgroundColor: '#fffdf9',
-              color: '#201a14',
+              borderColor: '#cfd8e8',
+              backgroundColor: '#f9fbff',
+              color: '#10243d',
               paddingHorizontal: 14,
               paddingVertical: 12,
               fontSize: 17,
@@ -157,93 +181,83 @@ const Skills = () => {
                     setAgent(candidate);
                     setLastEvaluatedAt(new Date());
                   }}
-                  className={active ? 'rounded-full bg-[#184f87] px-4 py-2' : 'rounded-full border border-[#d3c6b3] bg-white px-4 py-2'}
+                  className={active ? 'rounded-full bg-[#145fa9] px-4 py-2' : 'rounded-full border border-[#c7d3e5] bg-[#f8fbff] px-4 py-2'}
                 >
-                  <Text className={active ? 'text-sm font-semibold text-white' : 'text-sm font-semibold text-[#463d32]'}>{candidate}</Text>
+                  <Text className={active ? 'text-sm font-semibold text-white' : 'text-sm font-semibold text-[#26415f]'}>{candidate}</Text>
                 </Pressable>
               );
             })}
           </View>
 
-          <Pressable accessibilityRole="button" onPress={onSubmit} className="self-start rounded-2xl bg-[#174f87] px-6 py-3">
+          <Pressable accessibilityRole="button" onPress={onSubmit} className="self-start rounded-2xl bg-[#145fa9] px-6 py-3">
             <Text className="text-base font-semibold text-white">Recommend Skill</Text>
           </Pressable>
 
-          <View className="rounded-2xl border border-[#d9ccba] bg-white p-5">
-            <Text className="text-xs uppercase tracking-[0.2em] text-[#7a6d5d]">Top recommendation</Text>
-            <Text className="mt-2 text-2xl font-semibold text-[#231d17]">{recommendation.recommendation.name}</Text>
-            <Text className="mt-2 text-sm text-[#554b3f]">
+          <View className="rounded-2xl border border-[#cfdaea] bg-[#f8fbff] p-5">
+            <Text className="text-xs uppercase tracking-[0.22em] text-[#5a7594]">Top recommendation</Text>
+            <Text className="mt-2 text-2xl font-semibold text-[#10243d]">{recommendation.recommendation.name}</Text>
+            <Text className="mt-2 text-sm text-[#2e4864]">
               slug `{recommendation.recommendation.slug}` · strategy {recommendation.retrievalStrategy} · final score{' '}
               {recommendation.recommendation.finalScore}
             </Text>
-            <Text className="mt-1 text-sm text-[#554b3f]">
+            <Text className="mt-1 text-sm text-[#2e4864]">
               similarity {recommendation.recommendation.embeddingSimilarity} · benchmark {recommendation.recommendation.averageBenchmarkScore}
             </Text>
-            <Text className="mt-1 text-sm text-[#554b3f]">evaluated for {agent.toUpperCase()} at {lastEvaluatedAt.toLocaleTimeString()}</Text>
+            <Text className="mt-1 text-sm text-[#2e4864]">evaluated for {agent.toUpperCase()} at {lastEvaluatedAt.toLocaleTimeString()}</Text>
             <Pressable
               accessibilityRole="button"
               onPress={() => setSelectedSkillId(recommendation.recommendation.id)}
-              className="mt-4 self-start rounded-xl border border-[#d8ccbb] bg-[#f9f4ea] px-4 py-2"
+              className="mt-4 self-start rounded-xl border border-[#bdd0e8] bg-white px-4 py-2"
             >
-              <Text className="text-sm font-semibold text-[#3f352b]">Open skill dossier</Text>
+              <Text className="text-sm font-semibold text-[#233f5c]">Open skill dossier</Text>
             </Pressable>
           </View>
         </View>
       </View>
 
-      <View className="grid grid-cols-1 gap-6 lg:grid-cols-[0.95fr_1.05fr]">
-        <View className="rounded-[24px] border border-[#dbcfbe] bg-white p-6">
-          <Text className="text-sm uppercase tracking-[0.16em] text-[#6d6254]">Skill explorer</Text>
-          <Text className="mt-2 text-xl font-semibold text-[#231d17] md:text-2xl">Browse and filter the catalog</Text>
+      <View className="grid grid-cols-1 gap-5 xl:grid-cols-[0.85fr_1.15fr]">
+        <View className="rounded-[26px] border border-[#d7e0ed] bg-white p-6">
+          <Text className="text-xs uppercase tracking-[0.22em] text-[#536f8f]">Skill explorer</Text>
+          <Text className="mt-2 text-xl font-semibold text-[#132a46] md:text-2xl">Browse all skills</Text>
 
-          <View className="mt-4 gap-3">
+          <View className="mt-4 gap-4">
             <TextInput
               value={skillQuery}
               onChangeText={setSkillQuery}
               style={{
                 borderRadius: 14,
                 borderWidth: 1,
-                borderColor: '#ded3c3',
-                backgroundColor: '#fffdf9',
-                color: '#221c16',
+                borderColor: '#d3deec',
+                backgroundColor: '#f8fbff',
+                color: '#17304c',
                 paddingHorizontal: 12,
                 paddingVertical: 10,
                 fontSize: 15,
               }}
-              placeholder="Search by skill, slug, keyword, or task"
+              placeholder="Search skill, slug, task, keyword"
             />
 
             <View>
-              <Text className="mb-2 text-xs uppercase tracking-[0.16em] text-[#7d705f]">Status</Text>
+              <Text className="mb-2 text-xs uppercase tracking-[0.16em] text-[#607c9b]">Status</Text>
               <View className="flex-row flex-wrap gap-2">
                 {statusOptions.map((status) => (
-                  <FilterPill
-                    key={status}
-                    label={status}
-                    active={statusFilter === status}
-                    onPress={() => setStatusFilter(status)}
-                  />
+                  <FilterPill key={status} label={status} active={statusFilter === status} onPress={() => setStatusFilter(status)} />
                 ))}
               </View>
             </View>
 
             <View>
-              <Text className="mb-2 text-xs uppercase tracking-[0.16em] text-[#7d705f]">Task category</Text>
+              <Text className="mb-2 text-xs uppercase tracking-[0.16em] text-[#607c9b]">Task category</Text>
               <View className="flex-row flex-wrap gap-2">
                 {categories.map((category) => (
-                  <FilterPill
-                    key={category}
-                    label={category}
-                    active={categoryFilter === category}
-                    onPress={() => setCategoryFilter(category)}
-                  />
+                  <FilterPill key={category} label={category} active={categoryFilter === category} onPress={() => setCategoryFilter(category)} />
                 ))}
               </View>
             </View>
 
-            <View className="rounded-2xl border border-[#ece2d4] bg-[#f9f5ef] p-3">
-              <Text className="text-xs uppercase tracking-[0.14em] text-[#796d5e]">Matching skills</Text>
-              <ScrollView style={{ maxHeight: 420 }} className="mt-2">
+            <View className="rounded-2xl border border-[#dce6f3] bg-[#f8fbff] p-3">
+              <Text className="text-xs uppercase tracking-[0.14em] text-[#607b98]">Matching skills</Text>
+              <ScrollView style={{ maxHeight: 440 }} className="mt-2">
                 <View className="gap-2 pb-1">
                   {filteredSkills.map((skillSummary, index) => {
                     const active = skillSummary.id === selectedSkillId;
@@ -255,21 +269,21 @@ const Skills = () => {
                         accessibilityRole="button"
                         key={skillSummary.id}
                         onPress={() => setSelectedSkillId(skillSummary.id)}
-                        className={active ? 'rounded-xl border border-[#cdbda6] bg-white px-3 py-3' : 'rounded-xl border border-[#e6dccd] bg-[#fffaf3] px-3 py-3'}
+                        className={active ? 'rounded-xl border border-[#8fb3dc] bg-white px-3 py-3' : 'rounded-xl border border-[#d9e2ef] bg-[#fdfefe] px-3 py-3'}
                       >
-                        <Text className="text-[11px] uppercase tracking-[0.16em] text-[#8b7f70]">Rank #{index + 1}</Text>
-                        <Text className="mt-1 text-base font-semibold text-[#2e271f]">{skillSummary.name}</Text>
-                        <Text className="mt-1 text-xs text-[#695e50]">{skillSummary.slug}</Text>
-                        <Text className="mt-1 text-xs text-[#695e50]">
-                          avg {skillSummary.averageScore} · best {skillSummary.bestScore} · task {task?.category ?? 'unknown'}
+                        <Text className="text-[11px] uppercase tracking-[0.16em] text-[#6e88a3]">Rank #{index + 1}</Text>
+                        <Text className="mt-1 text-base font-semibold text-[#17304c]">{skillSummary.name}</Text>
+                        <Text className="mt-1 text-xs text-[#4e6884]">{skillSummary.slug}</Text>
+                        <Text className="mt-1 text-xs text-[#4e6884]">
+                          avg {skillSummary.averageScore} · best {skillSummary.bestScore} · {task?.category ?? 'unknown'}
                         </Text>
                       </Pressable>
                     );
                   })}
 
                   {filteredSkills.length === 0 ? (
-                    <View className="rounded-xl border border-[#e6dccd] bg-[#fffaf3] px-3 py-4">
-                      <Text className="text-sm text-[#615648]">No skills match the current filters.</Text>
+                    <View className="rounded-xl border border-[#d9e2ef] bg-[#fdfefe] px-3 py-4">
+                      <Text className="text-sm text-[#4e6884]">No skills match the current filters.</Text>
                     </View>
                   ) : null}
                 </View>
@@ -278,87 +292,115 @@ const Skills = () => {
           </View>
         </View>
 
-        <View className="rounded-[24px] border border-[#dbcfbe] bg-white p-6">
-          <Text className="text-sm uppercase tracking-[0.16em] text-[#6d6254]">Skill dossier</Text>
+        <View className="rounded-[26px] border border-[#d7e0ed] bg-white p-6">
+          <Text className="text-xs uppercase tracking-[0.22em] text-[#536f8f]">Skill dossier</Text>
           {!selectedDetail ? (
-            <Text className="mt-3 text-sm text-[#665a4c]">Choose a skill to inspect full content and benchmark evidence.</Text>
+            <Text className="mt-3 text-sm text-[#556f8c]">Choose a skill to inspect full content and benchmark evidence.</Text>
           ) : (
-            <View className="mt-2 gap-4">
+            <View className="mt-3 gap-4">
               <View>
-                <Text className="text-2xl font-semibold text-[#231d17]">{selectedDetail.skill.name}</Text>
-                <Text className="mt-1 text-sm text-[#665a4c]">slug `{selectedDetail.skill.slug}` · source {selectedDetail.skill.provenance.repository}</Text>
-                <Text className="mt-2 text-sm text-[#4f453a]">{selectedDetail.skill.description}</Text>
+                <Text className="text-2xl font-semibold text-[#132a46] md:text-[34px]">{selectedDetail.skill.name}</Text>
+                <Text className="mt-1 text-sm text-[#4f6882]">slug `{selectedDetail.skill.slug}` · source {selectedDetail.skill.provenance.repository}</Text>
+                <Text className="mt-2 text-sm leading-6 text-[#24405f]">{selectedDetail.skill.description}</Text>
               </View>
 
               <View className="grid grid-cols-1 gap-3 md:grid-cols-3">
                 <MetricStat label="Average score" value={String(selectedDetail.summary.averageScore)} detail="Across all benchmark rows" />
                 <MetricStat label="Best score" value={String(selectedDetail.summary.bestScore)} detail="Top single benchmark row" />
-                <MetricStat
-                  label="Mapped task"
-                  value={selectedDetail.task?.name ?? 'Unknown'}
-                  detail={selectedDetail.task?.slug ?? 'missing-task'}
-                />
+                <MetricStat label="Mapped task" value={selectedDetail.task?.name ?? 'Unknown'} detail={selectedDetail.task?.slug ?? 'missing-task'} />
               </View>
 
-              <View className="rounded-2xl border border-[#ece2d4] bg-[#fcfaf7] p-4">
-                <Text className="text-xs uppercase tracking-[0.18em] text-[#7b6e5d]">Full skill content used by Every Skill</Text>
-                <ScrollView style={{ maxHeight: 280 }} className="mt-2 rounded-xl border border-[#e6dccd] bg-white p-3">
-                  <Text className="text-xs leading-5 text-[#3d342a]" style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace' }}>
+              <View className="rounded-2xl border border-[#dce6f3] bg-[#f8fbff] p-4">
+                <Text className="text-xs uppercase tracking-[0.18em] text-[#5f7997]">Provenance and security review</Text>
+                <View className="mt-2 gap-1">
+                  <KeyValueRow label="sourceUrl" value={selectedDetail.skill.provenance.sourceUrl} />
+                  <KeyValueRow label="repository" value={selectedDetail.skill.provenance.repository} />
+                  <KeyValueRow label="importedFrom" value={selectedDetail.skill.provenance.importedFrom} />
+                  <KeyValueRow label="reviewStatus" value={selectedDetail.skill.securityReview.status} />
+                  <KeyValueRow label="reviewMethod" value={selectedDetail.skill.securityReview.reviewMethod} />
+                  <KeyValueRow label="reviewedAt" value={selectedDetail.skill.securityReview.reviewedAt} />
+                </View>
+              </View>
+
+              <View className="rounded-2xl border border-[#dce6f3] bg-[#f8fbff] p-4">
+                <Text className="text-xs uppercase tracking-[0.18em] text-[#5f7997]">Benchmark evidence by agent</Text>
+                <View className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-3">
+                  {selectedDetail.byAgent.map((row) => (
+                    <View key={row.agent} className="rounded-xl border border-[#d5e1f0] bg-white p-3">
+                      <Text className="text-sm font-semibold text-[#17304c]">{row.agent.toUpperCase()}</Text>
+                      <Text className="mt-1 text-xs text-[#4e6884]">rows {row.rows}</Text>
+                      <Text className="text-xs text-[#4e6884]">avg {row.averageScore} · best {row.bestScore}</Text>
+                      <Text className="text-xs text-[#4e6884]">quality {row.averageQuality} · security {row.averageSecurity}</Text>
+                      <Text className="text-xs text-[#4e6884]">speed {row.averageSpeed} · cost {row.averageCost}</Text>
+                    </View>
+                  ))}
+                </View>
+              </View>
+
+              <View className="rounded-2xl border border-[#dce6f3] bg-[#f8fbff] p-4">
+                <Text className="text-xs uppercase tracking-[0.18em] text-[#5f7997]">Full skill content</Text>
+                <ScrollView style={{ maxHeight: 240 }} className="mt-2 rounded-xl border border-[#d5e1f0] bg-white p-3">
+                  <Text className="text-xs leading-5 text-[#17304c]" style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace' }}>
                     {selectedDetail.skill.content}
                   </Text>
                 </ScrollView>
               </View>
 
-              <View className="rounded-2xl border border-[#ece2d4] bg-[#fcfaf7] p-4">
-                <Text className="text-xs uppercase tracking-[0.18em] text-[#7b6e5d]">Benchmark evidence by agent</Text>
-                <View className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-3">
-                  {selectedDetail.byAgent.map((row) => (
-                    <View key={row.agent} className="rounded-xl border border-[#e6dccd] bg-white p-3">
-                      <Text className="text-sm font-semibold text-[#2f281f]">{row.agent.toUpperCase()}</Text>
-                      <Text className="mt-1 text-xs text-[#685d4e]">rows {row.rows}</Text>
-                      <Text className="text-xs text-[#685d4e]">avg {row.averageScore} · best {row.bestScore}</Text>
-                      <Text className="text-xs text-[#685d4e]">quality {row.averageQuality} · security {row.averageSecurity}</Text>
-                      <Text className="text-xs text-[#685d4e]">speed {row.averageSpeed} · cost {row.averageCost}</Text>
-                    </View>
-                  ))}
-                </View>
+              <View className="rounded-2xl border border-[#dce6f3] bg-[#f8fbff] p-4">
+                <Text className="text-xs uppercase tracking-[0.18em] text-[#5f7997]">Raw skill record JSON</Text>
+                <ScrollView style={{ maxHeight: 220 }} className="mt-2 rounded-xl border border-[#d5e1f0] bg-white p-3">
+                  <Text className="text-xs leading-5 text-[#17304c]" style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace' }}>
+                    {JSON.stringify(selectedDetail.skill, null, 2)}
+                  </Text>
+                </ScrollView>
               </View>
             </View>
           )}
         </View>
       </View>
 
-          <View id="top-candidates" className="rounded-[24px] border border-[#dbcfbe] bg-white p-6">
-        <Text className="text-sm uppercase tracking-[0.16em] text-[#6d6254]">Benchmark explorer</Text>
-        <Text className="mt-2 text-xl font-semibold text-[#231d17] md:text-2xl">Raw benchmark rows backing this UI</Text>
+      <View className="rounded-[26px] border border-[#d7e0ed] bg-white p-6">
+        <Text className="text-xs uppercase tracking-[0.22em] text-[#536f8f]">Benchmark explorer</Text>
+        <Text className="mt-2 text-xl font-semibold text-[#132a46] md:text-2xl">Raw benchmark rows and result artifacts</Text>
 
-        <View className="mt-4 gap-3">
+        <View className="mt-4 grid grid-cols-1 gap-3 lg:grid-cols-3">
+          {catalog.runs.map((run) => (
+            <View key={run.id} className="rounded-xl border border-[#d5e1f0] bg-[#f8fbff] p-3">
+              <Text className="text-xs uppercase tracking-[0.16em] text-[#607b98]">{run.id.replace('bench-2026-02-14-', '')}</Text>
+              <Text className="mt-1 text-sm font-semibold text-[#17304c]">{run.mode} · {run.status}</Text>
+              <Text className="mt-1 text-xs text-[#4e6884]">started {new Date(run.startedAt).toLocaleString()}</Text>
+              <Text className="text-xs text-[#4e6884]">completed {new Date(run.completedAt).toLocaleString()}</Text>
+            </View>
+          ))}
+        </View>
+
+        <View className="mt-5 gap-4">
           <View>
-            <Text className="mb-2 text-xs uppercase tracking-[0.16em] text-[#7d705f]">Scope</Text>
+            <Text className="mb-2 text-xs uppercase tracking-[0.16em] text-[#607c9b]">Scope</Text>
             <View className="flex-row flex-wrap gap-2">
               <FilterPill label="selected" active={benchmarkScope === 'selected'} onPress={() => setBenchmarkScope('selected')} />
               <FilterPill label="all" active={benchmarkScope === 'all'} onPress={() => setBenchmarkScope('all')} />
             </View>
           </View>
 
-          <View>
-            <Text className="mb-2 text-xs uppercase tracking-[0.16em] text-[#7d705f]">Run</Text>
-            <View className="flex-row flex-wrap gap-2">
-              <FilterPill label="all" active={benchmarkRunFilter === 'all'} onPress={() => setBenchmarkRunFilter('all')} />
-              {catalog.runs.map((run) => (
-                <FilterPill
-                  key={run.id}
-                  label={run.id.replace('bench-2026-02-14-', '')}
-                  active={benchmarkRunFilter === run.id}
-                  onPress={() => setBenchmarkRunFilter(run.id)}
-                />
-              ))}
-            </View>
-          </View>
-
-          <View className="grid grid-cols-1 gap-3 md:grid-cols-2">
+          <View className="grid grid-cols-1 gap-3 md:grid-cols-3">
             <View>
-              <Text className="mb-2 text-xs uppercase tracking-[0.16em] text-[#7d705f]">Agent</Text>
+              <Text className="mb-2 text-xs uppercase tracking-[0.16em] text-[#607c9b]">Run</Text>
+              <View className="flex-row flex-wrap gap-2">
+                <FilterPill label="all" active={benchmarkRunFilter === 'all'} onPress={() => setBenchmarkRunFilter('all')} />
+                {catalog.runs.map((run) => (
+                  <FilterPill
+                    key={run.id}
+                    label={run.id.replace('bench-2026-02-14-', '')}
+                    active={benchmarkRunFilter === run.id}
+                    onPress={() => setBenchmarkRunFilter(run.id)}
+                  />
+                ))}
+              </View>
+            </View>
+
+            <View>
+              <Text className="mb-2 text-xs uppercase tracking-[0.16em] text-[#607c9b]">Agent</Text>
               <View className="flex-row flex-wrap gap-2">
                 <FilterPill label="all" active={benchmarkAgentFilter === 'all'} onPress={() => setBenchmarkAgentFilter('all')} />
                 {agentOptions.map((candidate) => (
@@ -373,16 +415,11 @@ const Skills = () => {
             </View>
 
             <View>
-              <Text className="mb-2 text-xs uppercase tracking-[0.16em] text-[#7d705f]">Task</Text>
+              <Text className="mb-2 text-xs uppercase tracking-[0.16em] text-[#607c9b]">Task</Text>
               <View className="flex-row flex-wrap gap-2">
                 <FilterPill label="all" active={benchmarkTaskFilter === 'all'} onPress={() => setBenchmarkTaskFilter('all')} />
                 {catalog.tasks.map((task) => (
-                  <FilterPill
-                    key={task.id}
-                    label={task.slug}
-                    active={benchmarkTaskFilter === task.id}
-                    onPress={() => setBenchmarkTaskFilter(task.id)}
-                  />
+                  <FilterPill key={task.id} label={task.slug} active={benchmarkTaskFilter === task.id} onPress={() => setBenchmarkTaskFilter(task.id)} />
                 ))}
               </View>
             </View>
@@ -394,52 +431,98 @@ const Skills = () => {
             style={{
               borderRadius: 14,
               borderWidth: 1,
-              borderColor: '#ded3c3',
-              backgroundColor: '#fffdf9',
-              color: '#221c16',
+              borderColor: '#d3deec',
+              backgroundColor: '#f8fbff',
+              color: '#17304c',
               paddingHorizontal: 12,
               paddingVertical: 10,
               fontSize: 15,
             }}
-            placeholder="Search benchmark rows by skill, task, slug, or agent"
+            placeholder="Search rows by skill, task, slug, run, or agent"
           />
 
-          <Text className="text-sm text-[#5f5446]">Showing {benchmarkRows.length} benchmark rows from the same dataset used to rank recommendations.</Text>
+          <Text className="text-sm text-[#4e6884]">Showing {benchmarkRows.length} rows (of {catalog.scores.length} total benchmark rows).</Text>
 
-          <ScrollView style={{ maxHeight: 420 }}>
-            <View className="gap-2 pb-1">
-              {benchmarkRows.slice(0, 160).map((row, index) => {
-                const skill = skillsById.get(row.skillId);
-                return (
-                  <Pressable
-                    accessibilityRole="button"
-                    key={`${row.id}-${index}`}
-                    onPress={() => setSelectedSkillId(row.skillId)}
-                    className="rounded-xl border border-[#e7ddcf] bg-[#fcfaf7] px-3 py-3"
-                  >
-                    <Text className="text-sm font-semibold text-[#2f281f]">
-                      {skill?.name ?? row.skillId} · {row.agent.toUpperCase()} · {row.overallScore}
-                    </Text>
-                    <Text className="mt-1 text-xs text-[#685d4e]">
-                      run {row.runId} · task {row.taskSlug} · quality {row.qualityScore} · security {row.securityScore} · speed {row.speedScore} · cost {row.costScore}
-                    </Text>
-                  </Pressable>
-                );
-              })}
+          <View className="grid grid-cols-1 gap-4 xl:grid-cols-[1.05fr_0.95fr]">
+            <View className="rounded-2xl border border-[#dce6f3] bg-[#f8fbff] p-3">
+              <ScrollView style={{ maxHeight: 500 }}>
+                <View className="gap-2 pb-1">
+                  {benchmarkRows.slice(0, 220).map((row, index) => {
+                    const active = row.id === selectedBenchmarkId;
+                    const skill = skillsById.get(row.skillId);
+                    return (
+                      <Pressable
+                        accessibilityRole="button"
+                        key={`${row.id}-${index}`}
+                        onPress={() => {
+                          setSelectedBenchmarkId(row.id);
+                          setSelectedSkillId(row.skillId);
+                        }}
+                        className={active ? 'rounded-xl border border-[#8fb3dc] bg-white px-3 py-3' : 'rounded-xl border border-[#d9e2ef] bg-white px-3 py-3'}
+                      >
+                        <Text className="text-sm font-semibold text-[#17304c]">
+                          {skill?.name ?? row.skillId} · {row.agent.toUpperCase()} · {row.overallScore}
+                        </Text>
+                        <Text className="mt-1 text-xs text-[#4e6884]">
+                          run {row.runId} · task {row.taskSlug} · success {row.successRate} · quality {row.qualityScore} · security {row.securityScore}
+                        </Text>
+                      </Pressable>
+                    );
+                  })}
 
-              {benchmarkRows.length > 160 ? (
-                <View className="rounded-xl border border-[#e7ddcf] bg-[#fcfaf7] px-3 py-3">
-                  <Text className="text-xs text-[#685d4e]">Showing first 160 rows. Narrow filters to inspect more precisely.</Text>
+                  {benchmarkRows.length > 220 ? (
+                    <View className="rounded-xl border border-[#d9e2ef] bg-white px-3 py-3">
+                      <Text className="text-xs text-[#4e6884]">Showing first 220 rows. Narrow filters to inspect specific result sets.</Text>
+                    </View>
+                  ) : null}
+
+                  {benchmarkRows.length === 0 ? (
+                    <View className="rounded-xl border border-[#d9e2ef] bg-white px-3 py-3">
+                      <Text className="text-xs text-[#4e6884]">No benchmark rows match the current filters.</Text>
+                    </View>
+                  ) : null}
                 </View>
-              ) : null}
-
-              {benchmarkRows.length === 0 ? (
-                <View className="rounded-xl border border-[#e7ddcf] bg-[#fcfaf7] px-3 py-3">
-                  <Text className="text-xs text-[#685d4e]">No benchmark rows match the current filters.</Text>
-                </View>
-              ) : null}
+              </ScrollView>
             </View>
-          </ScrollView>
+
+            <View className="rounded-2xl border border-[#dce6f3] bg-[#f8fbff] p-4">
+              {!selectedBenchmark ? (
+                <Text className="text-sm text-[#4e6884]">Select a benchmark row to inspect complete result metadata.</Text>
+              ) : (
+                <View className="gap-3">
+                  <Text className="text-xs uppercase tracking-[0.18em] text-[#5f7997]">Selected benchmark result</Text>
+                  <Text className="text-xl font-semibold text-[#132a46]">{selectedBenchmark.skill?.name ?? selectedBenchmark.row.skillId}</Text>
+                  <KeyValueRow label="runId" value={selectedBenchmark.row.runId} />
+                  <KeyValueRow label="agent" value={selectedBenchmark.row.agent} />
+                  <KeyValueRow label="task" value={`${selectedBenchmark.row.taskName} (${selectedBenchmark.row.taskSlug})`} />
+                  <KeyValueRow label="overall" value={String(selectedBenchmark.row.overallScore)} />
+                  <KeyValueRow label="quality/security" value={`${selectedBenchmark.row.qualityScore} / ${selectedBenchmark.row.securityScore}`} />
+                  <KeyValueRow label="speed/cost" value={`${selectedBenchmark.row.speedScore} / ${selectedBenchmark.row.costScore}`} />
+                  <KeyValueRow label="successRate" value={String(selectedBenchmark.row.successRate)} />
+                  <KeyValueRow label="createdAt" value={selectedBenchmark.row.createdAt} />
+                  <KeyValueRow label="artifactPath" value={selectedBenchmark.row.artifactPath} />
+
+                  {selectedBenchmark.run ? (
+                    <View className="rounded-xl border border-[#d6e1f0] bg-white p-3">
+                      <Text className="text-xs uppercase tracking-[0.14em] text-[#607b98]">Run metadata</Text>
+                      <Text className="mt-1 text-xs text-[#4e6884]">mode {selectedBenchmark.run.mode} · status {selectedBenchmark.run.status}</Text>
+                      <Text className="text-xs text-[#4e6884]">runner {selectedBenchmark.run.runner}</Text>
+                      <Text className="text-xs text-[#4e6884]">artifact {selectedBenchmark.run.artifactPath}</Text>
+                    </View>
+                  ) : null}
+
+                  <View className="rounded-xl border border-[#d6e1f0] bg-white p-3">
+                    <Text className="text-xs uppercase tracking-[0.14em] text-[#607b98]">Raw result JSON</Text>
+                    <ScrollView style={{ maxHeight: 220 }} className="mt-2">
+                      <Text className="text-xs leading-5 text-[#17304c]" style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace' }}>
+                        {JSON.stringify(selectedBenchmark, null, 2)}
+                      </Text>
+                    </ScrollView>
+                  </View>
+                </View>
+              )}
+            </View>
+          </View>
         </View>
       </View>
     </View>
@@ -453,10 +536,10 @@ type StatCardProps = {
 };
 
 const StatCard = ({ label, value, detail }: StatCardProps) => (
-  <View className="rounded-2xl border border-[#ddd2c3] bg-white p-4 md:p-5">
-    <Text className="text-xs uppercase tracking-[0.15em] text-[#7d705f]">{label}</Text>
-    <Text className="mt-2 text-3xl font-semibold text-[#201b15] md:text-5xl">{value}</Text>
-    <Text className="mt-1 text-sm text-[#5e5345]">{detail}</Text>
+  <View className="rounded-2xl border border-[#d7e0ed] bg-white p-4 md:p-5">
+    <Text className="text-xs uppercase tracking-[0.16em] text-[#5f7a98]">{label}</Text>
+    <Text className="mt-2 text-3xl font-semibold text-[#132a46] md:text-4xl">{value}</Text>
+    <Text className="mt-1 text-sm text-[#4e6884]">{detail}</Text>
   </View>
 );
 
@@ -467,10 +550,10 @@ type MetricStatProps = {
 };
 
 const MetricStat = ({ label, value, detail }: MetricStatProps) => (
-  <View className="rounded-xl border border-[#e6dccd] bg-[#fffaf3] p-3">
-    <Text className="text-[11px] uppercase tracking-[0.16em] text-[#7f7262]">{label}</Text>
-    <Text className="mt-1 text-base font-semibold text-[#2f281f]">{value}</Text>
-    <Text className="mt-1 text-xs text-[#685d4e]">{detail}</Text>
+  <View className="rounded-xl border border-[#d5e1f0] bg-white p-3">
+    <Text className="text-[11px] uppercase tracking-[0.16em] text-[#63809f]">{label}</Text>
+    <Text className="mt-1 text-base font-semibold text-[#17304c]">{value}</Text>
+    <Text className="mt-1 text-xs text-[#4e6884]">{detail}</Text>
   </View>
 );
 
@@ -484,10 +567,22 @@ const FilterPill = ({ label, active, onPress }: FilterPillProps) => (
   <Pressable
     accessibilityRole="button"
     onPress={onPress}
-    className={active ? 'rounded-full bg-[#184f87] px-3 py-2' : 'rounded-full border border-[#d3c6b3] bg-white px-3 py-2'}
+    className={active ? 'rounded-full bg-[#145fa9] px-3 py-2' : 'rounded-full border border-[#c7d3e5] bg-[#f8fbff] px-3 py-2'}
   >
-    <Text className={active ? 'text-xs font-semibold text-white' : 'text-xs font-semibold text-[#463d32]'}>{label}</Text>
+    <Text className={active ? 'text-xs font-semibold text-white' : 'text-xs font-semibold text-[#2b4663]'}>{label}</Text>
   </Pressable>
+);
+
+type KeyValueRowProps = {
+  readonly label: string;
+  readonly value: string;
+};
+
+const KeyValueRow = ({ label, value }: KeyValueRowProps) => (
+  <View className="flex-row items-start gap-2">
+    <Text className="w-[116px] text-xs uppercase tracking-[0.08em] text-[#5f7997]">{label}</Text>
+    <Text className="flex-1 text-xs leading-5 text-[#22405f]">{value}</Text>
+  </View>
 );
 
 export default Skills;
