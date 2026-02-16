@@ -68,6 +68,32 @@ jobs:
           fi
           grep -v '^#' .env.ci | grep -E '^[A-Z0-9_]+=' | sed 's/=.*//' > required.env.keys
 
+      - name: Validate deploy env includes benchmark trial secrets
+        if: env.MODE == 'deploy'
+        run: |
+          set -euo pipefail
+          required=(
+            STRIPE_SECRET_KEY
+            SKILLS_TRIAL_EXECUTE_TOKEN
+            SKILLS_TRIAL_ORCHESTRATOR_URL
+            SKILLS_TRIAL_ORCHESTRATOR_TOKEN
+            SKILLS_TRIAL_SMOKE_BENCHMARK_CASE_ID
+            SKILLS_TRIAL_SMOKE_ORACLE_SKILL_ID
+          )
+
+          missing=()
+          for key in "${required[@]}"; do
+            if ! grep -q "^${key}=" .env.ci; then
+              missing+=("$key")
+            fi
+          done
+
+          if [ "${#missing[@]}" -gt 0 ]; then
+            echo "ENV_BLOB is missing required benchmark trial deploy keys: ${missing[*]}"
+            echo "Switching workflow MODE to dry-run until required secrets are provisioned."
+            echo "MODE=dry-run" >> "$GITHUB_ENV"
+          fi
+
       - name: Export env vars
         if: env.MODE == 'deploy'
         run: |
