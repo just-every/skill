@@ -155,6 +155,14 @@ post_deploy_smoke() {
   done
 }
 
+post_deploy_skills_trial_smoke() {
+  log "Running benchmark-native skills trial smoke"
+  if ! node scripts/smoke-skills-trials.mjs --mode live; then
+    echo "Skills trial smoke failed. Ensure SKILLS_TRIAL_EXECUTE_TOKEN, SKILLS_TRIAL_ORCHESTRATOR_URL, SKILLS_TRIAL_ORCHESTRATOR_TOKEN, SKILLS_TRIAL_SMOKE_BENCHMARK_CASE_ID, and SKILLS_TRIAL_SMOKE_ORACLE_SKILL_ID are configured and valid for ${PROJECT_DOMAIN:-<unset>}" >&2
+    return 1
+  fi
+}
+
 log "Running Expo web build"
 load_env_for_build
 EXPO_NO_INTERACTIVE="${EXPO_NO_INTERACTIVE:-1}" pnpm --filter @justevery/web run build
@@ -188,6 +196,9 @@ if [[ "$MODE" == "deploy" ]]; then
 
   log "Executing post-deploy smoke checks"
   post_deploy_smoke
+
+  log "Executing benchmark-native skills smoke checks"
+  post_deploy_skills_trial_smoke
 else
   log "Dry run mode enabled; skipping migrations and deploy"
 fi

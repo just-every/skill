@@ -46,6 +46,79 @@ Response includes:
 - `candidates` (ranked shortlist)
 - benchmark context metadata
 
+Recommendation behavior:
+
+- Recommendation responses are decisively trial-native and use oracle-mode `trial_scores` only.
+- API response shape remains unchanged.
+
+### `POST /api/skills/trials/execute`
+
+Records a benchmark-native trial execution row, trial events, and computed trial scores.
+
+Auth and abuse controls:
+
+- Requires `SKILLS_TRIAL_EXECUTE_TOKEN` configured in worker env (minimum 16 characters).
+- Caller must provide a matching token via `Authorization: Bearer <token>` or `X-Skills-Trial-Token`.
+- Rejects oversized event batches and blocked marker strings in artifacts/notes.
+
+Supports evaluation modes:
+
+- `baseline`
+- `oracle_skill` (requires `skillId`)
+- `library_selection`
+
+Scoring combines deterministic checks and safety checks into persisted `trial_scores`.
+
+### `POST /api/skills/trials/orchestrate`
+
+Executes a comparable multi-mode trial set (`baseline`, `oracle_skill`, `library_selection`) through a container orchestrator and persists each resulting trial via the same deterministic+safety scoring path.
+
+Request:
+
+```json
+{
+  "benchmarkCaseId": "benchmark-case-custom-task-01",
+  "oracleSkillId": "ci-security-hardening",
+  "agent": "codex",
+  "runId": "bench-orchestrated-comparison"
+}
+```
+
+Behavior:
+
+- Requires the same caller auth as `POST /api/skills/trials/execute`.
+- Requires `SKILLS_TRIAL_ORCHESTRATOR_URL` and `SKILLS_TRIAL_ORCHESTRATOR_TOKEN` in worker env.
+- Validates that `benchmark_cases.container_image` is pinned (`...@sha256:<64-hex>`).
+- Calls orchestrator `/execute` once per mode and persists trial rows/events/scores.
+- Returns an executable comparison with `oracle_skill vs baseline` and `library_selection vs baseline` deltas.
+- Requires terminal orchestrator statuses (`completed`/`failed`) for every requested mode; non-terminal statuses are rejected to keep mode comparisons meaningful.
+- Persists orchestrated trial writes inside a single transaction and rolls back on mid-batch persistence failure.
+
+Default mode set is all three comparable modes unless `modes` is explicitly provided.
+
+### `POST /api/skills/trials/inspect`
+
+Inspects persisted trial-native rows for a benchmark run and returns mode coverage, score presence, and comparison deltas.
+
+Request:
+
+```json
+{
+  "runId": "bench-orchestrated-comparison"
+}
+```
+
+Behavior:
+
+- Uses the same token auth as other trial endpoints.
+- Reads `skill_benchmark_runs`, `trials`, and `trial_scores` for the run.
+- Returns trial/score counts plus `oracle_skill vs baseline` and `library_selection vs baseline` deltas.
+
+Non-terminal execution status handling:
+
+- `pending` and `running` trial writes keep `trials.completed_at` as `NULL`.
+- Terminal statuses (`completed`, `failed`) set `trials.completed_at`.
+
 ## Schema
 
 MVP schema is introduced in:
@@ -57,14 +130,74 @@ Tables:
 - `skills`
 - `skill_tasks`
 - `skill_benchmark_runs`
-- `skill_task_scores`
+
+Legacy table retirement:
+
+- `skill_task_scores` is retired in `workers/api/migrations/0012_retire_legacy_skill_scores.sql` after trial-native backfill.
+
+Phase 1 benchmark-native tables (added in migration `0011_benchmark_native_phase1.sql`):
+
+- `benchmarks`
+- `benchmark_cases`
+- `trials`
+- `trial_events`
+- `trial_scores`
+- `skill_task_fit`
+
+Compatibility behavior:
+
+- `/api/skills*` is benchmark-native and reads score rows from the trial graph (`trial_scores -> trials -> benchmark_cases -> benchmarks -> skill_tasks`) for catalog, summaries, and recommendation scoring.
+- Trial-native reads for catalog/recommendation are restricted to `trials.evaluation_mode = 'oracle_skill'` so `baseline` and `library_selection` runs do not affect ranking or integrity checks.
+- Response shape is unchanged for existing clients.
+- Requests fail with integrity errors when trial-native schema or oracle-mode trial score rows are unavailable.
+
+Integrity behavior:
+
+- Fixed corpus assumptions are removed (no hard requirement for exactly 50 skills, 3 runs, or 150 rows).
+- Integrity checks now enforce flexible consistency: non-empty skills/runs/scores, valid score references to known task/skill/run ids, supported agent names, and synthetic marker blocking.
+- Partial agent coverage is valid.
+
+Container contract behavior:
+
+- Backfilled benchmark cases now use a resolvable pinned image reference.
+- `benchmark_cases.container_image` must remain a pinned digest contract for orchestration (`@sha256:...`).
+
+## Trial Smoke Script
+
+Use the executable smoke script to validate post-deploy orchestration persistence and deltas:
+
+```bash
+node scripts/smoke-skills-trials.mjs --mode live
+```
+
+Deploy gating:
+
+- `scripts/deploy.sh --mode deploy` executes the live trial smoke automatically.
+- Deploy fails if required trial/orchestrator/smoke env vars are missing or if live orchestrate→inspect assertions fail.
+- `pnpm release:block:skills-live-smoke` emits a release-block artifact at `artifacts/release-blockers/skills-live-smoke.json` and marks `live_smoke_pending_external_creds` until required secrets are present.
+
+Required environment variables (also validated by `pnpm audit:deploy-env`):
+
+- `PROJECT_DOMAIN`
+- `SKILLS_TRIAL_EXECUTE_TOKEN`
+- `SKILLS_TRIAL_ORCHESTRATOR_URL`
+- `SKILLS_TRIAL_ORCHESTRATOR_TOKEN`
+- `SKILLS_TRIAL_SMOKE_BENCHMARK_CASE_ID`
+- `SKILLS_TRIAL_SMOKE_ORACLE_SKILL_ID`
+
+Local proof mode (no external credentials/orchestrator needed):
+
+```bash
+SKILLS_TRIAL_EXECUTE_TOKEN=local-proof-token-123456 \
+node scripts/smoke-skills-trials.mjs --mode local-proof
+```
 
 ## Benchmark Reproducibility
 
 Run benchmark artifact generation:
 
 ```bash
-node scripts/benchmark-skills.mjs --mode auto
+node scripts/benchmark-skills.mjs --mode daytona
 ```
 
 If Daytona is unavailable, the script documents fallback and produces deterministic artifacts under `benchmarks/runs/`.

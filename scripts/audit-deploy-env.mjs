@@ -43,6 +43,15 @@ const env = { ...fileEnv, ...process.env };
 
 const PLACEHOLDER_REGEX = /(placeholder|dummy|example)/i;
 
+function isHttpsUrl(value) {
+  try {
+    const parsed = new URL(value);
+    return parsed.protocol === 'https:';
+  } catch {
+    return false;
+  }
+}
+
 const requiredChecks = [
   {
     name: 'CLOUDFLARE_ACCOUNT_ID',
@@ -66,12 +75,12 @@ const requiredChecks = [
   },
   {
     name: 'BETTER_AUTH_URL',
-    validate: (value) => value.startsWith('https://'),
+    validate: (value) => isHttpsUrl(value),
     help: 'URL must start with https://',
   },
   {
     name: 'LOGIN_ORIGIN',
-    validate: (value) => value.startsWith('https://'),
+    validate: (value) => isHttpsUrl(value),
     help: 'URL must start with https://',
   },
   {
@@ -81,7 +90,7 @@ const requiredChecks = [
   },
   {
     name: 'PROJECT_DOMAIN',
-    validate: (value) => value.startsWith('https://'),
+    validate: (value) => isHttpsUrl(value),
     help: 'Public project domain (https://...) is required for smoke checks',
   },
   {
@@ -91,8 +100,33 @@ const requiredChecks = [
   },
   {
     name: 'EXPO_PUBLIC_WORKER_ORIGIN',
-    validate: (value) => value.startsWith('https://'),
+    validate: (value) => isHttpsUrl(value),
     help: 'Expo client must know the deployed worker origin',
+  },
+  {
+    name: 'SKILLS_TRIAL_EXECUTE_TOKEN',
+    validate: (value) => value.length >= 16 && !PLACEHOLDER_REGEX.test(value),
+    help: 'Auth token for /api/skills/trials/* execution endpoints (16+ chars)',
+  },
+  {
+    name: 'SKILLS_TRIAL_ORCHESTRATOR_URL',
+    validate: (value) => isHttpsUrl(value),
+    help: 'Container trial orchestrator URL (https://...)',
+  },
+  {
+    name: 'SKILLS_TRIAL_ORCHESTRATOR_TOKEN',
+    validate: (value) => value.length >= 16 && !PLACEHOLDER_REGEX.test(value),
+    help: 'Bearer token for trial orchestrator calls (16+ chars)',
+  },
+  {
+    name: 'SKILLS_TRIAL_SMOKE_BENCHMARK_CASE_ID',
+    validate: (value) => /^[a-zA-Z0-9._:-]{3,128}$/.test(value),
+    help: 'Benchmark case id used by post-deploy trial smoke checks',
+  },
+  {
+    name: 'SKILLS_TRIAL_SMOKE_ORACLE_SKILL_ID',
+    validate: (value) => /^[a-zA-Z0-9._:-]{3,128}$/.test(value),
+    help: 'Oracle skill id (or slug) used by post-deploy trial smoke checks',
   },
 ];
 

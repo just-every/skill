@@ -14,6 +14,7 @@ const specs = [
   'test/index.test.ts',
   'test/runnerStorage.test.ts',
   'test/skills.test.ts',
+  'test/skillsTrials.test.ts',
   'test/billing.test.ts',
   'test/billingGaps.test.ts',
   'test/session.test.ts',

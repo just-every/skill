@@ -39,6 +39,8 @@
     "smoke": "pnpm bootstrap:smoke",
     "smoke:client": "node ./scripts/smoke-client-script.cjs",
     "smoke:local": "node scripts/smoke-local.cjs",
+    "smoke:skills:trials": "node scripts/smoke-skills-trials.mjs --mode live",
+    "release:block:skills-live-smoke": "node scripts/release-block-skills-live-smoke.mjs",
     "skills:import": "node scripts/import-curated-skills.mjs",
     "skills:benchmark": "node scripts/benchmark-skills.mjs --mode daytona",
     "skills:demo": "node scripts/demo-skill-retrieval.mjs",
