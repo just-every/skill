@@ -2,13 +2,14 @@ import React from 'react';
 import { Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 
 import {
-  catalog,
   getBenchmarkRows,
   getCoverage,
   getSkillDetail,
   getSkillSummaries,
+  loadCatalog,
   recommendSkill,
   type Agent,
+  type CatalogData,
 } from '../data/catalog';
 
 const initialTask = 'Harden our GitHub Actions pipeline, pin actions, and secure secrets with OIDC.';
@@ -19,6 +20,9 @@ type StatusFilter = (typeof statusOptions)[number];
 type ScopeFilter = 'selected' | 'all';
 
 const Skills = () => {
+  const [catalog, setCatalog] = React.useState<CatalogData | null>(null);
+  const [catalogError, setCatalogError] = React.useState<string | null>(null);
+
   const [taskQuery, setTaskQuery] = React.useState(initialTask);
   const [agent, setAgent] = React.useState<Agent>('codex');
   const [submittedTask, setSubmittedTask] = React.useState(initialTask);
@@ -36,21 +40,58 @@ const Skills = () => {
   const [benchmarkQuery, setBenchmarkQuery] = React.useState('');
   const [selectedBenchmarkId, setSelectedBenchmarkId] = React.useState<string | null>(null);
 
-  const summaries = React.useMemo(() => getSkillSummaries(), []);
-  const coverage = React.useMemo(() => getCoverage(), []);
-  const recommendation = React.useMemo(() => recommendSkill(submittedTask, agent, 5), [submittedTask, agent]);
+  React.useEffect(() => {
+    const controller = new AbortController();
+    loadCatalog(controller.signal)
+      .then((next) => {
+        setCatalog(next);
+        setCatalogError(null);
+      })
+      .catch((error) => {
+        if (controller.signal.aborted) return;
+        setCatalogError(error instanceof Error ? error.message : 'Failed to load live skills catalog');
+      });
 
-  const skillsById = React.useMemo(() => new Map(catalog.skills.map((skill) => [skill.id, skill])), []);
-  const tasksById = React.useMemo(() => new Map(catalog.tasks.map((task) => [task.id, task])), []);
-  const runsById = React.useMemo(() => new Map(catalog.runs.map((run) => [run.id, run])), []);
-  const categories = React.useMemo(() => ['all', ...Array.from(new Set(catalog.tasks.map((task) => task.category))).sort()], []);
+    return () => controller.abort();
+  }, []);
+
+  const summaries = React.useMemo(() => (catalog ? getSkillSummaries(catalog) : []), [catalog]);
+  const coverage = React.useMemo(() => {
+    if (!catalog) {
+      return {
+        tasksCovered: 0,
+        skillsCovered: 0,
+        agentsCovered: [],
+        scoreRows: 0,
+      };
+    }
+    return getCoverage(catalog);
+  }, [catalog]);
+  const recommendation = React.useMemo(
+    () => (catalog ? recommendSkill(catalog, submittedTask, agent, 5) : { retrievalStrategy: 'lexical-backoff' as const, recommendation: null, candidates: [] }),
+    [catalog, submittedTask, agent],
+  );
+
+  const skillsById = React.useMemo(() => new Map((catalog?.skills ?? []).map((skill) => [skill.id, skill])), [catalog]);
+  const tasksById = React.useMemo(() => new Map((catalog?.tasks ?? []).map((task) => [task.id, task])), [catalog]);
+  const runsById = React.useMemo(() => new Map((catalog?.runs ?? []).map((run) => [run.id, run])), [catalog]);
+  const primaryTaskBySkillId = React.useMemo(() => {
+    const mapping = new Map<string, string>();
+    for (const score of catalog?.scores ?? []) {
+      if (!mapping.has(score.skillId)) {
+        mapping.set(score.skillId, score.taskId);
+      }
+    }
+    return mapping;
+  }, [catalog]);
+  const categories = React.useMemo(() => ['all', ...Array.from(new Set((catalog?.tasks ?? []).map((task) => task.category))).sort()], [catalog]);
 
   const filteredSkills = React.useMemo(() => {
     const query = skillQuery.trim().toLowerCase();
     return summaries.filter((summary) => {
       const skill = skillsById.get(summary.id);
       if (!skill) return false;
-      const task = tasksById.get(skill.taskId);
+      const task = tasksById.get(primaryTaskBySkillId.get(skill.id) ?? '');
 
       if (statusFilter !== 'all' && summary.securityStatus !== statusFilter) return false;
       if (categoryFilter !== 'all' && task?.category !== categoryFilter) return false;
@@ -70,7 +111,7 @@ const Skills = () => {
         .toLowerCase();
       return haystack.includes(query);
     });
-  }, [summaries, skillsById, tasksById, statusFilter, categoryFilter, skillQuery]);
+  }, [summaries, skillsById, tasksById, primaryTaskBySkillId, statusFilter, categoryFilter, skillQuery]);
 
   React.useEffect(() => {
     if (filteredSkills.length === 0) {
@@ -83,19 +124,20 @@ const Skills = () => {
   }, [filteredSkills, selectedSkillId]);
 
   const selectedDetail = React.useMemo(() => {
-    if (!selectedSkillId) return null;
-    return getSkillDetail(selectedSkillId);
-  }, [selectedSkillId]);
+    if (!catalog || !selectedSkillId) return null;
+    return getSkillDetail(catalog, selectedSkillId);
+  }, [catalog, selectedSkillId]);
 
   const benchmarkRows = React.useMemo(() => {
-    return getBenchmarkRows({
+    if (!catalog) return [];
+    return getBenchmarkRows(catalog, {
       skillId: benchmarkScope === 'selected' ? selectedSkillId ?? undefined : undefined,
       runId: benchmarkRunFilter === 'all' ? undefined : benchmarkRunFilter,
       taskId: benchmarkTaskFilter === 'all' ? undefined : benchmarkTaskFilter,
       agent: benchmarkAgentFilter === 'all' ? undefined : benchmarkAgentFilter,
       query: benchmarkQuery,
     });
-  }, [benchmarkScope, selectedSkillId, benchmarkRunFilter, benchmarkTaskFilter, benchmarkAgentFilter, benchmarkQuery]);
+  }, [catalog, benchmarkScope, selectedSkillId, benchmarkRunFilter, benchmarkTaskFilter, benchmarkAgentFilter, benchmarkQuery]);
 
   React.useEffect(() => {
     if (benchmarkRows.length === 0) {
@@ -129,6 +171,12 @@ const Skills = () => {
 
   return (
     <View className="mx-auto flex w-full max-w-[1280px] flex-col gap-8 px-4 pb-14 md:gap-10 md:px-8">
+      {catalogError ? (
+        <View className="rounded-2xl border border-[#d89b9b] bg-[#fff4f4] px-4 py-3">
+          <Text className="text-sm text-[#7f2f2f]">Live catalog failed to load: {catalogError}</Text>
+        </View>
+      ) : null}
+
       <View className="rounded-[28px] border border-[#cfd8e8] bg-[#f4f8ff] p-6 md:p-8">
         <Text className="text-xs uppercase tracking-[0.26em] text-[#44607f]">Every Skill Catalog</Text>
         <Text className="mt-3 text-[34px] text-[#10243d] md:max-w-[920px] md:text-[54px]" style={{ fontFamily: 'var(--font-display)' }}>
@@ -140,9 +188,9 @@ const Skills = () => {
       </View>
 
       <View className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-5">
-        <StatCard label="Catalog skills" value={String(catalog.skills.length)} detail={`${filteredSkills.length} visible with current filters`} />
-        <StatCard label="Task tracks" value={String(catalog.tasks.length)} detail="Coverage across benchmark scenarios" />
-        <StatCard label="Benchmark runs" value={String(catalog.runs.length)} detail="Codex, Claude, and Gemini" />
+        <StatCard label="Catalog skills" value={String(catalog?.skills.length ?? 0)} detail={`${filteredSkills.length} visible with current filters`} />
+        <StatCard label="Task tracks" value={String(catalog?.tasks.length ?? 0)} detail="Coverage across benchmark scenarios" />
+        <StatCard label="Benchmark runs" value={String(catalog?.runs.length ?? 0)} detail="Codex, Claude, and Gemini" />
         <StatCard label="Score rows" value={String(coverage.scoreRows)} detail="Result rows visible in benchmark explorer" />
         <StatCard label="Approved skills" value={String(summaries.filter((skill) => skill.securityStatus === 'approved').length)} detail="Security-reviewed skills eligible for retrieval" />
       </View>
@@ -195,22 +243,30 @@ const Skills = () => {
 
           <View className="rounded-2xl border border-[#cfdaea] bg-[#f8fbff] p-5">
             <Text className="text-xs uppercase tracking-[0.22em] text-[#5a7594]">Top recommendation</Text>
-            <Text className="mt-2 text-2xl font-semibold text-[#10243d]">{recommendation.recommendation.name}</Text>
-            <Text className="mt-2 text-sm text-[#2e4864]">
-              slug `{recommendation.recommendation.slug}` · strategy {recommendation.retrievalStrategy} · final score{' '}
-              {recommendation.recommendation.finalScore}
-            </Text>
-            <Text className="mt-1 text-sm text-[#2e4864]">
-              similarity {recommendation.recommendation.embeddingSimilarity} · benchmark {recommendation.recommendation.averageBenchmarkScore}
-            </Text>
-            <Text className="mt-1 text-sm text-[#2e4864]">evaluated for {agent.toUpperCase()} at {lastEvaluatedAt.toLocaleTimeString()}</Text>
-            <Pressable
-              accessibilityRole="button"
-              onPress={() => setSelectedSkillId(recommendation.recommendation.id)}
-              className="mt-4 self-start rounded-xl border border-[#bdd0e8] bg-white px-4 py-2"
-            >
-              <Text className="text-sm font-semibold text-[#233f5c]">Open skill dossier</Text>
-            </Pressable>
+            {recommendation.recommendation ? (
+              <>
+                <Text className="mt-2 text-2xl font-semibold text-[#10243d]">{recommendation.recommendation.name}</Text>
+                <Text className="mt-2 text-sm text-[#2e4864]">
+                  slug `{recommendation.recommendation.slug}` · strategy {recommendation.retrievalStrategy} · final score{' '}
+                  {recommendation.recommendation.finalScore}
+                </Text>
+                <Text className="mt-1 text-sm text-[#2e4864]">
+                  similarity {recommendation.recommendation.embeddingSimilarity} · benchmark {recommendation.recommendation.averageBenchmarkScore}
+                </Text>
+                <Text className="mt-1 text-sm text-[#2e4864]">evaluated for {agent.toUpperCase()} at {lastEvaluatedAt.toLocaleTimeString()}</Text>
+                <Pressable
+                  accessibilityRole="button"
+                  onPress={() => setSelectedSkillId(recommendation.recommendation?.id ?? null)}
+                  className="mt-4 self-start rounded-xl border border-[#bdd0e8] bg-white px-4 py-2"
+                >
+                  <Text className="text-sm font-semibold text-[#233f5c]">Open skill dossier</Text>
+                </Pressable>
+              </>
+            ) : (
+              <Text className="mt-3 text-sm text-[#2e4864]">
+                {catalogError ? 'Recommendation unavailable until live catalog loads.' : 'Loading recommendation from live benchmark data...'}
+              </Text>
+            )}
           </View>
         </View>
       </View>
@@ -262,7 +318,7 @@ const Skills = () => {
                   {filteredSkills.map((skillSummary, index) => {
                     const active = skillSummary.id === selectedSkillId;
                     const skill = skillsById.get(skillSummary.id);
-                    const task = skill ? tasksById.get(skill.taskId) : undefined;
+                    const task = skill ? tasksById.get(primaryTaskBySkillId.get(skill.id) ?? '') : undefined;
 
                     return (
                       <Pressable
@@ -341,7 +397,15 @@ const Skills = () => {
                 <Text className="text-xs uppercase tracking-[0.18em] text-[#5f7997]">Full skill content</Text>
                 <ScrollView style={{ maxHeight: 240 }} className="mt-2 rounded-xl border border-[#d5e1f0] bg-white p-3">
                   <Text className="text-xs leading-5 text-[#17304c]" style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace' }}>
-                    {selectedDetail.skill.content}
+                    {[
+                      `# ${selectedDetail.skill.name}`,
+                      '',
+                      selectedDetail.skill.summary,
+                      '',
+                      selectedDetail.skill.description,
+                      '',
+                      `keywords: ${selectedDetail.skill.keywords.join(', ')}`,
+                    ].join('\n')}
                   </Text>
                 </ScrollView>
               </View>
@@ -364,12 +428,12 @@ const Skills = () => {
         <Text className="mt-2 text-xl font-semibold text-[#132a46] md:text-2xl">Raw benchmark rows and result artifacts</Text>
 
         <View className="mt-4 grid grid-cols-1 gap-3 lg:grid-cols-3">
-          {catalog.runs.map((run) => (
+          {(catalog?.runs ?? []).map((run) => (
             <View key={run.id} className="rounded-xl border border-[#d5e1f0] bg-[#f8fbff] p-3">
               <Text className="text-xs uppercase tracking-[0.16em] text-[#607b98]">{run.id.replace('bench-2026-02-14-', '')}</Text>
               <Text className="mt-1 text-sm font-semibold text-[#17304c]">{run.mode} · {run.status}</Text>
               <Text className="mt-1 text-xs text-[#4e6884]">started {new Date(run.startedAt).toLocaleString()}</Text>
-              <Text className="text-xs text-[#4e6884]">completed {new Date(run.completedAt).toLocaleString()}</Text>
+              <Text className="text-xs text-[#4e6884]">completed {run.completedAt ? new Date(run.completedAt).toLocaleString() : 'in progress'}</Text>
             </View>
           ))}
         </View>
@@ -388,7 +452,7 @@ const Skills = () => {
               <Text className="mb-2 text-xs uppercase tracking-[0.16em] text-[#607c9b]">Run</Text>
               <View className="flex-row flex-wrap gap-2">
                 <FilterPill label="all" active={benchmarkRunFilter === 'all'} onPress={() => setBenchmarkRunFilter('all')} />
-                {catalog.runs.map((run) => (
+                {(catalog?.runs ?? []).map((run) => (
                   <FilterPill
                     key={run.id}
                     label={run.id.replace('bench-2026-02-14-', '')}
@@ -418,7 +482,7 @@ const Skills = () => {
               <Text className="mb-2 text-xs uppercase tracking-[0.16em] text-[#607c9b]">Task</Text>
               <View className="flex-row flex-wrap gap-2">
                 <FilterPill label="all" active={benchmarkTaskFilter === 'all'} onPress={() => setBenchmarkTaskFilter('all')} />
-                {catalog.tasks.map((task) => (
+                {(catalog?.tasks ?? []).map((task) => (
                   <FilterPill key={task.id} label={task.slug} active={benchmarkTaskFilter === task.id} onPress={() => setBenchmarkTaskFilter(task.id)} />
                 ))}
               </View>
@@ -441,7 +505,7 @@ const Skills = () => {
             placeholder="Search rows by skill, task, slug, run, or agent"
           />
 
-          <Text className="text-sm text-[#4e6884]">Showing {benchmarkRows.length} rows (of {catalog.scores.length} total benchmark rows).</Text>
+          <Text className="text-sm text-[#4e6884]">Showing {benchmarkRows.length} rows (of {catalog?.scores.length ?? 0} total benchmark rows).</Text>
 
           <View className="grid grid-cols-1 gap-4 xl:grid-cols-[1.05fr_0.95fr]">
             <View className="rounded-2xl border border-[#dce6f3] bg-[#f8fbff] p-3">

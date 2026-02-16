@@ -2,7 +2,7 @@ import React from 'react';
 import { Pressable, Text, View } from 'react-native';
 
 import { BrandImage } from '../components/BrandImage';
-import { getCoverage, getTopRows, recommendSkill } from '../data/catalog';
+import { getCoverage, getTopRows, loadCatalog, recommendSkill, type CatalogData } from '../data/catalog';
 import { useRouterContext } from '../router/RouterProvider';
 
 const trustedPartners = [
@@ -20,9 +20,43 @@ const statIcons = [
 
 const Home = () => {
   const { navigate } = useRouterContext();
-  const coverage = getCoverage();
-  const topSkills = getTopRows(3);
-  const sampleRecommendation = recommendSkill('Design secure CI hardening workflows with pinned actions and OIDC', 'codex', 3);
+  const [catalog, setCatalog] = React.useState<CatalogData | null>(null);
+  const [catalogError, setCatalogError] = React.useState<string | null>(null);
+
+  React.useEffect(() => {
+    const controller = new AbortController();
+    loadCatalog(controller.signal)
+      .then((next) => {
+        setCatalog(next);
+        setCatalogError(null);
+      })
+      .catch((error) => {
+        if (controller.signal.aborted) return;
+        setCatalogError(error instanceof Error ? error.message : 'Failed to load live catalog');
+      });
+
+    return () => controller.abort();
+  }, []);
+
+  const coverage = React.useMemo(() => {
+    if (!catalog) {
+      return {
+        tasksCovered: 0,
+        skillsCovered: 0,
+        agentsCovered: [],
+        scoreRows: 0,
+      };
+    }
+    return getCoverage(catalog);
+  }, [catalog]);
+
+  const topSkills = React.useMemo(() => (catalog ? getTopRows(catalog, 3) : []), [catalog]);
+  const sampleRecommendation = React.useMemo(
+    () => (catalog
+      ? recommendSkill(catalog, 'Design secure CI hardening workflows with pinned actions and OIDC', 'codex', 3)
+      : { retrievalStrategy: 'lexical-backoff' as const, recommendation: null, candidates: [] }),
+    [catalog],
+  );
 
   return (
     <View className="flex flex-col gap-12 pb-12 md:gap-16">
@@ -131,7 +165,7 @@ const Home = () => {
             Smarter Skill Discovery
           </Text>
           <Text className="mt-3 text-lg leading-8 text-[#4e4438] md:text-[28px] md:leading-[1.32]">
-            Embedding-first retrieval with deterministic fallback and approved-only security gating.
+            Embedding-first retrieval with lexical backoff and approved-only security gating.
           </Text>
 
           <View className="mt-6 rounded-2xl border border-[#ded3c3] bg-white p-5">
@@ -151,6 +185,11 @@ const Home = () => {
                   <BrandImage src="/brand/icon-chevron.webp" alt="Chevron" width={10} height={10} className="h-3 w-3" />
                 </View>
               ))}
+              {sampleRecommendation.candidates.length === 0 ? (
+                <Text className="rounded-xl bg-[#f5f1e9] px-4 py-3 text-sm text-[#64594c]">
+                  {catalogError ? `Live catalog unavailable: ${catalogError}` : 'Loading live recommendations...'}
+                </Text>
+              ) : null}
             </View>
           </View>
 

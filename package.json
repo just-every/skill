@@ -40,7 +40,7 @@
     "smoke:client": "node ./scripts/smoke-client-script.cjs",
     "smoke:local": "node scripts/smoke-local.cjs",
     "skills:import": "node scripts/import-curated-skills.mjs",
-    "skills:benchmark": "node scripts/benchmark-skills.mjs --mode auto",
+    "skills:benchmark": "node scripts/benchmark-skills.mjs --mode daytona",
     "skills:demo": "node scripts/demo-skill-retrieval.mjs",
     "audit:deploy-env": "node scripts/audit-deploy-env.mjs",
     "validate:bootstrap": "pnpm bootstrap:preflight -- --check && pnpm bootstrap:env -- --check",

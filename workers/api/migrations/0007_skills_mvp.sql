@@ -31,7 +31,7 @@ CREATE TABLE IF NOT EXISTS skills (
 CREATE TABLE IF NOT EXISTS skill_benchmark_runs (
   id TEXT PRIMARY KEY,
   runner TEXT NOT NULL,
-  mode TEXT NOT NULL DEFAULT 'fallback' CHECK (mode IN ('daytona','fallback')),
+  mode TEXT NOT NULL DEFAULT 'daytona' CHECK (mode IN ('daytona')),
   status TEXT NOT NULL DEFAULT 'completed' CHECK (status IN ('running','completed','failed')),
   started_at TEXT NOT NULL,
   completed_at TEXT,
@@ -149,28 +149,4 @@ INSERT OR IGNORE INTO skills (
   '2026-02-14T00:13:00.000Z'
 );
 
-INSERT OR IGNORE INTO skill_benchmark_runs (id, runner, mode, status, started_at, completed_at, artifact_path, notes) VALUES
-('bench-2026-02-14-codex', 'daytona-cli-runner', 'fallback', 'completed', '2026-02-14T01:00:00.000Z', '2026-02-14T01:22:00.000Z', 'benchmarks/runs/2026-02-14-fallback/codex', 'Codex baseline run (fallback harness).'),
-('bench-2026-02-14-claude', 'daytona-cli-runner', 'fallback', 'completed', '2026-02-14T01:25:00.000Z', '2026-02-14T01:47:00.000Z', 'benchmarks/runs/2026-02-14-fallback/claude', 'Claude baseline run (fallback harness).'),
-('bench-2026-02-14-gemini', 'daytona-cli-runner', 'fallback', 'completed', '2026-02-14T01:50:00.000Z', '2026-02-14T02:12:00.000Z', 'benchmarks/runs/2026-02-14-fallback/gemini', 'Gemini baseline run (fallback harness).');
-
-INSERT OR IGNORE INTO skill_task_scores (
-  id, run_id, skill_id, task_id, agent, overall_score, quality_score, security_score,
-  speed_score, cost_score, success_rate, artifact_path, created_at
-) VALUES
-('score-001','bench-2026-02-14-codex','skill-react-debug-playbook','task-debug-react-build','codex',91,93,89,90,92,0.92,'benchmarks/runs/2026-02-14-fallback/codex/react-debug-playbook.json','2026-02-14T01:20:00.000Z'),
-('score-002','bench-2026-02-14-codex','skill-ts-refactor-guardian','task-typescript-refactor','codex',90,91,90,88,90,0.90,'benchmarks/runs/2026-02-14-fallback/codex/typescript-refactor-guardian.json','2026-02-14T01:21:00.000Z'),
-('score-003','bench-2026-02-14-codex','skill-fastapi-launchpad','task-fastapi-endpoint','codex',87,89,86,88,85,0.88,'benchmarks/runs/2026-02-14-fallback/codex/fastapi-launchpad.json','2026-02-14T01:18:00.000Z'),
-('score-004','bench-2026-02-14-codex','skill-ci-security-hardening','task-ci-hardening','codex',94,95,98,86,89,0.94,'benchmarks/runs/2026-02-14-fallback/codex/ci-security-hardening.json','2026-02-14T01:22:00.000Z'),
-('score-005','bench-2026-02-14-codex','skill-sql-migration-operator','task-sql-migration','codex',88,90,92,82,86,0.89,'benchmarks/runs/2026-02-14-fallback/codex/sql-migration-operator.json','2026-02-14T01:17:00.000Z'),
-('score-006','bench-2026-02-14-claude','skill-react-debug-playbook','task-debug-react-build','claude',89,92,87,86,88,0.90,'benchmarks/runs/2026-02-14-fallback/claude/react-debug-playbook.json','2026-02-14T01:45:00.000Z'),
-('score-007','bench-2026-02-14-claude','skill-ts-refactor-guardian','task-typescript-refactor','claude',92,94,91,87,90,0.93,'benchmarks/runs/2026-02-14-fallback/claude/typescript-refactor-guardian.json','2026-02-14T01:46:00.000Z'),
-('score-008','bench-2026-02-14-claude','skill-fastapi-launchpad','task-fastapi-endpoint','claude',86,88,85,87,84,0.87,'benchmarks/runs/2026-02-14-fallback/claude/fastapi-launchpad.json','2026-02-14T01:44:00.000Z'),
-('score-009','bench-2026-02-14-claude','skill-ci-security-hardening','task-ci-hardening','claude',93,94,97,85,90,0.93,'benchmarks/runs/2026-02-14-fallback/claude/ci-security-hardening.json','2026-02-14T01:47:00.000Z'),
-('score-010','bench-2026-02-14-claude','skill-sql-migration-operator','task-sql-migration','claude',90,91,93,83,88,0.90,'benchmarks/runs/2026-02-14-fallback/claude/sql-migration-operator.json','2026-02-14T01:43:00.000Z'),
-('score-011','bench-2026-02-14-gemini','skill-react-debug-playbook','task-debug-react-build','gemini',87,89,86,89,87,0.87,'benchmarks/runs/2026-02-14-fallback/gemini/react-debug-playbook.json','2026-02-14T02:09:00.000Z'),
-('score-012','bench-2026-02-14-gemini','skill-ts-refactor-guardian','task-typescript-refactor','gemini',88,89,88,86,89,0.88,'benchmarks/runs/2026-02-14-fallback/gemini/typescript-refactor-guardian.json','2026-02-14T02:10:00.000Z'),
-('score-013','bench-2026-02-14-gemini','skill-fastapi-launchpad','task-fastapi-endpoint','gemini',91,92,90,90,89,0.91,'benchmarks/runs/2026-02-14-fallback/gemini/fastapi-launchpad.json','2026-02-14T02:08:00.000Z'),
-('score-014','bench-2026-02-14-gemini','skill-ci-security-hardening','task-ci-hardening','gemini',90,91,95,84,89,0.90,'benchmarks/runs/2026-02-14-fallback/gemini/ci-security-hardening.json','2026-02-14T02:12:00.000Z'),
-('score-015','bench-2026-02-14-gemini','skill-sql-migration-operator','task-sql-migration','gemini',89,90,92,84,87,0.89,'benchmarks/runs/2026-02-14-fallback/gemini/sql-migration-operator.json','2026-02-14T02:07:00.000Z');
-
+-- Benchmarks are ingested only from real run artifacts by the benchmark pipeline.

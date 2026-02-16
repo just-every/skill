@@ -126,42 +126,6 @@ SELECT
   '2026-02-15T03:10:00.000Z'
 FROM skill_seed_50;
 
-WITH run_profiles(run_id, agent, score_delta, quality_delta, security_delta, speed_delta, cost_delta, created_at) AS (
-  VALUES
-    ('bench-2026-02-14-codex','codex',2,3,2,1,0,'2026-02-15T01:00:00.000Z'),
-    ('bench-2026-02-14-claude','claude',1,2,3,0,1,'2026-02-15T01:25:00.000Z'),
-    ('bench-2026-02-14-gemini','gemini',0,1,1,2,1,'2026-02-15T01:50:00.000Z')
-)
-INSERT OR REPLACE INTO skill_task_scores (
-  id,
-  run_id,
-  skill_id,
-  task_id,
-  agent,
-  overall_score,
-  quality_score,
-  security_score,
-  speed_score,
-  cost_score,
-  success_rate,
-  artifact_path,
-  created_at
-)
-SELECT
-  'score-50-' || run_profiles.agent || '-' || skill_seed_50.slug,
-  run_profiles.run_id,
-  skill_seed_50.id,
-  skill_seed_50.task_id,
-  run_profiles.agent,
-  MIN(99, MAX(72, skill_seed_50.base_score + run_profiles.score_delta)),
-  MIN(99, MAX(72, skill_seed_50.base_score + run_profiles.quality_delta)),
-  MIN(99, MAX(72, skill_seed_50.base_score + run_profiles.security_delta)),
-  MIN(99, MAX(68, skill_seed_50.base_score - 2 + run_profiles.speed_delta)),
-  MIN(99, MAX(68, skill_seed_50.base_score - 1 + run_profiles.cost_delta)),
-  ROUND(MIN(99, MAX(72, skill_seed_50.base_score + run_profiles.score_delta)) / 100.0, 4),
-  'benchmarks/runs/2026-02-15-fallback/' || run_profiles.agent || '/' || skill_seed_50.slug || '.json',
-  run_profiles.created_at
-FROM skill_seed_50
-CROSS JOIN run_profiles;
+-- Benchmark scores are ingested only from real run artifacts by the benchmark pipeline.
 
 DROP TABLE IF EXISTS skill_seed_50;

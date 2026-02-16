@@ -3,18 +3,7 @@ import Worker, { type Env } from '../src/index';
 import type { IncomingRequestCfProperties } from '@cloudflare/workers-types';
 
 function createMockEnv(overrides: Partial<Env> = {}): Env {
-  const prepare = vi.fn().mockReturnValue({
-    bind: vi.fn().mockReturnThis(),
-    first: vi.fn().mockResolvedValue(null),
-    run: vi.fn().mockResolvedValue({ success: true, meta: {} }),
-    all: vi.fn().mockResolvedValue({ success: true, results: [] }),
-    raw: vi.fn(),
-  });
-  const defaultDb: D1Database = {
-    prepare,
-    dump: vi.fn(),
-    batch: vi.fn(),
-  } as unknown as D1Database;
+  const defaultDb = createCatalogDbMock(50);
 
   return {
     LOGIN_ORIGIN: 'https://login.justevery.com',
@@ -31,7 +20,9 @@ function createMockEnv(overrides: Partial<Env> = {}): Env {
   } as Env;
 }
 
-function createExpandedCatalogDbMock(skillCount: number): D1Database {
+function createCatalogDbMock(skillCount: number, options?: { runMode?: string; artifactToken?: string }): D1Database {
+  const runMode = options?.runMode ?? 'daytona';
+  const artifactToken = options?.artifactToken ?? 'daytona';
   const taskRows = Array.from({ length: 20 }, (_, index) => ({
     id: `custom-task-${String(index + 1).padStart(2, '0')}`,
     slug: `custom-task-${String(index + 1).padStart(2, '0')}`,
@@ -45,37 +36,71 @@ function createExpandedCatalogDbMock(skillCount: number): D1Database {
     {
       id: 'bench-custom-codex',
       runner: 'custom-runner',
-      mode: 'fallback',
+      mode: runMode,
       status: 'completed',
       started_at: '2026-02-15T01:00:00.000Z',
       completed_at: '2026-02-15T01:20:00.000Z',
-      artifact_path: 'benchmarks/runs/custom/codex',
-      notes: 'custom codex run',
+      artifact_path: `benchmarks/runs/2026-02-15-${artifactToken}/codex`,
+      notes: 'custom codex daytona run',
     },
     {
       id: 'bench-custom-claude',
       runner: 'custom-runner',
-      mode: 'fallback',
+      mode: runMode,
       status: 'completed',
       started_at: '2026-02-15T01:21:00.000Z',
       completed_at: '2026-02-15T01:40:00.000Z',
-      artifact_path: 'benchmarks/runs/custom/claude',
-      notes: 'custom claude run',
+      artifact_path: `benchmarks/runs/2026-02-15-${artifactToken}/claude`,
+      notes: 'custom claude daytona run',
     },
     {
       id: 'bench-custom-gemini',
       runner: 'custom-runner',
-      mode: 'fallback',
+      mode: runMode,
       status: 'completed',
       started_at: '2026-02-15T01:41:00.000Z',
       completed_at: '2026-02-15T02:00:00.000Z',
-      artifact_path: 'benchmarks/runs/custom/gemini',
-      notes: 'custom gemini run',
+      artifact_path: `benchmarks/runs/2026-02-15-${artifactToken}/gemini`,
+      notes: 'custom gemini daytona run',
     },
   ];
 
   const skillRows = Array.from({ length: skillCount }, (_, index) => {
     const n = String(index + 1).padStart(2, '0');
+    if (index === 0) {
+      return {
+        id: 'skill-ci-security-hardening',
+        slug: 'ci-security-hardening',
+        name: 'CI Security Hardening',
+        agent_family: 'multi',
+        summary: 'Workflow hardening for CI systems.',
+        description: 'Secure GitHub Actions workflows with OIDC and action pinning.',
+        keywords_json: '["ci","github-actions","security","oidc"]',
+        source_url: 'https://docs.github.com/actions/security-guides',
+        imported_from: 'custom corpus',
+        security_status: 'approved',
+        security_notes: 'custom reviewed',
+        provenance_json: JSON.stringify({
+          sourceUrl: 'https://docs.github.com/actions/security-guides',
+          repository: 'github/docs',
+          importedFrom: 'custom corpus',
+          license: 'CC-BY-4.0',
+          lastVerifiedAt: '2026-02-15T00:00:00.000Z',
+          checksum: 'custom-ci-security-hardening',
+        }),
+        security_review_json: JSON.stringify({
+          status: 'approved',
+          reviewedBy: 'Custom Review Bot',
+          reviewedAt: '2026-02-15T00:00:00.000Z',
+          reviewMethod: 'manual',
+          checklistVersion: 'v1',
+          notes: 'ok',
+        }),
+        embedding_json: '[0.2,0.4,0.6]',
+        created_at: '2026-02-15T00:00:00.000Z',
+        updated_at: '2026-02-15T00:00:00.000Z',
+      };
+    }
     return {
       id: `custom-skill-${n}`,
       slug: `custom-skill-${n}`,
@@ -110,23 +135,26 @@ function createExpandedCatalogDbMock(skillCount: number): D1Database {
     };
   });
 
-  const scoreRows = skillRows.map((skill, index) => ({
-    id: `custom-score-${String(index + 1).padStart(2, '0')}`,
-    run_id: runRows[index % runRows.length].id,
-    skill_id: skill.id,
-    task_id: taskRows[index % taskRows.length].id,
-    agent: ['codex', 'claude', 'gemini'][index % 3],
-    overall_score: 88,
-    quality_score: 89,
-    security_score: 90,
-    speed_score: 87,
-    cost_score: 86,
-    success_rate: 0.88,
-    artifact_path: `benchmarks/runs/custom/${skill.slug}.json`,
-    created_at: '2026-02-15T01:00:00.000Z',
-    task_slug: taskRows[index % taskRows.length].slug,
-    task_name: taskRows[index % taskRows.length].name,
-  }));
+  const scoreRows = skillRows.flatMap((skill, index) => {
+    const task = taskRows[index % taskRows.length];
+    return runRows.map((run, runIndex) => ({
+      id: `custom-score-${String(index + 1).padStart(2, '0')}-${runIndex + 1}`,
+      run_id: run.id,
+      skill_id: skill.id,
+      task_id: task.id,
+      agent: ['codex', 'claude', 'gemini'][runIndex],
+      overall_score: 88 + runIndex,
+      quality_score: 89 + runIndex,
+      security_score: 90 + runIndex,
+      speed_score: 87 + runIndex,
+      cost_score: 86 + runIndex,
+      success_rate: 0.88 + runIndex * 0.01,
+      artifact_path: `benchmarks/runs/2026-02-15-${artifactToken}/${run.id}/${skill.slug}.json`,
+      created_at: '2026-02-15T01:00:00.000Z',
+      task_slug: task.slug,
+      task_name: task.name,
+    }));
+  });
 
   const columns = [
     'id',
@@ -207,7 +235,7 @@ describe('skills api', () => {
       throw new Error(`expected json response, got ${contentType}: ${raw.slice(0, 120)}`);
     }
     const payload = JSON.parse(raw) as { skills?: unknown[]; source?: string };
-    expect(payload.source).toBeTruthy();
+    expect(payload.source).toBe('d1');
     expect(Array.isArray(payload.skills)).toBe(true);
     expect(payload.skills?.length).toBe(50);
 
@@ -236,6 +264,28 @@ describe('skills api', () => {
     expect(payload.coverage?.skillsCovered).toBe(50);
     expect(payload.coverage?.scoreRows).toBe(150);
     expect(payload.coverage?.agentsCovered?.sort()).toEqual(['claude', 'codex', 'gemini']);
+  });
+
+  it('exposes full catalog payload including tasks, runs, and score rows', async () => {
+    const env = createMockEnv();
+    const response = await runFetch(new Request('https://skill.justevery.com/api/skills/catalog'), env);
+    expect(response.status).toBe(200);
+    const payload = (await response.json()) as {
+      source?: string;
+      tasks?: unknown[];
+      skills?: unknown[];
+      runs?: unknown[];
+      scores?: unknown[];
+      coverage?: { scoreRows?: number; skillsCovered?: number };
+    };
+
+    expect(payload.source).toBe('d1');
+    expect(payload.tasks?.length).toBe(20);
+    expect(payload.skills?.length).toBe(50);
+    expect(payload.runs?.length).toBe(3);
+    expect(payload.scores?.length).toBe(150);
+    expect(payload.coverage?.skillsCovered).toBe(50);
+    expect(payload.coverage?.scoreRows).toBe(150);
   });
 
   it('recommends CI security hardening for pipeline hardening queries', async () => {
@@ -291,21 +341,43 @@ describe('skills api', () => {
     expect(payload.skill?.scores?.length).toBeGreaterThan(0);
   });
 
-  it('preserves already-expanded D1 corpora above 50 skills without fallback override', async () => {
+  it('rejects corpora that are not exactly 50 skills', async () => {
     const env = createMockEnv({
-      DB: createExpandedCatalogDbMock(51),
+      DB: createCatalogDbMock(51),
     });
 
     const response = await runFetch(new Request('https://skill.justevery.com/api/skills'), env);
-    expect(response.status).toBe(200);
+    expect(response.status).toBe(409);
     const payload = (await response.json()) as {
-      source?: string;
-      total?: number;
-      skills?: Array<{ slug?: string }>;
+      error?: string;
+      details?: string;
     };
 
-    expect(payload.source).toBe('d1');
-    expect(payload.total).toBe(51);
-    expect(payload.skills?.some((skill) => skill.slug === 'custom-skill-51')).toBe(true);
+    expect(payload.error).toBe('benchmark_integrity_failed');
+    expect(payload.details).toContain('exactly 50 skills');
+  });
+
+  it('rejects non-daytona benchmark rows to enforce real benchmark-only ingestion', async () => {
+    const env = createMockEnv({
+      DB: createCatalogDbMock(50, { runMode: 'fallback' }),
+    });
+
+    const response = await runFetch(new Request('https://skill.justevery.com/api/skills/benchmarks'), env);
+    expect(response.status).toBe(409);
+    const payload = (await response.json()) as { error?: string; details?: string };
+    expect(payload.error).toBe('non_real_benchmark_mode');
+    expect(payload.details).toContain("Only 'daytona' is allowed");
+  });
+
+  it('rejects benchmark artifacts containing synthetic markers', async () => {
+    const env = createMockEnv({
+      DB: createCatalogDbMock(50, { runMode: 'daytona', artifactToken: 'mock' }),
+    });
+
+    const response = await runFetch(new Request('https://skill.justevery.com/api/skills/benchmarks'), env);
+    expect(response.status).toBe(409);
+    const payload = (await response.json()) as { error?: string; details?: string };
+    expect(payload.error).toBe('benchmark_integrity_failed');
+    expect(payload.details).toContain('synthetic marker');
   });
 });

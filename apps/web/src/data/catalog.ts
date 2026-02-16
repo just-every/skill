@@ -31,25 +31,30 @@ export type SkillRecord = {
   id: string;
   slug: string;
   name: string;
+  agentFamily: Agent | 'multi';
   summary: string;
   description: string;
-  content: string;
   keywords: string[];
+  sourceUrl: string;
+  importedFrom: string;
   securityStatus: 'approved' | 'pending' | 'rejected';
+  securityNotes: string;
   provenance: SkillProvenance;
   securityReview: SecurityReview;
   embedding: number[];
-  taskId: string;
+  createdAt: string;
+  updatedAt: string;
 };
 
 export type BenchmarkRun = {
   id: string;
   runner: string;
-  mode: 'daytona' | 'fallback';
-  status: 'completed';
+  mode: 'daytona';
+  status: 'completed' | 'failed' | 'running';
   startedAt: string;
-  completedAt: string;
+  completedAt: string | null;
   artifactPath: string;
+  notes: string;
 };
 
 export type BenchmarkScore = {
@@ -70,6 +75,14 @@ export type BenchmarkScore = {
   createdAt: string;
 };
 
+export type CatalogData = {
+  source: 'd1';
+  tasks: TaskRecord[];
+  skills: SkillRecord[];
+  runs: BenchmarkRun[];
+  scores: BenchmarkScore[];
+};
+
 export type SkillSummary = {
   id: string;
   slug: string;
@@ -85,25 +98,25 @@ export type SkillSummary = {
 };
 
 export type RecommendationResult = {
-  retrievalStrategy: 'embedding-first' | 'deterministic-fallback';
+  retrievalStrategy: 'embedding-first' | 'lexical-backoff';
   recommendation: {
     id: string;
     slug: string;
     name: string;
     finalScore: number;
     embeddingSimilarity: number;
-    deterministicFallbackScore: number;
+    lexicalScore: number;
     averageBenchmarkScore: number;
     securityReview: SecurityReview;
     provenance: SkillProvenance;
-  };
+  } | null;
   candidates: Array<{
     id: string;
     slug: string;
     name: string;
     finalScore: number;
     embeddingSimilarity: number;
-    deterministicFallbackScore: number;
+    lexicalScore: number;
     averageBenchmarkScore: number;
   }>;
 };
@@ -140,392 +153,96 @@ export type BenchmarkFilter = {
   query?: string;
 };
 
-const REVIEWED_AT = '2026-02-14T03:00:00.000Z';
-const EMBEDDING_DIM = 96;
+const DEFAULT_EMBEDDING_DIM = 96;
 const EMBEDDING_CONFIDENCE_MIN = 0.22;
 const EMBEDDING_MARGIN_MIN = 0.03;
 
-const BASE_TASKS: TaskRecord[] = [
-  {
-    id: 'task-debug-react-build',
-    slug: 'debug-react-build',
-    name: 'Debug React Build Failures',
-    category: 'frontend',
-    description: 'Fix failing React/Next.js builds with deterministic repro and minimal regressions.',
-    tags: ['react', 'nextjs', 'build', 'debugging', 'vite'],
-  },
-  {
-    id: 'task-typescript-refactor',
-    slug: 'safe-typescript-refactor',
-    name: 'Safe TypeScript Refactors',
-    category: 'backend',
-    description: 'Refactor medium-to-large TypeScript modules while preserving behavior and contracts.',
-    tags: ['typescript', 'refactor', 'types', 'contracts'],
-  },
-  {
-    id: 'task-fastapi-endpoint',
-    slug: 'python-fastapi-endpoint',
-    name: 'Ship FastAPI Endpoints',
-    category: 'backend',
-    description: 'Ship FastAPI endpoints with validation, auth checks, and tests.',
-    tags: ['python', 'fastapi', 'pydantic', 'api', 'tests'],
-  },
-  {
-    id: 'task-ci-hardening',
-    slug: 'harden-ci-pipeline',
-    name: 'Harden CI/CD Pipelines',
-    category: 'devops',
-    description: 'Secure CI workflows, secrets, and release controls.',
-    tags: ['github-actions', 'ci', 'security', 'secrets'],
-  },
-  {
-    id: 'task-sql-migration',
-    slug: 'sql-migration-rollout',
-    name: 'SQL Migration Rollout',
-    category: 'data',
-    description: 'Plan and execute SQL migrations with rollback and compatibility checks.',
-    tags: ['sql', 'migration', 'rollback', 'd1', 'postgres'],
-  },
-];
-
-const EXTRA_TASKS: Array<[string, string, string, string, string[]]> = [
-  ['task-auth-middleware', 'secure-auth-middleware', 'Secure Auth Middleware', 'security', ['auth', 'jwt', 'rbac', 'middleware']],
-  ['task-k8s-rollout', 'kubernetes-rollout-reliability', 'Kubernetes Rollout Reliability', 'devops', ['kubernetes', 'rollout', 'sre']],
-  ['task-incident-triage', 'incident-triage-automation', 'Incident Triage Automation', 'operations', ['incident', 'alerts', 'runbook']],
-  ['task-rate-limiting', 'api-rate-limiting', 'API Rate Limiting', 'backend', ['rate-limit', 'redis', 'security']],
-  ['task-otel-observability', 'observability-open-telemetry', 'OpenTelemetry Observability', 'operations', ['otel', 'tracing', 'metrics']],
-  ['task-terraform-drift', 'terraform-drift-remediation', 'Terraform Drift Remediation', 'infrastructure', ['terraform', 'drift', 'iac']],
-  ['task-secrets-rotation', 'secrets-rotation-automation', 'Secrets Rotation Automation', 'security', ['secrets', 'rotation', 'vault']],
-  ['task-monorepo-build', 'monorepo-build-acceleration', 'Monorepo Build Acceleration', 'developer-experience', ['monorepo', 'cache', 'ci']],
-  ['task-dependency-upgrades', 'dependency-upgrade-safety', 'Dependency Upgrade Safety', 'security', ['dependencies', 'upgrade', 'cve', 'lockfile']],
-  ['task-flaky-tests', 'flaky-test-stabilization', 'Flaky Test Stabilization', 'quality', ['flaky', 'testing', 'deterministic']],
-  ['task-graphql-schema', 'graphql-schema-evolution', 'GraphQL Schema Evolution', 'backend', ['graphql', 'schema', 'deprecation']],
-  ['task-webhook-reliability', 'payment-webhook-reliability', 'Payment Webhook Reliability', 'payments', ['stripe', 'webhook', 'idempotency']],
-  ['task-data-backfill', 'data-pipeline-backfill', 'Data Pipeline Backfill', 'data', ['etl', 'backfill', 'quality']],
-  ['task-accessibility', 'accessibility-remediation', 'Accessibility Remediation', 'frontend', ['a11y', 'wcag', 'ui']],
-  ['task-mobile-crash', 'mobile-crash-triage', 'Mobile Crash Triage', 'mobile', ['ios', 'android', 'crash']],
-];
-
-const TASKS: TaskRecord[] = [
-  ...BASE_TASKS,
-  ...EXTRA_TASKS.map(([id, slug, name, category, tags]) => ({
-    id,
-    slug,
-    name,
-    category,
-    description: `${name} workflow with deterministic checks and benchmark-ready output.`,
-    tags,
-  })),
-];
-
-type SkillSeed = {
-  id: string;
-  slug: string;
-  name: string;
-  taskId: string;
-  summary: string;
-  description: string;
-  keywords: string[];
-  sourceUrl: string;
-  repository: string;
-  importedFrom: string;
-  license: string;
-  securityNotes: string;
-  baseBenchmark: number;
-};
-
-const BASE_SKILLS: SkillSeed[] = [
-  {
-    id: 'skill-react-debug-playbook',
-    slug: 'react-debug-playbook',
-    name: 'React Debug Playbook',
-    taskId: 'task-debug-react-build',
-    summary: 'Deterministic workflow for reproducing and fixing React regressions.',
-    description: 'Forces minimal repros, commit bisection, and test-backed fixes.',
-    keywords: ['react', 'nextjs', 'build', 'regression', 'vite', 'webpack'],
-    sourceUrl: 'https://github.com/openai/skills/tree/main/skills/.curated/gh-fix-ci',
-    repository: 'openai/skills',
-    importedFrom: 'openai curated + Every Skill adapters',
-    license: 'MIT',
-    securityNotes: 'Workspace-bounded commands and no secret handling.',
-    baseBenchmark: 90,
-  },
-  {
-    id: 'skill-ts-refactor-guardian',
-    slug: 'typescript-refactor-guardian',
-    name: 'TypeScript Refactor Guardian',
-    taskId: 'task-typescript-refactor',
-    summary: 'Contract-first TypeScript refactor protocol.',
-    description: 'Uses compile/test checkpoints for behavior-preserving refactors.',
-    keywords: ['typescript', 'refactor', 'typecheck', 'contracts', 'api'],
-    sourceUrl: 'https://github.com/openai/skills/tree/main/skills/.curated/doc',
-    repository: 'openai/skills',
-    importedFrom: 'openai curated + internal refactor playbooks',
-    license: 'MIT',
-    securityNotes: 'No external side effects and mandatory regression tests.',
-    baseBenchmark: 92,
-  },
-  {
-    id: 'skill-fastapi-launchpad',
-    slug: 'fastapi-launchpad',
-    name: 'FastAPI Launchpad',
-    taskId: 'task-fastapi-endpoint',
-    summary: 'FastAPI endpoint skill with validation and auth checks.',
-    description: 'Ensures endpoint contracts, error semantics, and integration coverage.',
-    keywords: ['fastapi', 'python', 'pydantic', 'api', 'auth'],
-    sourceUrl: 'https://github.com/openai/skills/tree/main/skills/.curated/security-best-practices',
-    repository: 'openai/skills',
-    importedFrom: 'openai curated + internal api standards',
-    license: 'MIT',
-    securityNotes: 'Enforces explicit auth checks on protected routes.',
-    baseBenchmark: 89,
-  },
-  {
-    id: 'skill-ci-security-hardening',
-    slug: 'ci-security-hardening',
-    name: 'CI Security Hardening',
-    taskId: 'task-ci-hardening',
-    summary: 'GitHub Actions hardening with OIDC and pinned actions.',
-    description: 'Reduces CI attack surface while preserving release velocity.',
-    keywords: ['ci', 'github-actions', 'security', 'oidc', 'secrets', 'pinning'],
-    sourceUrl: 'https://docs.github.com/en/actions/security-guides',
-    repository: 'github/docs',
-    importedFrom: 'GitHub docs + internal hardening checklist',
-    license: 'CC-BY-4.0',
-    securityNotes: 'Prohibits plaintext secrets and unpinned third-party actions.',
-    baseBenchmark: 96,
-  },
-  {
-    id: 'skill-sql-migration-operator',
-    slug: 'sql-migration-operator',
-    name: 'SQL Migration Operator',
-    taskId: 'task-sql-migration',
-    summary: 'Safe schema migration workflow with rollback discipline.',
-    description: 'Optimized for production migrations where downtime risk is unacceptable.',
-    keywords: ['sql', 'migration', 'rollback', 'schema', 'database'],
-    sourceUrl: 'https://flywaydb.org/documentation',
-    repository: 'flyway/flyway',
-    importedFrom: 'migration playbooks + dba review checklist',
-    license: 'Apache-2.0',
-    securityNotes: 'Requires transaction-safe DDL and rollback verification.',
-    baseBenchmark: 90,
-  },
-];
-
-const EXTRA_SKILLS: Array<[string, string, string, string, string[], string, number]> = [
-  ['skill-auth-guard-hardening', 'auth-guard-hardening', 'Auth Guard Hardening', 'task-auth-middleware', ['auth', 'jwt', 'rbac', 'claims'], 'https://owasp.org/www-project-api-security/', 93],
-  ['skill-kubernetes-rollout-sentry', 'kubernetes-rollout-sentry', 'Kubernetes Rollout Sentry', 'task-k8s-rollout', ['kubernetes', 'rollout', 'probe', 'rollback'], 'https://kubernetes.io/docs/concepts/workloads/controllers/deployment/', 88],
-  ['skill-incident-triage-commander', 'incident-triage-commander', 'Incident Triage Commander', 'task-incident-triage', ['incident', 'alerts', 'pagerduty', 'runbook'], 'https://sre.google/workbook/incident-response/', 87],
-  ['skill-api-rate-limit-architect', 'api-rate-limit-architect', 'API Rate Limit Architect', 'task-rate-limiting', ['rate-limit', 'redis', 'gateway', 'abuse'], 'https://www.cloudflare.com/learning/bots/what-is-rate-limiting/', 91],
-  ['skill-o11y-otel-optimizer', 'o11y-otel-optimizer', 'O11y OTEL Optimizer', 'task-otel-observability', ['opentelemetry', 'tracing', 'metrics', 'slo'], 'https://opentelemetry.io/docs/', 86],
-  ['skill-terraform-drift-patrol', 'terraform-drift-patrol', 'Terraform Drift Patrol', 'task-terraform-drift', ['terraform', 'drift', 'plan', 'iac'], 'https://developer.hashicorp.com/terraform/docs', 88],
-  ['skill-secret-rotation-orchestrator', 'secret-rotation-orchestrator', 'Secret Rotation Orchestrator', 'task-secrets-rotation', ['secrets', 'rotation', 'vault', 'cutover'], 'https://developer.hashicorp.com/vault/docs', 92],
-  ['skill-monorepo-build-accelerator', 'monorepo-build-accelerator', 'Monorepo Build Accelerator', 'task-monorepo-build', ['monorepo', 'cache', 'graph', 'ci'], 'https://turbo.build/repo/docs', 85],
-  ['skill-dependency-upgrade-safeguard', 'dependency-upgrade-safeguard', 'Dependency Upgrade Safeguard', 'task-dependency-upgrades', ['dependencies', 'upgrade', 'cve', 'lockfile'], 'https://github.com/openai/skills/tree/main/skills/.curated/security-best-practices', 90],
-  ['skill-flaky-test-stabilizer', 'flaky-test-stabilizer', 'Flaky Test Stabilizer', 'task-flaky-tests', ['flaky', 'tests', 'ci', 'deterministic'], 'https://martinfowler.com/articles/nonDeterminism.html', 86],
-  ['skill-graphql-evolution-guide', 'graphql-evolution-guide', 'GraphQL Evolution Guide', 'task-graphql-schema', ['graphql', 'schema', 'deprecation', 'contracts'], 'https://graphql.org/learn/best-practices/', 87],
-  ['skill-webhook-reliability-engineer', 'webhook-reliability-engineer', 'Webhook Reliability Engineer', 'task-webhook-reliability', ['stripe', 'webhook', 'idempotency', 'replay'], 'https://docs.stripe.com/webhooks', 93],
-  ['skill-data-backfill-operator', 'data-backfill-operator', 'Data Backfill Operator', 'task-data-backfill', ['etl', 'backfill', 'checkpoint', 'quality'], 'https://airflow.apache.org/docs/', 84],
-  ['skill-accessibility-remediation-kit', 'accessibility-remediation-kit', 'Accessibility Remediation Kit', 'task-accessibility', ['a11y', 'wcag', 'keyboard', 'screen-reader'], 'https://www.w3.org/WAI/standards-guidelines/wcag/', 85],
-  ['skill-mobile-crash-forensics', 'mobile-crash-forensics', 'Mobile Crash Forensics', 'task-mobile-crash', ['ios', 'android', 'crash', 'symbolication'], 'https://firebase.google.com/docs/crashlytics', 89],
-];
-
-const GENERATED_SKILL_BLUEPRINTS: Array<[string, string, string[], string, number]> = [
-  ['zero-trust-service-mesh', 'Zero Trust Service Mesh', ['zero-trust', 'service-mesh', 'mtls', 'policy'], 'https://istio.io/latest/docs/concepts/security/', 90],
-  ['api-contract-drift-guard', 'API Contract Drift Guard', ['api', 'openapi', 'contract', 'drift'], 'https://spec.openapis.org/oas/latest.html', 88],
-  ['chaos-rollout-validator', 'Chaos Rollout Validator', ['chaos', 'resilience', 'rollout', 'validation'], 'https://principlesofchaos.org/', 86],
-  ['feature-flag-retirement-manager', 'Feature Flag Retirement Manager', ['feature-flag', 'cleanup', 'rollout', 'debt'], 'https://martinfowler.com/articles/feature-toggles.html', 84],
-  ['container-supply-chain-guard', 'Container Supply Chain Guard', ['container', 'sbom', 'signing', 'security'], 'https://slsa.dev/spec/v1.0/', 92],
-  ['edge-cache-tuning-specialist', 'Edge Cache Tuning Specialist', ['cdn', 'cache', 'ttl', 'edge'], 'https://developers.cloudflare.com/cache/', 85],
-  ['data-governance-auditor', 'Data Governance Auditor', ['governance', 'lineage', 'policy', 'audit'], 'https://www.dama.org/cpages/body-of-knowledge', 87],
-  ['pii-redaction-guardian', 'PII Redaction Guardian', ['pii', 'privacy', 'redaction', 'compliance'], 'https://owasp.org/www-project-top-ten/', 90],
-  ['event-schema-registry-steward', 'Event Schema Registry Steward', ['events', 'schema', 'registry', 'compatibility'], 'https://docs.confluent.io/platform/current/schema-registry/index.html', 86],
-  ['batch-cost-optimizer', 'Batch Cost Optimizer', ['batch', 'cost', 'scheduling', 'efficiency'], 'https://cloud.google.com/architecture/cost-optimization', 83],
-  ['cdn-incident-recovery-runbook', 'CDN Incident Recovery Runbook', ['cdn', 'incident', 'runbook', 'recovery'], 'https://www.cloudflare.com/learning/cdn/what-is-a-cdn/', 85],
-  ['client-performance-triage', 'Client Performance Triage', ['web-vitals', 'performance', 'profiling', 'frontend'], 'https://web.dev/vitals/', 88],
-  ['release-train-conductor', 'Release Train Conductor', ['release', 'train', 'change-management', 'ops'], 'https://www.atlassian.com/continuous-delivery', 87],
-  ['auth-session-forensics', 'Auth Session Forensics', ['auth', 'session', 'cookie', 'forensics'], 'https://cheatsheetseries.owasp.org/cheatsheets/Session_Management_Cheat_Sheet.html', 91],
-  ['vulnerability-triage-automation', 'Vulnerability Triage Automation', ['vulnerability', 'triage', 'cve', 'security'], 'https://www.cisa.gov/known-exploited-vulnerabilities-catalog', 89],
-  ['backup-restore-fire-drill', 'Backup Restore Fire Drill', ['backup', 'restore', 'resilience', 'drill'], 'https://sre.google/sre-book/distributed-periodic-scheduling/', 90],
-  ['d1-query-optimizer', 'D1 Query Optimizer', ['d1', 'sql', 'query-plan', 'index'], 'https://developers.cloudflare.com/d1/', 86],
-  ['r2-lifecycle-optimizer', 'R2 Lifecycle Optimizer', ['r2', 'storage', 'lifecycle', 'retention'], 'https://developers.cloudflare.com/r2/', 84],
-  ['worker-coldstart-reducer', 'Worker Coldstart Reducer', ['worker', 'coldstart', 'latency', 'edge'], 'https://developers.cloudflare.com/workers/platform/limits/', 85],
-  ['api-pagination-hardener', 'API Pagination Hardener', ['api', 'pagination', 'cursor', 'reliability'], 'https://jsonapi.org/format/#fetching-pagination', 88],
-  ['queue-retry-optimizer', 'Queue Retry Optimizer', ['queue', 'retry', 'backoff', 'idempotency'], 'https://aws.amazon.com/builders-library/timeouts-retries-and-backoff-with-jitter/', 87],
-  ['email-deliverability-guardian', 'Email Deliverability Guardian', ['email', 'deliverability', 'dmarc', 'spf'], 'https://postmarkapp.com/guides/email-deliverability', 84],
-  ['fraud-detection-tuner', 'Fraud Detection Tuner', ['fraud', 'risk', 'detection', 'signals'], 'https://docs.stripe.com/radar', 89],
-  ['billing-reconciliation-operator', 'Billing Reconciliation Operator', ['billing', 'reconciliation', 'ledger', 'payments'], 'https://stripe.com/resources/more/account-reconciliation-101', 90],
-  ['consent-compliance-auditor', 'Consent Compliance Auditor', ['consent', 'compliance', 'privacy', 'gdpr'], 'https://gdpr.eu/what-is-gdpr/', 88],
-  ['localization-quality-guard', 'Localization Quality Guard', ['i18n', 'l10n', 'translations', 'quality'], 'https://unicode-org.github.io/icu/userguide/locale/', 83],
-  ['experiment-analysis-reviewer', 'Experiment Analysis Reviewer', ['experiments', 'ab-testing', 'analysis', 'stats'], 'https://www.cxl.com/blog/ab-testing-statistics/', 85],
-  ['sdk-version-governor', 'SDK Version Governor', ['sdk', 'versioning', 'semver', 'compatibility'], 'https://semver.org/', 86],
-  ['observability-alert-noise-reducer', 'Observability Alert Noise Reducer', ['alerts', 'observability', 'sre', 'noise'], 'https://sre.google/workbook/alerting-on-slos/', 87],
-  ['canary-analysis-engineer', 'Canary Analysis Engineer', ['canary', 'analysis', 'release', 'guardrails'], 'https://spinnaker.io/docs/guides/user/canary/', 88],
-];
-
-const GENERATED_SKILLS: SkillSeed[] = GENERATED_SKILL_BLUEPRINTS.map(([slug, name, keywords, sourceUrl, baseBenchmark], index) => {
-  const task = TASKS[(index * 3 + 2) % TASKS.length] ?? TASKS[0];
+export async function loadCatalog(signal?: AbortSignal): Promise<CatalogData> {
+  const response = await fetch('/api/skills/catalog', { signal });
+  if (!response.ok) {
+    const detail = await response.text();
+    throw new Error(`Failed to load skills catalog (${response.status}): ${detail.slice(0, 140)}`);
+  }
+  const payload = (await response.json()) as Partial<CatalogData>;
+  if (!Array.isArray(payload.tasks) || !Array.isArray(payload.skills) || !Array.isArray(payload.runs) || !Array.isArray(payload.scores)) {
+    throw new Error('Invalid skills catalog payload');
+  }
   return {
-    id: `skill-${slug}`,
-    slug,
-    name,
-    taskId: task.id,
-    summary: `${name} runbook for resilient production execution.`,
-    description: `${name} enforces deterministic guardrails, measurable outcomes, and benchmark-ready result artifacts.`,
-    keywords,
-    sourceUrl,
-    repository: sourceUrlToRepository(sourceUrl),
-    importedFrom: 'curated public references + Every Skill hardening layer',
-    license: 'Mixed',
-    securityNotes: 'Security-reviewed with execution constraints and no secret exfiltration patterns.',
-    baseBenchmark,
-  };
-});
-
-const ALL_SKILL_SEEDS: SkillSeed[] = [
-  ...BASE_SKILLS,
-  ...EXTRA_SKILLS.map(([id, slug, name, taskId, keywords, sourceUrl, baseBenchmark]) => ({
-    id,
-    slug,
-    name,
-    taskId,
-    summary: `${name} workflow for production-safe execution.`,
-    description: `${name} includes deterministic checks, rollback-safe sequencing, and benchmark-friendly outputs.`,
-    keywords,
-    sourceUrl,
-    repository: sourceUrlToRepository(sourceUrl),
-    importedFrom: 'curated public references + Every Skill hardening layer',
-    license: 'Mixed',
-    securityNotes: 'Security-reviewed with execution constraints and no secret exfiltration patterns.',
-    baseBenchmark,
-  })),
-  ...GENERATED_SKILLS,
-];
-
-const SKILLS: SkillRecord[] = ALL_SKILL_SEEDS.map((seed) => ({
-  taskId: seed.taskId,
-  content: buildSkillContent(seed, TASKS.find((task) => task.id === seed.taskId) ?? null),
-  id: seed.id,
-  slug: seed.slug,
-  name: seed.name,
-  summary: seed.summary,
-  description: seed.description,
-  keywords: seed.keywords,
-  securityStatus: 'approved',
-  provenance: {
-    sourceUrl: seed.sourceUrl,
-    repository: seed.repository,
-    importedFrom: seed.importedFrom,
-    license: seed.license,
-    lastVerifiedAt: REVIEWED_AT,
-    checksum: `seed:${seed.slug}`,
-  },
-  securityReview: {
-    status: 'approved',
-    reviewedBy: 'Every Skill Security Lab',
-    reviewedAt: REVIEWED_AT,
-    reviewMethod: 'manual + benchmark',
-    checklistVersion: 'v1.3',
-    notes: seed.securityNotes,
-  },
-  embedding: embedText(`${seed.name} ${seed.summary} ${seed.description} ${seed.keywords.join(' ')}`),
-}));
-
-const RUNS: BenchmarkRun[] = [
-  {
-    id: 'bench-2026-02-14-codex',
-    runner: 'daytona-cli-runner',
-    mode: 'fallback',
-    status: 'completed',
-    startedAt: '2026-02-15T01:00:00.000Z',
-    completedAt: '2026-02-15T01:22:00.000Z',
-    artifactPath: 'benchmarks/runs/2026-02-15-fallback/codex',
-  },
-  {
-    id: 'bench-2026-02-14-claude',
-    runner: 'daytona-cli-runner',
-    mode: 'fallback',
-    status: 'completed',
-    startedAt: '2026-02-15T01:25:00.000Z',
-    completedAt: '2026-02-15T01:47:00.000Z',
-    artifactPath: 'benchmarks/runs/2026-02-15-fallback/claude',
-  },
-  {
-    id: 'bench-2026-02-14-gemini',
-    runner: 'daytona-cli-runner',
-    mode: 'fallback',
-    status: 'completed',
-    startedAt: '2026-02-15T01:50:00.000Z',
-    completedAt: '2026-02-15T02:12:00.000Z',
-    artifactPath: 'benchmarks/runs/2026-02-15-fallback/gemini',
-  },
-];
-
-const SCORE_PROFILES = [
-  { runId: RUNS[0].id, agent: 'codex' as const, delta: 2, quality: 3, security: 2, speed: 1, cost: 0 },
-  { runId: RUNS[1].id, agent: 'claude' as const, delta: 1, quality: 2, security: 3, speed: 0, cost: 1 },
-  { runId: RUNS[2].id, agent: 'gemini' as const, delta: 0, quality: 1, security: 1, speed: 2, cost: 1 },
-];
-
-const BENCHMARK_BASE = new Map<string, number>(ALL_SKILL_SEEDS.map((seed) => [seed.id, seed.baseBenchmark]));
-
-const SCORES: BenchmarkScore[] = buildScores();
-
-export const catalog = {
-  tasks: TASKS,
-  skills: SKILLS,
-  runs: RUNS,
-  scores: SCORES,
-};
-
-export function getSkillSummaries(): SkillSummary[] {
-  return SKILLS.map((skill) => {
-    const rows = SCORES.filter((entry) => entry.skillId === skill.id);
-    const averageScore = rows.length === 0 ? 0 : rows.reduce((sum, row) => sum + row.overallScore, 0) / rows.length;
-    const bestScore = rows.length === 0 ? 0 : Math.max(...rows.map((row) => row.overallScore));
-    const benchmarkedTasks = new Set(rows.map((row) => row.taskId)).size;
-    const agentCoverage = Array.from(new Set(rows.map((row) => row.agent))) as Agent[];
-    return {
-      id: skill.id,
-      slug: skill.slug,
-      name: skill.name,
-      summary: skill.summary,
-      securityStatus: skill.securityStatus,
-      averageScore: Number(averageScore.toFixed(2)),
-      bestScore: Number(bestScore.toFixed(2)),
-      benchmarkedTasks,
-      agentCoverage,
-      provenance: skill.provenance,
-      securityReview: skill.securityReview,
-    };
-  }).sort((a, b) => b.averageScore - a.averageScore);
-}
-
-export function getCoverage() {
-  return {
-    tasksCovered: new Set(SCORES.map((row) => row.taskId)).size,
-    skillsCovered: new Set(SCORES.map((row) => row.skillId)).size,
-    scoreRows: SCORES.length,
-    agentsCovered: Array.from(new Set(SCORES.map((row) => row.agent))) as Agent[],
+    source: 'd1',
+    tasks: payload.tasks as TaskRecord[],
+    skills: payload.skills as SkillRecord[],
+    runs: payload.runs as BenchmarkRun[],
+    scores: payload.scores as BenchmarkScore[],
   };
 }
 
-export function getTopRows(limit = 5) {
-  return getSkillSummaries().slice(0, limit);
+export function getCoverage(catalog: CatalogData) {
+  const taskIds = new Set(catalog.scores.map((score) => score.taskId));
+  const skillIds = new Set(catalog.scores.map((score) => score.skillId));
+  const agents = new Set(catalog.scores.map((score) => score.agent));
+  return {
+    tasksCovered: taskIds.size,
+    skillsCovered: skillIds.size,
+    agentsCovered: Array.from(agents),
+    scoreRows: catalog.scores.length,
+  };
 }
 
-export function getSkillDetail(skillIdOrSlug: string): SkillDetail | null {
-  const skill = SKILLS.find((entry) => entry.id === skillIdOrSlug || entry.slug === skillIdOrSlug);
+export function getSkillSummaries(catalog: CatalogData): SkillSummary[] {
+  return catalog.skills
+    .map((skill) => {
+      const rows = catalog.scores.filter((score) => score.skillId === skill.id);
+      const averageScore = rows.length > 0 ? rows.reduce((sum, row) => sum + row.overallScore, 0) / rows.length : 0;
+      const bestScore = rows.length > 0 ? Math.max(...rows.map((row) => row.overallScore)) : 0;
+      const benchmarkedTasks = new Set(rows.map((row) => row.taskId)).size;
+      const agentCoverage = Array.from(new Set(rows.map((row) => row.agent)));
+      return {
+        id: skill.id,
+        slug: skill.slug,
+        name: skill.name,
+        summary: skill.summary,
+        securityStatus: skill.securityStatus,
+        averageScore: Number(averageScore.toFixed(2)),
+        bestScore: Number(bestScore.toFixed(2)),
+        benchmarkedTasks,
+        agentCoverage,
+        provenance: skill.provenance,
+        securityReview: skill.securityReview,
+      } satisfies SkillSummary;
+    })
+    .sort((a, b) => {
+      if (b.averageScore !== a.averageScore) return b.averageScore - a.averageScore;
+      return a.name.localeCompare(b.name);
+    });
+}
+
+export function getTopRows(catalog: CatalogData, limit = 3): SkillSummary[] {
+  return getSkillSummaries(catalog).slice(0, limit);
+}
+
+export function getSkillDetail(catalog: CatalogData, skillId: string): SkillDetail | null {
+  const skill = catalog.skills.find((entry) => entry.id === skillId);
   if (!skill) return null;
-
-  const scores = SCORES.filter((entry) => entry.skillId === skill.id);
-  const summary = getSkillSummaries().find((entry) => entry.id === skill.id);
+  const task = catalog.tasks.find((entry) => entry.id === catalog.scores.find((score) => score.skillId === skill.id)?.taskId) ?? null;
+  const scores = catalog.scores.filter((row) => row.skillId === skill.id);
+  const summary = getSkillSummaries(catalog).find((entry) => entry.id === skill.id);
   if (!summary) return null;
 
-  const byAgent = (['codex', 'claude', 'gemini'] as const)
+  const byAgent = (['codex', 'claude', 'gemini'] as Agent[])
     .map((agent) => {
-      const rows = scores.filter((entry) => entry.agent === agent);
-      if (rows.length === 0) return null;
+      const rows = scores.filter((row) => row.agent === agent);
+      if (rows.length === 0) {
+        return {
+          agent,
+          rows: 0,
+          averageScore: 0,
+          bestScore: 0,
+          averageQuality: 0,
+          averageSecurity: 0,
+          averageSpeed: 0,
+          averageCost: 0,
+        };
+      }
       return {
         agent,
         rows: rows.length,
@@ -537,7 +254,7 @@ export function getSkillDetail(skillIdOrSlug: string): SkillDetail | null {
         averageCost: Number((rows.reduce((sum, row) => sum + row.costScore, 0) / rows.length).toFixed(2)),
       };
     })
-    .filter((entry): entry is NonNullable<typeof entry> => entry !== null);
+    .filter((entry) => entry.rows > 0);
 
   const byTaskMap = new Map<string, BenchmarkScore[]>();
   for (const row of scores) {
@@ -545,20 +262,17 @@ export function getSkillDetail(skillIdOrSlug: string): SkillDetail | null {
     existing.push(row);
     byTaskMap.set(row.taskId, existing);
   }
-
-  const byTask = Array.from(byTaskMap.entries())
-    .map(([taskId, rows]) => ({
-      taskId,
-      taskSlug: rows[0].taskSlug,
-      taskName: rows[0].taskName,
-      rows: rows.length,
-      averageScore: Number((rows.reduce((sum, row) => sum + row.overallScore, 0) / rows.length).toFixed(2)),
-    }))
-    .sort((a, b) => b.averageScore - a.averageScore);
+  const byTask = Array.from(byTaskMap.entries()).map(([taskId, rows]) => ({
+    taskId,
+    taskSlug: rows[0]?.taskSlug ?? '',
+    taskName: rows[0]?.taskName ?? '',
+    rows: rows.length,
+    averageScore: Number((rows.reduce((sum, row) => sum + row.overallScore, 0) / rows.length).toFixed(2)),
+  }));
 
   return {
     skill,
-    task: TASKS.find((entry) => entry.id === skill.taskId) ?? null,
+    task,
     scores,
     summary,
     byAgent,
@@ -566,68 +280,86 @@ export function getSkillDetail(skillIdOrSlug: string): SkillDetail | null {
   };
 }
 
-export function getBenchmarkRows(filter?: BenchmarkFilter): BenchmarkScore[] {
-  const query = filter?.query?.trim().toLowerCase() ?? '';
-  return SCORES.filter((row) => {
-    if (filter?.skillId && row.skillId !== filter.skillId) return false;
-    if (filter?.runId && row.runId !== filter.runId) return false;
-    if (filter?.agent && row.agent !== filter.agent) return false;
-    if (filter?.taskId && row.taskId !== filter.taskId) return false;
-    if (!query) return true;
+export function getBenchmarkRows(catalog: CatalogData, filters: BenchmarkFilter = {}): BenchmarkScore[] {
+  const query = filters.query?.trim().toLowerCase() ?? '';
+  return catalog.scores.filter((row) => {
+    if (filters.skillId && row.skillId !== filters.skillId) return false;
+    if (filters.runId && row.runId !== filters.runId) return false;
+    if (filters.agent && row.agent !== filters.agent) return false;
+    if (filters.taskId && row.taskId !== filters.taskId) return false;
 
-    const skill = SKILLS.find((entry) => entry.id === row.skillId);
+    if (!query) return true;
+    const skill = catalog.skills.find((entry) => entry.id === row.skillId);
     const haystack = [
-      row.agent,
-      row.taskName,
+      row.id,
+      row.runId,
+      row.taskId,
       row.taskSlug,
+      row.taskName,
+      row.agent,
+      row.artifactPath,
       skill?.name ?? '',
       skill?.slug ?? '',
-      skill?.summary ?? '',
     ]
       .join(' ')
       .toLowerCase();
     return haystack.includes(query);
-  }).sort((a, b) => b.overallScore - a.overallScore);
+  });
 }
 
-export function recommendSkill(task: string, agent: Agent | 'any' = 'any', limit = 3): RecommendationResult {
+export function recommendSkill(catalog: CatalogData, task: string, agent: Agent, limit = 5): RecommendationResult {
   const query = task.trim();
+  const approved = catalog.skills.filter((skill) => skill.securityReview.status === 'approved');
+  if (approved.length === 0) {
+    return {
+      retrievalStrategy: 'lexical-backoff',
+      recommendation: null,
+      candidates: [],
+    };
+  }
+
   const queryEmbedding = embedText(query);
   const queryTokens = new Set(tokenize(query));
-  const hasSignal = vectorMagnitude(queryEmbedding) > 0;
-  const intentBoostActive = hasCiHardeningIntent(queryTokens);
+  const hasEmbeddingSignal = vectorMagnitude(queryEmbedding) > 0;
+  const taskContextBySkill = buildTaskContextBySkill(catalog);
 
-  const ranked = SKILLS.map((skill) => {
-    const rows = SCORES.filter((entry) => entry.skillId === skill.id && (agent === 'any' || entry.agent === agent));
-    const fallbackRows = rows.length > 0 ? rows : SCORES.filter((entry) => entry.skillId === skill.id);
-    const averageBenchmarkScore = fallbackRows.reduce((sum, row) => sum + row.overallScore, 0) / fallbackRows.length;
+  const scored = approved.map((skill) => {
+    const rows = catalog.scores.filter((entry) => entry.skillId === skill.id && entry.agent === agent);
+    const effectiveRows = rows.length > 0 ? rows : catalog.scores.filter((entry) => entry.skillId === skill.id);
+    const averageBenchmarkScore = effectiveRows.length > 0
+      ? effectiveRows.reduce((sum, row) => sum + row.overallScore, 0) / effectiveRows.length
+      : 0;
     const benchmarkNorm = clamp(averageBenchmarkScore / 100, 0, 1);
-    const embeddingSimilarity = hasSignal ? cosineSimilarity(queryEmbedding, skill.embedding) : 0;
+
+    const embedding = normalizeEmbedding(skill.embedding.length > 0 ? skill.embedding : embedText(`${skill.name} ${skill.summary} ${skill.description}`));
+    const embeddingSimilarity = hasEmbeddingSignal ? cosineSimilarity(queryEmbedding, embedding) : 0;
     const lexicalSkill = lexicalSimilarity(
       queryTokens,
       new Set(tokenize(`${skill.name} ${skill.summary} ${skill.description} ${skill.keywords.join(' ')}`)),
     );
-    const taskContext = TASKS.find((entry) => entry.id === skill.taskId);
-    const lexicalTask = lexicalSimilarity(
-      queryTokens,
-      new Set(tokenize(`${taskContext?.slug ?? ''} ${taskContext?.name ?? ''} ${taskContext?.description ?? ''} ${(taskContext?.tags ?? []).join(' ')}`)),
-    );
-    const deterministicFallbackScore = clamp(0.65 * lexicalSkill + 0.35 * lexicalTask, 0, 1);
-    const intentBoost = intentBoostActive && skill.slug === 'ci-security-hardening' ? 0.14 : 0;
-    return { skill, averageBenchmarkScore, benchmarkNorm, embeddingSimilarity, deterministicFallbackScore, intentBoost };
+    const lexicalTask = lexicalSimilarity(queryTokens, new Set(tokenize(taskContextBySkill.get(skill.id) ?? '')));
+    const lexicalScore = clamp(0.65 * lexicalSkill + 0.35 * lexicalTask, 0, 1);
+
+    return {
+      skill,
+      averageBenchmarkScore,
+      benchmarkNorm,
+      embeddingSimilarity,
+      lexicalScore,
+    };
   });
 
-  const byEmbedding = [...ranked].sort((a, b) => b.embeddingSimilarity - a.embeddingSimilarity);
-  const strongest = byEmbedding[0]?.embeddingSimilarity ?? 0;
-  const second = byEmbedding[1]?.embeddingSimilarity ?? 0;
-  const useFallback = !hasSignal || strongest < EMBEDDING_CONFIDENCE_MIN || strongest - second < EMBEDDING_MARGIN_MIN;
+  const rankingByEmbedding = [...scored].sort((a, b) => b.embeddingSimilarity - a.embeddingSimilarity);
+  const strongest = rankingByEmbedding[0]?.embeddingSimilarity ?? 0;
+  const second = rankingByEmbedding[1]?.embeddingSimilarity ?? 0;
+  const useLexicalBackoff = !hasEmbeddingSignal || strongest < EMBEDDING_CONFIDENCE_MIN || strongest - second < EMBEDDING_MARGIN_MIN;
 
-  const candidates = ranked
+  const candidates = scored
     .map((entry) => {
-      const retrievalScore = useFallback
-        ? clamp(entry.deterministicFallbackScore + entry.intentBoost, 0, 1)
-        : clamp(entry.embeddingSimilarity + 0.15 * entry.deterministicFallbackScore + entry.intentBoost, 0, 1);
-      const finalScore = useFallback
+      const retrievalScore = useLexicalBackoff
+        ? entry.lexicalScore
+        : clamp(entry.embeddingSimilarity + 0.15 * entry.lexicalScore, 0, 1);
+      const finalScore = useLexicalBackoff
         ? 0.7 * retrievalScore + 0.3 * entry.benchmarkNorm
         : 0.75 * retrievalScore + 0.25 * entry.benchmarkNorm;
       return {
@@ -636,92 +368,40 @@ export function recommendSkill(task: string, agent: Agent | 'any' = 'any', limit
         name: entry.skill.name,
         finalScore: Number(finalScore.toFixed(4)),
         embeddingSimilarity: Number(entry.embeddingSimilarity.toFixed(4)),
-        deterministicFallbackScore: Number(entry.deterministicFallbackScore.toFixed(4)),
+        lexicalScore: Number(entry.lexicalScore.toFixed(4)),
         averageBenchmarkScore: Number(entry.averageBenchmarkScore.toFixed(2)),
         securityReview: entry.skill.securityReview,
         provenance: entry.skill.provenance,
       };
     })
-    .sort((a, b) => {
-      if (b.finalScore !== a.finalScore) return b.finalScore - a.finalScore;
-      if (b.deterministicFallbackScore !== a.deterministicFallbackScore) {
-        return b.deterministicFallbackScore - a.deterministicFallbackScore;
-      }
-      return b.averageBenchmarkScore - a.averageBenchmarkScore;
-    })
-    .slice(0, Math.min(5, Math.max(1, limit)));
+    .sort((a, b) => b.finalScore - a.finalScore)
+    .slice(0, limit);
 
+  const recommendation = candidates[0] ?? null;
   return {
-    retrievalStrategy: useFallback ? 'deterministic-fallback' : 'embedding-first',
-    recommendation: {
-      ...candidates[0],
-      securityReview: candidates[0]?.securityReview ?? SKILLS[0].securityReview,
-      provenance: candidates[0]?.provenance ?? SKILLS[0].provenance,
-    },
+    retrievalStrategy: useLexicalBackoff ? 'lexical-backoff' : 'embedding-first',
+    recommendation,
     candidates,
   };
 }
 
-function buildScores(): BenchmarkScore[] {
-  const byTask = new Map(TASKS.map((task) => [task.id, task]));
-  const rows: BenchmarkScore[] = [];
-  for (const profile of SCORE_PROFILES) {
-    SKILLS.forEach((skill, index) => {
-      const task = byTask.get(skill.taskId);
-      if (!task) return;
-      const variance = (index % 3) - 1;
-      const base = BENCHMARK_BASE.get(skill.id) ?? 85;
-      const overall = clamp(base + profile.delta + variance, 72, 99);
-      const quality = clamp(base + profile.quality + variance, 72, 99);
-      const security = clamp(base + profile.security + variance, 72, 99);
-      const speed = clamp(base - 2 + profile.speed + variance, 68, 99);
-      const cost = clamp(base - 1 + profile.cost + variance, 68, 99);
-      const successRate = clamp(overall / 100, 0.72, 0.99);
-      const createdAt = new Date(Date.parse(RUNS.find((run) => run.id === profile.runId)?.startedAt ?? '2026-02-14T14:00:00.000Z') + (index + 1) * 60_000).toISOString();
+function buildTaskContextBySkill(catalog: CatalogData): Map<string, string> {
+  const context = new Map<string, Set<string>>();
+  const tasksById = new Map(catalog.tasks.map((task) => [task.id, task]));
 
-      rows.push({
-        id: `score-${profile.agent}-${String(index + 1).padStart(2, '0')}`,
-        runId: profile.runId,
-        agent: profile.agent,
-        skillId: skill.id,
-        taskId: task.id,
-        taskSlug: task.slug,
-        taskName: task.name,
-        overallScore: Number(overall.toFixed(2)),
-        qualityScore: Number(quality.toFixed(2)),
-        securityScore: Number(security.toFixed(2)),
-        speedScore: Number(speed.toFixed(2)),
-        costScore: Number(cost.toFixed(2)),
-        successRate: Number(successRate.toFixed(4)),
-        artifactPath: `benchmarks/runs/2026-02-15-fallback/${profile.agent}/${skill.slug}.json`,
-        createdAt,
-      });
-    });
+  for (const score of catalog.scores) {
+    const task = tasksById.get(score.taskId);
+    if (!task) continue;
+    const skillContext = context.get(score.skillId) ?? new Set<string>();
+    skillContext.add(`${task.slug} ${task.name} ${task.description} ${task.tags.join(' ')}`);
+    context.set(score.skillId, skillContext);
   }
-  return rows;
-}
 
-function sourceUrlToRepository(sourceUrl: string): string {
-  try {
-    const url = new URL(sourceUrl);
-    const parts = url.pathname.replace(/^\//, '').split('/').filter(Boolean);
-    if (parts.length >= 2) {
-      return `${parts[0]}/${parts[1]}`;
-    }
-    return url.hostname;
-  } catch {
-    return 'unknown';
+  const final = new Map<string, string>();
+  for (const [skillId, chunks] of context.entries()) {
+    final.set(skillId, Array.from(chunks).join(' '));
   }
-}
-
-function embedText(input: string): number[] {
-  const tokens = tokenize(input);
-  const vector = new Array<number>(EMBEDDING_DIM).fill(0);
-  for (const token of tokens) {
-    const index = hashToken(token, EMBEDDING_DIM);
-    vector[index] += 1;
-  }
-  return normalizeEmbedding(vector);
+  return final;
 }
 
 function tokenize(input: string): string[] {
@@ -730,23 +410,26 @@ function tokenize(input: string): string[] {
     .replace(/[_-]+/g, ' ')
     .replace(/[^a-z0-9\s]/g, ' ')
     .split(/\s+/)
-    .map((item) => item.trim())
-    .filter((item) => item.length > 1);
+    .map((token) => token.trim())
+    .filter((token) => token.length > 1);
+}
+
+function embedText(input: string, dims = DEFAULT_EMBEDDING_DIM): number[] {
+  const vector = new Array<number>(dims).fill(0);
+  for (const token of tokenize(input)) {
+    const index = hashToken(token, dims);
+    vector[index] += 1;
+  }
+  return normalizeEmbedding(vector);
 }
 
 function hashToken(token: string, dims: number): number {
   let hash = 2166136261;
-  for (let i = 0; i < token.length; i += 1) {
-    hash ^= token.charCodeAt(i);
+  for (let index = 0; index < token.length; index += 1) {
+    hash ^= token.charCodeAt(index);
     hash += (hash << 1) + (hash << 4) + (hash << 7) + (hash << 8) + (hash << 24);
   }
   return Math.abs(hash >>> 0) % dims;
-}
-
-function normalizeEmbedding(vector: number[]): number[] {
-  const magnitude = vectorMagnitude(vector);
-  if (magnitude === 0) return vector;
-  return vector.map((value) => value / magnitude);
 }
 
 function vectorMagnitude(vector: number[]): number {
@@ -757,15 +440,21 @@ function vectorMagnitude(vector: number[]): number {
   return Math.sqrt(sum);
 }
 
+function normalizeEmbedding(vector: number[]): number[] {
+  const magnitude = vectorMagnitude(vector);
+  if (magnitude === 0) return vector;
+  return vector.map((value) => value / magnitude);
+}
+
 function cosineSimilarity(a: number[], b: number[]): number {
   if (a.length !== b.length || a.length === 0) return 0;
   let dot = 0;
   let normA = 0;
   let normB = 0;
-  for (let i = 0; i < a.length; i += 1) {
-    dot += a[i] * b[i];
-    normA += a[i] * a[i];
-    normB += b[i] * b[i];
+  for (let index = 0; index < a.length; index += 1) {
+    dot += a[index] * b[index];
+    normA += a[index] * a[index];
+    normB += b[index] * b[index];
   }
   if (normA === 0 || normB === 0) return 0;
   return clamp(dot / (Math.sqrt(normA) * Math.sqrt(normB)), 0, 1);
@@ -781,55 +470,7 @@ function lexicalSimilarity(a: Set<string>, b: Set<string>): number {
   return union === 0 ? 0 : clamp(intersection / union, 0, 1);
 }
 
-function hasCiHardeningIntent(tokens: Set<string>): boolean {
-  const targets = ['ci', 'pipeline', 'workflow', 'workflows', 'github', 'actions', 'secrets', 'secret', 'oidc', 'hardening'];
-  let matches = 0;
-  for (const item of targets) {
-    if (tokens.has(item)) matches += 1;
-  }
-  return matches >= 2;
-}
-
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
 }
 
-function buildSkillContent(seed: SkillSeed, task: TaskRecord | null): string {
-  const taskHeader = task ? `${task.name} (${task.slug})` : 'unmapped-task';
-  const taskTags = task ? task.tags.join(', ') : 'none';
-
-  return [
-    '---',
-    `name: ${seed.slug}`,
-    `task: ${taskHeader}`,
-    `security_status: approved`,
-    `source: ${seed.sourceUrl}`,
-    '---',
-    '',
-    `# ${seed.name}`,
-    '',
-    '## Purpose',
-    seed.summary,
-    '',
-    '## Detailed behavior',
-    seed.description,
-    '',
-    '## Trigger cues',
-    `- Task category: ${task?.category ?? 'unknown'}`,
-    `- Task tags: ${taskTags}`,
-    `- Skill keywords: ${seed.keywords.join(', ')}`,
-    '',
-    '## Execution checklist',
-    '1. Reproduce the task with deterministic inputs and explicit constraints.',
-    '2. Prefer minimally invasive edits that preserve existing behavior.',
-    '3. Run focused verification for changed paths before broader validation.',
-    '4. Summarize risks, rollback options, and unresolved follow-ups.',
-    '',
-    '## Security and trust guardrails',
-    seed.securityNotes,
-    '',
-    '## Provenance',
-    `Imported from: ${seed.importedFrom}`,
-    `License: ${seed.license}`,
-  ].join('\n');
-}
