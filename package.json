@@ -57,21 +57,5 @@
     "@just-every/code-bridge": "^0.1.5",
     "@playwright/test": "^1.57.0",
     "wrangler": "^4.51.0"
-  },
-  "pnpm": {
-    "overrides": {
-      "brace-expansion@<1.1.13": "1.1.13",
-      "brace-expansion@>=2.0.0 <2.0.3": "2.0.3",
-      "esbuild": "0.28.1",
-      "lightningcss": "1.30.2",
-      "postcss@<8.5.10": "8.5.15",
-      "shell-quote@<1.8.4": "1.8.4",
-      "vite": "6.0.11",
-      "joi": "17.13.4"
-    },
-    "patchedDependencies": {
-      "@just-every/code-bridge@0.1.5": "patches/@just-every__code-bridge@0.1.5.patch",
-      "@fortawesome/react-native-fontawesome@0.3.2": "patches/@fortawesome__react-native-fontawesome@0.3.2.patch"
-    }
   }
 }
