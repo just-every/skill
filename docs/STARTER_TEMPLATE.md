@@ -5,7 +5,7 @@ minimum steps to rename the project, provision infrastructure, and prove the
 Worker + Expo shell are healthy before handing the repo to a new team.
 
 ## 1. Prerequisites
-- Node.js ≥ 18.18 (Node 20 LTS recommended) and pnpm ≥ 10.12.
+- Node.js ≥ 20.9 and pnpm ≥ 10.12.
 - Cloudflare account + API token with Workers, D1, and R2 scopes.
 - Stripe account (optional but recommended) with API + webhook keys.
 - Better Auth tenant hosted at `https://login.justevery.com` (fixed origin).

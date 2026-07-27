@@ -9,7 +9,7 @@ Minimal flow to go from clone → deploy in 10–15 minutes.
 - `pnpm bootstrap:*` commands handle provisioning (`bootstrap.sh` is now a shim)
 
 ## Prerequisites
-- Node.js ≥ 18, npm or pnpm
+- Node.js ≥ 20.9, npm or pnpm
 - Cloudflare account + Wrangler (authenticated)
 - Optional: Stripe account (see `docs/BILLING.md` for billing setup)
 
