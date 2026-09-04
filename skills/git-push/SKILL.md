@@ -28,13 +28,27 @@ Prefer merge-only updates. Recommended flow:
 - Resolve conflicts line-by-line (avoid bulk checkout of “ours/theirs” across the whole tree).
 - Finish the merge commit with a clear message.
 
-5. Push.
-Run `git push` after the merge and checks succeed.
+5. Re-validate on the new base. **Precondition for step 6.**
+Merging or rebasing moves your work onto code the suite never ran against, so a
+green from before that point describes a commit that no longer exists. Re-run
+the checks now, on the merged/rebased result.
 
-6. Monitor workflows.
+Run the validation and the push as **two separate commands**, reading the result
+in between. A single `merge && test && push` chain reports the pre-merge result
+and pushes anyway: a seat doing exactly that pushed six failures. On a
+fast-moving branch this is not theoretical — one repo moved 63 commits in an
+evening.
+
+The tell that you did it right: the sha you validated and the sha you pushed are
+the same string, and you can say both.
+
+6. Push.
+Run `git push` only after step 5 passed on the current sha.
+
+7. Monitor workflows.
 Use `scripts/gh-run-wait.ts` (or `scripts/wait-for-gh-run.sh` if you prefer bash). If a workflow fails, investigate, fix, commit, push, and monitor again. Wait briefly if no workflows appear before concluding none were triggered.
 
-7. Respond only after completion.
+8. Respond only after completion.
 Do not respond until all workflows complete successfully or you have a clear, user-approved stopping point.
 
 ## Scripts
