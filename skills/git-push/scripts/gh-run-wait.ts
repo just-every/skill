@@ -1,11 +1,13 @@
 #!/usr/bin/env node
 import { execFile } from "node:child_process";
-import { promisify } from "node:util";
+import path from "node:path";
 import process from "node:process";
+import { pathToFileURL } from "node:url";
+import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
 
-type Options = {
+export type Options = {
   runId?: string;
   workflow?: string;
   branch?: string;
@@ -13,6 +15,7 @@ type Options = {
   intervalSeconds: number;
   discoverDelaySeconds: number;
   discoverTimeoutSeconds: number;
+  conclusionWaitSeconds?: number;
 };
 
 type JobFailure = {
@@ -40,16 +43,37 @@ type JobSummary = {
   failedJobs: JobFailure[];
 };
 
-type RunListEntry = {
+export type RunListEntry = {
   databaseId?: number | string;
   workflowName?: string;
   displayTitle?: string;
   headBranch?: string;
+  headSha?: string;
+  createdAt?: string;
+};
+
+export type WaiterDeps = {
+  runGh?: (args: string[], repo?: string) => Promise<string>;
+  sleep?: (ms: number) => Promise<void>;
+  now?: () => number;
+  log?: (msg: string) => void;
+};
+
+export type WatchResult = {
+  exitCode: number;
+  status: string;
+  conclusion: string;
+  expired: boolean;
 };
 
 const DEFAULT_INTERVAL_SECONDS = 5;
 const DEFAULT_DISCOVER_DELAY_SECONDS = 2;
 const DEFAULT_DISCOVER_TIMEOUT_SECONDS = 30;
+export const DEFAULT_CONCLUSION_WAIT_SECONDS = 30;
+export const DISCOVER_LIST_LIMIT = 50;
+const TIGHT_POLL_SECONDS = 1;
+const RUN_LIST_FIELDS =
+  "databaseId,displayTitle,workflowName,headBranch,status,conclusion,headSha,createdAt";
 
 function usage(): void {
   console.log(`Usage: gh-run-wait.ts [options]
@@ -131,7 +155,7 @@ async function ensureGhAvailable(): Promise<void> {
   }
 }
 
-async function runGh(args: string[], repo?: string): Promise<string> {
+async function defaultRunGh(args: string[], repo?: string): Promise<string> {
   const fullArgs = repo ? ["-R", repo, ...args] : args;
   try {
     const { stdout } = await execFileAsync("gh", fullArgs, {
@@ -189,61 +213,129 @@ async function detectBranch(): Promise<string> {
   return "main";
 }
 
+export async function detectHeadSha(): Promise<string | null> {
+  return runGit(["rev-parse", "HEAD"]);
+}
+
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-async function discoverRun(
+function buildRunListArgs(opts: Options, branch: string): string[] {
+  const args = ["run", "list"];
+  if (opts.workflow) {
+    args.push("--workflow", opts.workflow);
+  }
+  args.push(
+    "--branch",
+    branch,
+    "--limit",
+    String(DISCOVER_LIST_LIMIT),
+    "--json",
+    RUN_LIST_FIELDS,
+  );
+  return args;
+}
+
+function hasRunId(entry: RunListEntry | undefined): entry is RunListEntry {
+  const id = entry?.databaseId;
+  return typeof id === "number" || (typeof id === "string" && id.length > 0);
+}
+
+export function selectRunFromList(
+  list: RunListEntry[],
+  expectedHeadSha: string | undefined,
+  preExistingIds: ReadonlySet<string>,
+  startMs: number,
+): RunListEntry | undefined {
+  const withIds = list.filter(hasRunId);
+  if (!expectedHeadSha) {
+    return withIds[0];
+  }
+
+  const expected = expectedHeadSha.toLowerCase();
+  const matching = withIds.filter(
+    (entry) =>
+      typeof entry.headSha === "string" &&
+      entry.headSha.toLowerCase() === expected,
+  );
+  const eligible = matching.filter(
+    (entry) => !preExistingIds.has(String(entry.databaseId)),
+  );
+  const afterStart = eligible.filter((entry) => {
+    const created =
+      typeof entry.createdAt === "string" ? Date.parse(entry.createdAt) : NaN;
+    return Number.isFinite(created) && created > startMs;
+  });
+  if (afterStart.length === 0) {
+    return undefined;
+  }
+
+  return afterStart.slice().sort((a, b) => {
+    const ta = Date.parse(String(a.createdAt));
+    const tb = Date.parse(String(b.createdAt));
+    const na = Number.isFinite(ta) ? ta : 0;
+    const nb = Number.isFinite(tb) ? tb : 0;
+    return nb - na;
+  })[0];
+}
+
+export async function discoverRun(
   opts: Options,
   branch: string,
+  targetHeadSha?: string,
+  deps?: WaiterDeps,
 ): Promise<RunListEntry> {
-  const start = Date.now();
+  const runGh = deps?.runGh ?? defaultRunGh;
+  const sleepFn = deps?.sleep ?? sleep;
+  const now = deps?.now ?? Date.now;
+  const log = deps?.log ?? ((msg: string) => console.log(msg));
+
+  const start = now();
   let first = true;
+  let preExistingIds: Set<string> | null = null;
+  const expectedHeadSha = targetHeadSha ? targetHeadSha.toLowerCase() : undefined;
 
   while (true) {
     if (!first) {
-      await sleep(opts.discoverDelaySeconds * 1000);
+      await sleepFn(opts.discoverDelaySeconds * 1000);
     }
 
-    const args = opts.workflow
-      ? [
-          "run",
-          "list",
-          "--workflow",
-          opts.workflow,
-          "--branch",
-          branch,
-          "--limit",
-          "1",
-          "--json",
-          "databaseId,displayTitle,workflowName,headBranch,status,conclusion",
-        ]
-      : [
-          "run",
-          "list",
-          "--branch",
-          branch,
-          "--limit",
-          "1",
-          "--json",
-          "databaseId,displayTitle,workflowName,headBranch,status,conclusion",
-        ];
-
+    const args = buildRunListArgs(opts, branch);
     const output = await runGh(args, opts.repo);
     const list = JSON.parse(output) as RunListEntry[];
-    const run = list[0];
-    if (run && run.databaseId) {
+
+    if (expectedHeadSha && preExistingIds === null) {
+      preExistingIds = new Set(
+        list
+          .filter(
+            (entry) =>
+              hasRunId(entry) &&
+              typeof entry.headSha === "string" &&
+              entry.headSha.toLowerCase() === expectedHeadSha,
+          )
+          .map((entry) => String(entry.databaseId)),
+      );
+    }
+
+    const run = selectRunFromList(
+      list,
+      expectedHeadSha,
+      preExistingIds ?? new Set(),
+      start,
+    );
+    if (run && hasRunId(run)) {
       return run;
     }
 
     if (first) {
-      console.log(
+      log(
         `No runs found yet; waiting ${opts.discoverDelaySeconds}s for a new run to appear...`,
       );
     }
     first = false;
 
-    const elapsed = (Date.now() - start) / 1000;
+    const elapsed = (now() - start) / 1000;
     if (elapsed >= opts.discoverTimeoutSeconds) {
       throw new Error(
         `No runs found for branch '${branch}' within ${opts.discoverTimeoutSeconds}s`,
@@ -472,6 +564,146 @@ function formatTimestamp(date: Date): string {
   return iso.replace("T", " ").slice(0, 19);
 }
 
+const RUN_VIEW_FIELDS =
+  "status,conclusion,jobs,url,displayTitle,workflowName,createdAt,startedAt,updatedAt,headBranch";
+
+export function decideWatchAction(input: {
+  status: string;
+  conclusion: string;
+  jobsComplete: boolean;
+  activeJobs: number;
+  conclusionWaitStartedAt: number | null;
+  now: number;
+  conclusionWaitBoundMs: number;
+}): {
+  phase: "poll" | "poll_tight" | "exit" | "expired";
+  exitCode?: number;
+  conclusionWaitStartedAt: number | null;
+} {
+  const hasConclusion = input.conclusion.length > 0;
+  if (input.status === "completed" && hasConclusion) {
+    return {
+      phase: "exit",
+      exitCode: input.conclusion === "success" ? 0 : 1,
+      conclusionWaitStartedAt: input.conclusionWaitStartedAt,
+    };
+  }
+
+  const jobsTerminal = input.jobsComplete && input.activeJobs === 0;
+  const waitingOnConclusion =
+    jobsTerminal || (input.status === "completed" && !hasConclusion);
+  if (!waitingOnConclusion) {
+    return { phase: "poll", conclusionWaitStartedAt: null };
+  }
+
+  const startedAt = input.conclusionWaitStartedAt ?? input.now;
+  if (input.now - startedAt >= input.conclusionWaitBoundMs) {
+    return {
+      phase: "expired",
+      exitCode: 0,
+      conclusionWaitStartedAt: startedAt,
+    };
+  }
+  return {
+    phase: "poll_tight",
+    conclusionWaitStartedAt: startedAt,
+  };
+}
+
+export async function watchRun(
+  opts: Options,
+  args: {
+    runId: string;
+    runBranch: string;
+    url?: string;
+    workflow?: string;
+    title?: string;
+  },
+  deps?: WaiterDeps,
+): Promise<WatchResult> {
+  const runGh = deps?.runGh ?? defaultRunGh;
+  const sleepFn = deps?.sleep ?? sleep;
+  const now = deps?.now ?? Date.now;
+  const log = deps?.log ?? ((msg: string) => console.log(msg));
+  const boundMs =
+    (opts.conclusionWaitSeconds ?? DEFAULT_CONCLUSION_WAIT_SECONDS) * 1000;
+
+  let conclusionWaitStartedAt: number | null = null;
+  let delaySeconds = opts.intervalSeconds;
+
+  while (true) {
+    await sleepFn(delaySeconds * 1000);
+    const nextViewJson = await runGh(
+      ["run", "view", args.runId, "--json", RUN_VIEW_FIELDS],
+      opts.repo,
+    );
+    const view = JSON.parse(nextViewJson);
+    const status = typeof view?.status === "string" ? view.status : "";
+    const conclusion = typeof view?.conclusion === "string" ? view.conclusion : "";
+    const nextSummary = parseJobs(view);
+    const totalJobs = nextSummary.total;
+    const activeJobs = nextSummary.inProgress + nextSummary.queued;
+    const jobsComplete = totalJobs > 0 && nextSummary.completed === totalJobs;
+
+    const progressLine = formatProgressLine(nextSummary);
+    if (progressLine) {
+      log(`${formatTimestamp(new Date())} ${progressLine}`);
+    }
+
+    const decision = decideWatchAction({
+      status,
+      conclusion,
+      jobsComplete,
+      activeJobs,
+      conclusionWaitStartedAt,
+      now: now(),
+      conclusionWaitBoundMs: boundMs,
+    });
+    conclusionWaitStartedAt = decision.conclusionWaitStartedAt;
+
+    if (decision.phase === "exit" || decision.phase === "expired") {
+      log("");
+      if (decision.phase === "expired") {
+        const boundSeconds =
+          opts.conclusionWaitSeconds ?? DEFAULT_CONCLUSION_WAIT_SECONDS;
+        log(
+          `GitHub Actions run-level conclusion did not arrive within ${boundSeconds}s after all jobs completed (status=${status || "unknown"}, conclusion empty). Not treating this as failure.`,
+        );
+      } else {
+        const runUrl = typeof view?.url === "string" ? view.url : args.url;
+        const finalWorkflow =
+          typeof view?.workflowName === "string" ? view.workflowName : args.workflow;
+        const finalTitle =
+          typeof view?.displayTitle === "string" ? view.displayTitle : args.title;
+        log(
+          runSummaryText(
+            args.runId,
+            args.runBranch,
+            status,
+            conclusion,
+            finalWorkflow,
+            finalTitle,
+            runUrl,
+            nextSummary,
+            runDurationFromView(view),
+          ),
+        );
+      }
+      return {
+        exitCode: decision.exitCode ?? 0,
+        status,
+        conclusion,
+        expired: decision.phase === "expired",
+      };
+    }
+
+    delaySeconds =
+      decision.phase === "poll_tight"
+        ? Math.min(opts.intervalSeconds, TIGHT_POLL_SECONDS)
+        : opts.intervalSeconds;
+  }
+}
+
 async function main(): Promise<void> {
   const opts = parseArgs(process.argv.slice(2));
   await ensureGhAvailable();
@@ -482,9 +714,10 @@ async function main(): Promise<void> {
   let workflow = opts.workflow;
   let displayTitle: string | undefined;
   let runBranch = branch;
+  const headSha = await detectHeadSha();
 
   if (!runId) {
-    const run = await discoverRun(opts, branch);
+    const run = await discoverRun(opts, branch, headSha || undefined);
     runId = String(run.databaseId);
     if (!workflow && run.workflowName) {
       workflow = run.workflowName;
@@ -501,17 +734,11 @@ async function main(): Promise<void> {
     throw new Error("No run ID resolved");
   }
 
-  const initialViewJson = await runGh(
-    [
-      "run",
-      "view",
-      runId,
-      "--json",
-      "status,conclusion,jobs,url,displayTitle,workflowName,createdAt,startedAt,updatedAt,headBranch",
-    ],
+  const initialViewJson = await defaultRunGh(
+    ["run", "view", runId, "--json", RUN_VIEW_FIELDS],
     opts.repo,
   );
-  let view = JSON.parse(initialViewJson);
+  const view = JSON.parse(initialViewJson);
   const summary = parseJobs(view);
   const url = typeof view?.url === "string" ? view.url : undefined;
   const resolvedWorkflow =
@@ -548,60 +775,33 @@ async function main(): Promise<void> {
     console.log(`queued ${queuedNames}`);
   }
 
-  while (true) {
-    await sleep(opts.intervalSeconds * 1000);
-    const nextViewJson = await runGh(
-      [
-        "run",
-        "view",
-        runId,
-        "--json",
-        "status,conclusion,jobs,url,displayTitle,workflowName,createdAt,startedAt,updatedAt,headBranch",
-      ],
-      opts.repo,
-    );
-    view = JSON.parse(nextViewJson);
-    const status = typeof view?.status === "string" ? view.status : "";
-    const conclusion = typeof view?.conclusion === "string" ? view.conclusion : "";
-    const nextSummary = parseJobs(view);
-    const totalJobs = nextSummary.total;
-    const activeJobs = nextSummary.inProgress + nextSummary.queued;
-    const jobsComplete = totalJobs > 0 && nextSummary.completed === totalJobs;
-    const runComplete =
-      status === "completed" || (jobsComplete && activeJobs === 0);
+  const result = await watchRun(
+    opts,
+    {
+      runId,
+      runBranch,
+      url,
+      workflow: resolvedWorkflow,
+      title: resolvedTitle,
+    },
+  );
+  process.exit(result.exitCode);
+}
 
-    const progressLine = formatProgressLine(nextSummary);
-    if (progressLine) {
-      console.log(`${formatTimestamp(new Date())} ${progressLine}`);
-    }
-
-    if (runComplete) {
-      const runUrl = typeof view?.url === "string" ? view.url : url;
-      const finalWorkflow =
-        typeof view?.workflowName === "string" ? view.workflowName : resolvedWorkflow;
-      const finalTitle =
-        typeof view?.displayTitle === "string" ? view.displayTitle : resolvedTitle;
-      const duration = runDurationFromView(view);
-      console.log("");
-      console.log(
-        runSummaryText(
-          runId,
-          runBranch,
-          status,
-          conclusion,
-          finalWorkflow,
-          finalTitle,
-          runUrl,
-          nextSummary,
-          duration,
-        ),
-      );
-      process.exit(conclusion === "success" ? 0 : 1);
-    }
+function isMainModule(metaUrl: string, argv1: string | undefined): boolean {
+  if (!argv1) {
+    return false;
+  }
+  try {
+    return metaUrl === pathToFileURL(path.resolve(argv1)).href;
+  } catch {
+    return false;
   }
 }
 
-main().catch((err) => {
-  console.error(err instanceof Error ? err.message : String(err));
-  process.exit(1);
-});
+if (isMainModule(import.meta.url, process.argv[1])) {
+  main().catch((err) => {
+    console.error(err instanceof Error ? err.message : String(err));
+    process.exit(1);
+  });
+}
