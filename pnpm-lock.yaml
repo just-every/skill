@@ -29,7 +29,7 @@ overrides:
   ws@>=6.0.0 <6.2.4: 6.2.4
   ws@>=7.0.0 <7.5.11: 7.5.11
   ws@>=8.0.0 <8.21.0: 8.21.0
-  joi: 17.13.6
+  joi: 17.13.7
 
 patchedDependencies:
   '@fortawesome/react-native-fontawesome@0.3.2':
@@ -3347,8 +3347,8 @@ packages:
     resolution: {integrity: sha512-ekilCSN1jwRvIbgeg/57YFh8qQDNbwDb9xT/qu2DAHbFFZUicIl4ygVaAvzveMhMVr3LnpSKTNnwt8PoOfmKhQ==}
     hasBin: true
 
-  joi@17.13.6:
-    resolution: {integrity: sha512-ImNZaq/LSysofih+xIGYfR0WUXMA9GLUNB//YTCSrZptoRmVgaNAdJyi6K1kXi9pkLEoSkoI8I4UwtNiu/D7nw==}
+  joi@17.13.7:
+    resolution: {integrity: sha512-MF80Dm5Y2veNy8QWVx9Bj3ui4mo7+VPSPsR1M+oaHXV0Gx6zGX9a2F+OZG3Blby9tOlzU9Rs5FUimlEhbKtfnQ==}
 
   js-tokens@4.0.0:
     resolution: {integrity: sha512-RdJUflcE3cUzKiMqQgsCu06FPu9UdIJO0beYbPhHN4k6apgJtifcoCtT9bcxOpYBtpD2kCM6Sbzg4CausW/PKQ==}
@@ -6668,7 +6668,7 @@ snapshots:
       cosmiconfig: 5.2.1
       deepmerge: 4.3.1
       fast-glob: 3.3.3
-      joi: 17.13.6
+      joi: 17.13.7
     transitivePeerDependencies:
       - encoding
     optional: true
@@ -6781,7 +6781,7 @@ snapshots:
 
   '@react-native-community/cli-types@13.6.6':
     dependencies:
-      joi: 17.13.6
+      joi: 17.13.7
     optional: true
 
   '@react-native-community/cli@13.6.6':
@@ -8705,7 +8705,7 @@ snapshots:
 
   jiti@2.6.1: {}
 
-  joi@17.13.6:
+  joi@17.13.7:
     dependencies:
       '@hapi/hoek': 9.3.0
       '@hapi/topo': 5.1.0
